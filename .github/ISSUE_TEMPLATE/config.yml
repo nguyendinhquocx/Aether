@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://aether.baimoqilin.com/docs
+    about: Check the documentation and troubleshooting guidance before opening an issue.
+  - name: Extension developer documentation
+    url: https://github.com/Zhou-Shilin/Aether/blob/main/docs/AETHER_EXTENSIONS.md
+    about: Read the Extension API and package documentation before requesting an Extension change.

@@ -116,6 +116,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.snapshotFlow
@@ -2990,6 +2991,17 @@ fun AetherSharedApp(
                         if (useTabletLayout) tabletSettingsVisible = true
                         else route = SharedRoute.Settings
                     },
+                    onDrawerOpened = {
+                        appScope.launch {
+                            runSharedAppCatching {
+                                extensionManager.dispatchEvent(
+                                    event = "drawer.opened",
+                                    context = extensionContext(),
+                                )
+                            }
+                        }
+                    },
+                    drawerOpenedEventRegistered = "drawer.opened" in extensionSnapshot.eventNames,
                     useTabletLayout = useTabletLayout,
                 )
                     if (useTabletLayout) {
@@ -3095,6 +3107,70 @@ internal fun shouldUseSharedTabletLayout(
     supportsTabletLayout: Boolean,
     availableWidthDp: Float,
 ): Boolean = supportsTabletLayout && availableWidthDp >= SharedTabletLayoutMinWidthDp
+
+internal fun isSharedDrawerClosing(
+    currentOpen: Boolean,
+    targetOpen: Boolean,
+): Boolean = currentOpen && !targetOpen
+
+/** Defers opens until registration and emits the tablet event once per layout epoch. */
+internal class SharedDrawerOpenedEventGate {
+    private var tabletLayoutActive = false
+    private var tabletEventDispatched = false
+    private var pendingMobileOpenEvent = false
+
+    fun onMobileDrawerOpened(eventRegistered: Boolean): Boolean {
+        if (eventRegistered) {
+            pendingMobileOpenEvent = false
+            return true
+        }
+        pendingMobileOpenEvent = true
+        return false
+    }
+
+    fun onMobileDrawerClosed() {
+        pendingMobileOpenEvent = false
+    }
+
+    fun onLayoutRegistrationOrDrawerSnapshotChanged(
+        useTabletLayout: Boolean,
+        currentOpen: Boolean,
+        targetOpen: Boolean,
+        eventRegistered: Boolean,
+    ): Boolean {
+        if (!useTabletLayout) {
+            if (!currentOpen) onMobileDrawerClosed()
+            // Keep a pending event through the animation so a canceled close can still deliver it.
+            if (isSharedDrawerClosing(currentOpen, targetOpen)) return false
+        }
+        return onLayoutOrRegistrationChanged(
+            useTabletLayout = useTabletLayout,
+            eventRegistered = eventRegistered,
+        )
+    }
+
+    fun onLayoutOrRegistrationChanged(
+        useTabletLayout: Boolean,
+        eventRegistered: Boolean,
+    ): Boolean {
+        if (useTabletLayout != tabletLayoutActive) {
+            tabletLayoutActive = useTabletLayout
+            tabletEventDispatched = false
+            pendingMobileOpenEvent = false
+        }
+        if (!eventRegistered) return false
+
+        if (useTabletLayout && !tabletEventDispatched) {
+            tabletEventDispatched = true
+            return true
+        }
+        if (!useTabletLayout && pendingMobileOpenEvent) {
+            pendingMobileOpenEvent = false
+            return true
+        }
+        return false
+    }
+}
 
 @Composable
 private fun SharedTabletSettingsOverlay(
@@ -4519,13 +4595,63 @@ private fun SharedChatScreen(
     extensionPages: List<SharedAetherExtensionPage>,
     onExtensionPageSelected: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onDrawerOpened: () -> Unit,
+    drawerOpenedEventRegistered: Boolean,
     useTabletLayout: Boolean,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val latestOnDrawerOpened by rememberUpdatedState(onDrawerOpened)
+    val latestDrawerOpenedEventRegistered by rememberUpdatedState(drawerOpenedEventRegistered)
+    val drawerOpenedEventGate = remember { SharedDrawerOpenedEventGate() }
     val scope = rememberCoroutineScope()
     val reduceMotion = LocalReduceMotion.current
     val visibleMessages = messages.filter {
         it.displayKind != SharedMessageDisplayKind.HiddenContext
+    }
+    if (!useTabletLayout) {
+        LaunchedEffect(drawerState) {
+            var previousDrawerValue: DrawerValue? = null
+            snapshotFlow { drawerState.currentValue to drawerState.targetValue }
+                .distinctUntilChanged()
+                .collect { (currentValue, targetValue) ->
+                    val currentOpen = currentValue == DrawerValue.Open
+                    val targetOpen = targetValue == DrawerValue.Open
+                    val openedAfterClosed =
+                        previousDrawerValue == DrawerValue.Closed && currentOpen && targetOpen
+                    previousDrawerValue = currentValue
+                    if (!currentOpen) {
+                        drawerOpenedEventGate.onMobileDrawerClosed()
+                    }
+                    if (
+                        !isSharedDrawerClosing(currentOpen, targetOpen) &&
+                        openedAfterClosed
+                    ) {
+                        val shouldDispatchDrawerOpened = drawerOpenedEventGate.onMobileDrawerOpened(
+                            latestDrawerOpenedEventRegistered
+                        )
+                        if (shouldDispatchDrawerOpened) {
+                            latestOnDrawerOpened()
+                        }
+                    }
+                }
+        }
+    }
+    LaunchedEffect(
+        useTabletLayout,
+        drawerOpenedEventRegistered,
+        drawerState.currentValue,
+        drawerState.targetValue,
+    ) {
+        val shouldDispatchDrawerOpened =
+            drawerOpenedEventGate.onLayoutRegistrationOrDrawerSnapshotChanged(
+                useTabletLayout = useTabletLayout,
+                currentOpen = drawerState.currentValue == DrawerValue.Open,
+                targetOpen = drawerState.targetValue == DrawerValue.Open,
+                eventRegistered = drawerOpenedEventRegistered,
+            )
+        if (shouldDispatchDrawerOpened) {
+            latestOnDrawerOpened()
+        }
     }
     val listState = rememberSaveable(selectedSessionId, saver = LazyListState.Saver) { LazyListState() }
     var shouldAutoFollow by rememberSaveable(selectedSessionId) { mutableStateOf(true) }
@@ -4730,9 +4856,16 @@ private fun SharedChatScreen(
                         onOpenSettings()
                     }
                 },
+                headerContent = {
+                    SharedAetherExtensionSlot(SharedExtensionSlotDrawerHeader)
+                },
+                footerContent = {
+                    SharedAetherExtensionSlot(SharedExtensionSlotDrawerFooter)
+                },
                 permanent = useTabletLayout,
                 extraContent = { dismissSearch ->
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawer)
+                    SharedAetherExtensionSlot(SharedExtensionSlotDrawerListEnd)
                     extensionPages.forEach { page ->
                         SharedAetherExtensionPageLauncher(
                             page = page,
