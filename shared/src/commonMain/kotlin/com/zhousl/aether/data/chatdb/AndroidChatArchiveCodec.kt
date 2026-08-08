@@ -56,14 +56,11 @@ internal fun PersistedChatSession.toAndroidChatSessionJson(): JsonObject = build
     put("agentModeEnabled", false)
     put("chromeEnabled", chromeEnabled)
     put("selectedModelKey", selectedModelKey)
-    put("selectedSkillIds", buildJsonArray { selectedSkillIds.forEach { add(JsonPrimitive(it)) } })
     put("messages", buildJsonArray {
         messages.forEach { message ->
             message.toAndroidChatMessageJson().forEach(::add)
         }
     })
-    put("activeSkillsJson", encodeSharedActiveSkillContexts(activeSkills))
-    put("activeMcpServerIds", buildJsonArray { activeMcpServerIds.forEach { add(JsonPrimitive(it)) } })
 }
 
 private fun PersistedChatMessage.toAndroidChatMessageJson(): List<JsonObject> {
@@ -274,9 +271,9 @@ private fun JsonObject.toPersistedChatSession(index: Int): PersistedChatSession 
         preview = string("preview"),
         messages = rawMessages.coalesceAndroidAssistantGroups(),
         hasCustomTitle = boolean("hasCustomTitle"),
-        selectedSkillIds = stringList("selectedSkillIds"),
-        activeSkills = decodeSharedActiveSkillContexts(string("activeSkillsJson")),
-        activeMcpServerIds = stringList("activeMcpServerIds"),
+        selectedSkillIds = emptyList(),
+        activeSkills = emptyList(),
+        activeMcpServerIds = emptyList(),
         chromeEnabled = boolean("chromeEnabled"),
         selectedModelKey = string("selectedModelKey"),
     )

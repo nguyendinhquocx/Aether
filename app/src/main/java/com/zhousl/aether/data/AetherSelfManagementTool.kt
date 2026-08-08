@@ -18,7 +18,6 @@ class AetherSelfManagementTool(
     private val bashTool: TermuxBashTool,
     private val rootSetupController: RootSetupController,
     private val agentModeController: AgentModeController,
-    private val mcpClientManager: McpClientManager,
     private val scheduledTaskManager: ScheduledTaskManager,
     private val piKernelBridge: PiKernelBridge,
     private val sessionId: String,
@@ -27,7 +26,7 @@ class AetherSelfManagementTool(
     fun toolDefinitions(): List<JSONObject> = listOf(
         buildAetherToolDefinition(
             name = "aether_config_get",
-            description = "Read Aether app configuration for non-LLM-provider areas: general app preferences, web tools, reliability, skills, MCP servers, Termux, Agent Mode, and developer diagnostics. Provider, model, base URL, and LLM API key settings are intentionally omitted.",
+            description = "Read Aether app configuration for general preferences, reliability, Skills, Termux, Agent Mode, scheduled tasks, and developer diagnostics. Provider and model configuration is intentionally omitted.",
             properties = JSONObject().apply {
                 put(
                     "categories",
@@ -43,10 +42,8 @@ class AetherSelfManagementTool(
                                     JSONArray(
                                         listOf(
                                             "general",
-                                            "web_tools",
                                             "reliability",
                                             "agent_skills",
-                                            "mcp_servers",
                                             "termux",
                                             "agent_mode",
                                             "scheduled_tasks",
@@ -68,7 +65,7 @@ class AetherSelfManagementTool(
                     "category",
                     JSONObject().apply {
                         put("type", "string")
-                        put("enum", JSONArray(listOf("general", "web_tools", "reliability", "termux", "agent_mode")))
+                        put("enum", JSONArray(listOf("general", "reliability", "termux", "agent_mode")))
                         put("description", "Allowed settings category to update.")
                     },
                 )
@@ -101,59 +98,6 @@ class AetherSelfManagementTool(
             required = listOf("action"),
         ),
         buildAetherToolDefinition(
-            name = "aether_mcp_manage",
-            description = "List, add, update, enable, disable, or remove Aether MCP server configurations. Supports streamable HTTP and stdio MCP servers.",
-            properties = JSONObject().apply {
-                put(
-                    "action",
-                    JSONObject().apply {
-                        put("type", "string")
-                        put(
-                            "enum",
-                            JSONArray(
-                                listOf(
-                                    "list",
-                                    "upsert_streamable_http",
-                                    "upsert_stdio",
-                                    "remove",
-                                    "set_enabled",
-                                )
-                            ),
-                        )
-                    },
-                )
-                put("server_id", JSONObject().apply { put("type", "string") })
-                put("display_name", JSONObject().apply { put("type", "string") })
-                put("url", JSONObject().apply { put("type", "string") })
-                put("command", JSONObject().apply { put("type", "string") })
-                put("arguments", stringArraySchema("Command-line arguments for stdio MCP servers."))
-                put("args", stringArraySchema("Alias for arguments."))
-                put("working_directory", JSONObject().apply { put("type", "string") })
-                put("enabled", JSONObject().apply { put("type", "boolean") })
-                put("connect_timeout_millis", JSONObject().apply { put("type", "integer") })
-                put("request_timeout_millis", JSONObject().apply { put("type", "integer") })
-                put("headers", keyValueArraySchema("HTTP headers for streamable HTTP MCP servers."))
-                put("environment", stdioEnvironmentSchema())
-                put(
-                    "runtime",
-                    JSONObject().apply {
-                        put("type", "string")
-                        put("enum", JSONArray(listOf("default", "termux", "alpine")))
-                        put("description", "Alias for runtime_environment.")
-                    },
-                )
-                put(
-                    "runtime_environment",
-                    JSONObject().apply {
-                        put("type", "string")
-                        put("enum", JSONArray(listOf("default", "termux", "alpine")))
-                        put("description", "Runtime for stdio MCP servers. Omit or use default to follow the user's runtime default.")
-                    },
-                )
-            },
-            required = listOf("action"),
-        ),
-        buildAetherToolDefinition(
             name = "aether_termux_manage",
             description = "Inspect or repair Aether's Termux integration without using the bash tool. Root setup may trigger a system su request.",
             properties = JSONObject().apply {
@@ -162,6 +106,27 @@ class AetherSelfManagementTool(
                     JSONObject().apply {
                         put("type", "string")
                         put("enum", JSONArray(listOf("inspect_setup", "inspect_root_setup", "configure_root_access")))
+                    },
+                )
+            },
+            required = listOf("action"),
+        ),
+        buildAetherToolDefinition(
+            name = "aether_runtime_manage",
+            description = "Read or switch the current chat session runtime. The switch applies to the next model call and preserves independent Alpine and Termux workspaces.",
+            properties = JSONObject().apply {
+                put(
+                    "action",
+                    JSONObject().apply {
+                        put("type", "string")
+                        put("enum", JSONArray(listOf("status", "set")))
+                    },
+                )
+                put(
+                    "runtime",
+                    JSONObject().apply {
+                        put("type", "string")
+                        put("enum", JSONArray(listOf("alpine", "termux")))
                     },
                 )
             },
@@ -290,7 +255,6 @@ class AetherSelfManagementTool(
         "aether_config_get" -> executeConfigGet(argumentsJson)
         "aether_config_set" -> executeConfigSet(argumentsJson)
         "aether_skill_manage" -> executeSkillManage(argumentsJson)
-        "aether_mcp_manage" -> executeMcpManage(argumentsJson)
         "aether_termux_manage" -> executeTermuxManage(argumentsJson)
         "aether_agent_mode_manage" -> executeAgentModeManage(argumentsJson)
         "aether_scheduled_task_manage" -> executeScheduledTaskManage(argumentsJson)
@@ -313,10 +277,8 @@ class AetherSelfManagementTool(
         categories.forEach { category ->
             when (category) {
                 "general" -> payload.put("general", generalSettingsJson(settings))
-                "web_tools" -> payload.put("web_tools", webToolsSettingsJson(settings))
                 "reliability" -> payload.put("reliability", reliabilitySettingsJson(settings))
                 "agent_skills" -> payload.put("agent_skills", skillsJson(extensionState.installedSkills))
-                "mcp_servers" -> payload.put("mcp_servers", mcpServersJson(extensionState.mcpServers))
                 "termux" -> payload.put("termux", termuxStatusJson())
                 "agent_mode" -> payload.put("agent_mode", agentModeSettingsJson(settings))
                 "scheduled_tasks" -> payload.put("scheduled_tasks", scheduledTasksJson(scheduledTaskManager.snapshot()))
@@ -345,19 +307,6 @@ class AetherSelfManagementTool(
                     AppThemeMode.fromStorage(patch.optStringAny("theme_mode", "themeMode"))
                 } else {
                     current.themeMode
-                },
-            )
-
-            "web_tools" -> current.copy(
-                tavilyApiKey = if (patch.hasAny("tavily_api_key", "tavilyApiKey")) {
-                    patch.optStringAny("tavily_api_key", "tavilyApiKey").trim()
-                } else {
-                    current.tavilyApiKey
-                },
-                tavilyBaseUrl = if (patch.hasAny("tavily_base_url", "tavilyBaseUrl")) {
-                    normalizeTavilyBaseUrl(patch.optStringAny("tavily_base_url", "tavilyBaseUrl"))
-                } else {
-                    current.tavilyBaseUrl
                 },
             )
 
@@ -466,6 +415,7 @@ class AetherSelfManagementTool(
                 if (url.isBlank()) return failure("url is required for install_remote.")
                 val installed = skillManager.installSkillFromRemote(url)
                     .getOrElse { throwable -> return failure(throwable.message ?: "Skill install failed.") }
+                piKernelBridge.reloadSession(sessionId)
                 success(JSONObject().put("skill", installedSkillJson(installed))) {
                     put("stdout", "Installed skill '${installed.name}'.")
                 }
@@ -477,6 +427,7 @@ class AetherSelfManagementTool(
                 if (skillId.isBlank()) return failure("skill_id is required for remove.")
                 skillManager.uninstallSkill(skillId)
                     .getOrElse { throwable -> return failure(throwable.message ?: "Skill removal failed.") }
+                piKernelBridge.reloadSession(sessionId)
                 success(JSONObject().put("skill_id", skillId)) {
                     put("stdout", "Removed skill '$skillId'.")
                 }
@@ -489,142 +440,13 @@ class AetherSelfManagementTool(
                 if (!arguments.has("enabled")) return failure("enabled is required for set_enabled.")
                 val enabled = arguments.optBoolean("enabled")
                 extensionsRepository.setSkillEnabled(skillId, enabled)
+                piKernelBridge.reloadSession(sessionId)
                 success(JSONObject().put("skill_id", skillId).put("enabled", enabled)) {
                     put("stdout", "Set skill '$skillId' enabled=$enabled.")
                 }
             }
 
             else -> failure("Unsupported skill action '$action'.")
-        }
-    }
-
-    private suspend fun executeMcpManage(argumentsJson: String): String {
-        val arguments = parseArguments(argumentsJson) ?: return invalidJson()
-        return when (val action = arguments.optString("action").trim().lowercase(Locale.US)) {
-            "list" -> {
-                val servers = extensionsRepository.extensionState.first().mcpServers
-                success(JSONObject().put("servers", mcpServersJson(servers))) {
-                    put("stdout", "Listed ${servers.size} MCP servers.")
-                }
-            }
-
-            "upsert_streamable_http" -> upsertMcpServer(arguments, McpTransportType.StreamableHttp)
-            "upsert_stdio" -> upsertMcpServer(arguments, McpTransportType.StdIo)
-
-            "remove" -> {
-                val serverId = mcpServerId(arguments)
-                if (serverId.isBlank()) return failure("server_id is required for remove.")
-                extensionsRepository.removeMcpServer(serverId)
-                mcpClientManager.disconnect(serverId)
-                success(JSONObject().put("server_id", serverId)) {
-                    put("stdout", "Removed MCP server '$serverId'.")
-                }
-            }
-
-            "set_enabled" -> {
-                val serverId = mcpServerId(arguments)
-                if (serverId.isBlank()) return failure("server_id is required for set_enabled.")
-                if (!arguments.has("enabled")) return failure("enabled is required for set_enabled.")
-                val enabled = arguments.optBoolean("enabled")
-                extensionsRepository.setMcpServerEnabled(serverId, enabled)
-                if (!enabled) {
-                    mcpClientManager.disconnect(serverId)
-                }
-                success(JSONObject().put("server_id", serverId).put("enabled", enabled)) {
-                    put("stdout", "Set MCP server '$serverId' enabled=$enabled.")
-                }
-            }
-
-            else -> failure("Unsupported MCP action '$action'.")
-        }
-    }
-
-    private suspend fun upsertMcpServer(
-        arguments: JSONObject,
-        transportType: McpTransportType,
-    ): String {
-        val existing = mcpServerId(arguments)
-            .takeIf(String::isNotBlank)
-            ?.let { serverId ->
-                extensionsRepository.extensionState.first().mcpServers.firstOrNull { it.id == serverId }
-            }
-        val now = System.currentTimeMillis()
-        val displayName = arguments.optString("display_name").trim()
-            .ifBlank { arguments.optString("displayName").trim() }
-            .ifBlank { existing?.displayName.orEmpty() }
-        if (displayName.isBlank()) return failure("display_name is required.")
-
-        val transport = when (transportType) {
-            McpTransportType.StreamableHttp -> {
-                val url = arguments.optString("url").trim()
-                    .ifBlank {
-                        (existing?.transport as? McpTransportConfig.StreamableHttp)?.url.orEmpty()
-                    }
-                if (url.isBlank()) return failure("url is required for upsert_streamable_http.")
-                McpTransportConfig.StreamableHttp(
-                    url = url,
-                    headers = parseKeyValues(arguments.optJSONArray("headers")),
-                )
-            }
-
-            McpTransportType.StdIo -> {
-                val command = arguments.optString("command").trim()
-                    .ifBlank {
-                        (existing?.transport as? McpTransportConfig.StdIo)?.command.orEmpty()
-                    }
-                if (command.isBlank()) return failure("command is required for upsert_stdio.")
-                McpTransportConfig.StdIo(
-                    command = command,
-                    arguments = if (arguments.hasAny("arguments", "args")) {
-                        parseStringArray(arguments.optJSONArray("arguments"))
-                            .ifEmpty { parseStringArray(arguments.optJSONArray("args")) }
-                    } else {
-                        (existing?.transport as? McpTransportConfig.StdIo)?.arguments.orEmpty()
-                    },
-                    workingDirectory = arguments.optString("working_directory").trim()
-                        .ifBlank { arguments.optString("workingDirectory").trim() }
-                        .ifBlank {
-                            (existing?.transport as? McpTransportConfig.StdIo)?.workingDirectory.orEmpty()
-                        },
-                    environment = parseKeyValues(arguments.optJSONArray("environment")),
-                    runtimeEnvironment = LocalRuntimeId.fromStorage(
-                        arguments.optString("runtime_environment").trim()
-                            .ifBlank { arguments.optString("runtimeEnvironment").trim() }
-                            .ifBlank { arguments.optString("runtime").trim() }
-                            .ifBlank {
-                                arguments.opt("environment")
-                                    .takeIf { it is String }
-                                    ?.toString()
-                                    .orEmpty()
-                            }
-                    ) ?: (existing?.transport as? McpTransportConfig.StdIo)?.runtimeEnvironment,
-                )
-            }
-        }
-
-        val server = McpServerConfig(
-            id = existing?.id ?: mcpServerId(arguments).ifBlank { "mcp-$now" },
-            displayName = displayName,
-            actionLabel = generateQuickActionLabel(displayName, transport.quickActionSource()),
-            transport = transport,
-            isEnabled = arguments.optNullableBoolean("enabled") ?: existing?.isEnabled ?: true,
-            connectTimeoutMillis = arguments.optNullableLong("connect_timeout_millis")
-                ?: arguments.optNullableLong("connectTimeoutMillis")
-                ?: existing?.connectTimeoutMillis
-                ?: 15_000L,
-            requestTimeoutMillis = arguments.optNullableLong("request_timeout_millis")
-                ?: arguments.optNullableLong("requestTimeoutMillis")
-                ?: existing?.requestTimeoutMillis
-                ?: 60_000L,
-            createdAtMillis = existing?.createdAtMillis ?: now,
-            updatedAtMillis = now,
-        )
-        extensionsRepository.upsertMcpServer(server)
-        if (existing != null) {
-            mcpClientManager.disconnect(existing.id)
-        }
-        return success(JSONObject().put("server", mcpServerJson(server))) {
-            put("stdout", "Saved MCP server '${server.displayName}'.")
         }
     }
 
@@ -890,12 +712,6 @@ class AetherSelfManagementTool(
             .put("language", settings.language.storageValue)
             .put("theme_mode", settings.themeMode.storageValue)
 
-    private fun webToolsSettingsJson(settings: AppSettings): JSONObject =
-        JSONObject()
-            .put("tavily_configured", settings.tavilyApiKey.isNotBlank())
-            .put("tavily_api_key", redactSecret(settings.tavilyApiKey))
-            .put("tavily_base_url", settings.tavilyBaseUrl)
-
     private fun reliabilitySettingsJson(settings: AppSettings): JSONObject =
         JSONObject()
             .put("llm_inactivity_reconnect_timeout_seconds", settings.llmInactivityReconnectTimeoutSeconds)
@@ -914,7 +730,6 @@ class AetherSelfManagementTool(
         settings: AppSettings,
     ): JSONObject = when (category) {
         "general" -> generalSettingsJson(settings)
-        "web_tools" -> webToolsSettingsJson(settings)
         "reliability" -> reliabilitySettingsJson(settings)
         "agent_mode" -> agentModeSettingsJson(settings)
         else -> JSONObject()
@@ -956,58 +771,6 @@ class AetherSelfManagementTool(
             .put("resource_count", skill.resourceEntries.size)
             .put("installed_at_millis", skill.installedAtMillis)
             .put("updated_at_millis", skill.updatedAtMillis)
-
-    private fun mcpServersJson(servers: List<McpServerConfig>): JSONArray =
-        JSONArray().apply {
-            servers.sortedBy { it.displayName.lowercase(Locale.US) }.forEach { put(mcpServerJson(it)) }
-        }
-
-    private fun mcpServerJson(server: McpServerConfig): JSONObject =
-        JSONObject()
-            .put("id", server.id)
-            .put("display_name", server.displayName)
-            .put("action_label", server.quickActionLabel())
-            .put("is_enabled", server.isEnabled)
-            .put("transport", mcpTransportJson(server.transport))
-            .put("connect_timeout_millis", server.connectTimeoutMillis)
-            .put("request_timeout_millis", server.requestTimeoutMillis)
-            .put("created_at_millis", server.createdAtMillis)
-            .put("updated_at_millis", server.updatedAtMillis)
-
-    private fun mcpTransportJson(transport: McpTransportConfig): JSONObject =
-        JSONObject().apply {
-            put("type", transport.transportType.storageValue)
-            when (transport) {
-                is McpTransportConfig.StreamableHttp -> {
-                    put("url", transport.url)
-                    put("headers", keyValuesJson(transport.headers, redactValues = true))
-                }
-
-                is McpTransportConfig.StdIo -> {
-                    put("command", transport.command)
-                    put("arguments", JSONArray().apply { transport.arguments.forEach(::put) })
-                    put("working_directory", transport.workingDirectory)
-                    put("environment", keyValuesJson(transport.environment, redactValues = true))
-                    transport.runtimeEnvironment?.let { put("runtime_environment", it.storageValue) }
-                }
-            }
-        }
-
-    private fun keyValuesJson(
-        values: List<McpKeyValue>,
-        redactValues: Boolean,
-    ): JSONArray = JSONArray().apply {
-        values.forEach { item ->
-            put(
-                JSONObject()
-                    .put("key", item.key)
-                    .put(
-                        "value",
-                        if (redactValues && shouldRedactKey(item.key)) redactSecret(item.value) else item.value,
-                    )
-            )
-        }
-    }
 
     private fun parseTermuxEnvironmentVariablesPatch(
         array: JSONArray?,
@@ -1170,18 +933,6 @@ class AetherSelfManagementTool(
         }.distinct()
     }
 
-    private fun parseKeyValues(array: JSONArray?): List<McpKeyValue> {
-        if (array == null) return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                val json = array.optJSONObject(index) ?: continue
-                val key = json.optString("key").trim()
-                if (key.isBlank()) continue
-                add(McpKeyValue(key = key, value = json.optString("value")))
-            }
-        }
-    }
-
     private fun parseStringArray(array: JSONArray?): List<String> {
         if (array == null) return emptyList()
         return buildList {
@@ -1192,16 +943,6 @@ class AetherSelfManagementTool(
                 }
             }
         }
-    }
-
-    private fun mcpServerId(arguments: JSONObject): String =
-        arguments.optString("server_id").trim().ifBlank {
-            arguments.optString("serverId").trim()
-        }
-
-    private fun McpTransportConfig.quickActionSource(): String = when (this) {
-        is McpTransportConfig.StreamableHttp -> url
-        is McpTransportConfig.StdIo -> command
     }
 
     private fun success(
@@ -1277,10 +1018,8 @@ class AetherSelfManagementTool(
     private companion object {
         val SupportedConfigCategories = listOf(
             "general",
-            "web_tools",
             "reliability",
             "agent_skills",
-            "mcp_servers",
             "termux",
             "agent_mode",
             "scheduled_tasks",

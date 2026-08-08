@@ -331,8 +331,8 @@ private val PageTransitionEasing = CubicBezierEasing(0.22f, 0.84f, 0.18f, 1f)
 private val SettingsTopFadeHeight = 40.dp
 private val StatisticsInputColor = Color(0xFF5D7CFF)
 private val StatisticsOutputColor = Color(0xFF7B68EE)
-private val StatisticsReasoningColor = Color(0xFF6E56CF)
-private val StatisticsNeutralChartColor = Color(0xFF747C89)
+private val StatisticsReasoningColor = Color(0xFFA9B8FF)
+private val StatisticsNeutralChartColor = Color(0xFFDCE4FF)
 
 
 
@@ -413,7 +413,6 @@ fun SettingsScreen(
     agentWorkspaceMode: AgentWorkspaceMode,
     autoCleanOldCommandHistory: Boolean,
     oldCommandHistoryRetentionHours: Int,
-    termuxLiveOutputEnabled: Boolean,
     termuxEnvironmentVariables: List<TermuxEnvironmentVariable>,
     agentModeAuthorizationEnabled: Boolean,
     agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
@@ -462,7 +461,6 @@ fun SettingsScreen(
         AgentWorkspaceMode,
         Boolean,
         Int,
-        Boolean,
         List<TermuxEnvironmentVariable>,
         Boolean,
         AgentModeAuthorizationMethod,
@@ -505,7 +503,6 @@ fun SettingsScreen(
     onToggleScheduledTaskEnabled: (String, Boolean) -> Unit,
     onRemoveScheduledTask: (String) -> Unit,
     onRequestTermuxPermission: () -> Unit,
-    onRequestNotificationPermission: () -> Unit,
     onImportAppData: () -> Unit,
     onExportAppData: () -> Unit,
     onExportLogs: () -> Unit,
@@ -572,9 +569,6 @@ fun SettingsScreen(
     var oldCommandHistoryRetentionHoursValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(oldCommandHistoryRetentionHours.toString()))
     }
-    var termuxLiveOutputEnabledValue by rememberSaveable {
-        mutableStateOf(termuxLiveOutputEnabled)
-    }
     var termuxEnvironmentVariablesValue by rememberSaveable {
         mutableStateOf(termuxEnvironmentVariables)
     }
@@ -639,7 +633,6 @@ fun SettingsScreen(
             normalizeOldCommandHistoryRetentionHours(
                 oldCommandHistoryRetentionHoursValue.text.trim().toIntOrNull()
             ),
-            termuxLiveOutputEnabledValue,
             termuxEnvironmentVariablesValue,
             agentModeAuthorizationEnabledValue,
             agentModeAuthorizationMethodValue,
@@ -668,7 +661,6 @@ fun SettingsScreen(
             normalizeOldCommandHistoryRetentionHours(
                 oldCommandHistoryRetentionHoursValue.text.trim().toIntOrNull()
             ),
-            termuxLiveOutputEnabledValue,
             termuxEnvironmentVariablesValue,
             agentModeAuthorizationEnabledValue,
             agentModeAuthorizationMethodValue,
@@ -697,7 +689,6 @@ fun SettingsScreen(
             normalizeOldCommandHistoryRetentionHours(
                 oldCommandHistoryRetentionHoursValue.text.trim().toIntOrNull()
             ),
-            termuxLiveOutputEnabledValue,
             termuxEnvironmentVariablesValue,
             agentModeAuthorizationEnabledValue,
             agentModeAuthorizationMethodValue,
@@ -798,6 +789,7 @@ fun SettingsScreen(
                         else -> stringResource(R.string.settings_no_providers_configured)
                     }
                 },
+                systemPromptSnippet = systemPromptValue.text.take(60),
                 tavilyConfigured = tavilyApiKeyValue.text.isNotBlank(),
                 reliabilitySummary = buildString {
                     append(
@@ -1006,10 +998,7 @@ fun SettingsScreen(
                 keepTasksRunningInBackground = keepTasksRunningInBackgroundValue,
                 onKeepTasksRunningInBackgroundChanged = { keepTasksRunningInBackgroundValue = it },
                 notifyOnTaskCompletion = notifyOnTaskCompletionValue,
-                onNotifyOnTaskCompletionChanged = { enabled ->
-                    notifyOnTaskCompletionValue = enabled
-                    if (enabled) onRequestNotificationPermission()
-                },
+                onNotifyOnTaskCompletionChanged = { notifyOnTaskCompletionValue = it },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
 
@@ -1177,10 +1166,8 @@ fun SettingsScreen(
                 termuxSetupState = termuxSetupState,
                 rootSetupState = rootSetupState,
                 selectedWorkspaceMode = agentWorkspaceModeValue,
-                liveOutputEnabled = termuxLiveOutputEnabledValue,
                 environmentVariables = termuxEnvironmentVariablesValue,
                 onWorkspaceModeSelected = { agentWorkspaceModeValue = it },
-                onLiveOutputEnabledChanged = { termuxLiveOutputEnabledValue = it },
                 onEnvironmentVariablesChanged = { termuxEnvironmentVariablesValue = it },
                 onRequestTermuxPermission = onRequestTermuxPermission,
                 onOpenAppPermissions = onOpenAppPermissions,
@@ -1311,6 +1298,7 @@ fun SettingsScreen(
 private fun SettingsHub(
     generalSettingsSummary: String,
     activeProviderName: String,
+    systemPromptSnippet: String,
     tavilyConfigured: Boolean,
     reliabilitySummary: String,
     termuxReady: Boolean,
@@ -1387,19 +1375,8 @@ private fun SettingsHub(
                 SettingsNavRow(
                     icon = Icons.Rounded.Person,
                     title = stringResource(R.string.settings_personalization),
-                    subtitle = stringResource(R.string.settings_personalization_summary),
+                    subtitle = systemPromptSnippet.ifBlank { stringResource(R.string.settings_custom_instructions) },
                     onClick = { onNavigate(SettingsPage.Personalization) },
-                )
-                CardDivider()
-                SettingsNavRow(
-                    icon = Icons.Rounded.Link,
-                    title = stringResource(R.string.settings_web_tools),
-                    subtitle = if (tavilyConfigured) {
-                        stringResource(R.string.settings_tavily_configured)
-                    } else {
-                        stringResource(R.string.settings_tavily_not_configured)
-                    },
-                    onClick = { onNavigate(SettingsPage.WebTools) },
                 )
                 CardDivider()
                 SettingsNavRow(
@@ -1429,13 +1406,6 @@ private fun SettingsHub(
                         piExtensionCount,
                     ),
                     onClick = { onNavigate(SettingsPage.Extensions) },
-                )
-                CardDivider()
-                SettingsNavRow(
-                    icon = Icons.Rounded.Code,
-                    title = stringResource(R.string.settings_mcp_servers),
-                    subtitle = stringResource(R.string.settings_mcp_server_count_summary, mcpServerCount),
-                    onClick = { onNavigate(SettingsPage.McpServers) },
                 )
                 CardDivider()
                 SettingsNavRow(
@@ -2595,7 +2565,7 @@ private fun ProviderCard(
             Icon(
                 Icons.Rounded.Delete,
                 contentDescription = stringResource(R.string.action_remove),
-                tint = MaterialTheme.colorScheme.error,
+                tint = Color(0xFFD25757),
             )
         }
     }
@@ -3137,7 +3107,7 @@ private fun SkillCard(
                 Icon(
                     Icons.Rounded.Delete,
                     contentDescription = stringResource(R.string.action_remove),
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = Color(0xFFD25757),
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -4421,7 +4391,7 @@ private fun McpServerCard(
                 Icon(
                     Icons.Rounded.Delete,
                     contentDescription = stringResource(R.string.action_remove),
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = Color(0xFFD25757),
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -4589,7 +4559,7 @@ private fun ScheduledTaskCard(
                 Icon(
                     Icons.Rounded.Delete,
                     contentDescription = stringResource(R.string.action_delete),
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = Color(0xFFD25757),
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -5028,10 +4998,8 @@ private fun TermuxSettingsPage(
     termuxSetupState: TermuxSetupState,
     rootSetupState: RootSetupState,
     selectedWorkspaceMode: AgentWorkspaceMode,
-    liveOutputEnabled: Boolean,
     environmentVariables: List<TermuxEnvironmentVariable>,
     onWorkspaceModeSelected: (AgentWorkspaceMode) -> Unit,
-    onLiveOutputEnabledChanged: (Boolean) -> Unit,
     onEnvironmentVariablesChanged: (List<TermuxEnvironmentVariable>) -> Unit,
     onRequestTermuxPermission: () -> Unit,
     onOpenAppPermissions: () -> Unit,
@@ -5091,13 +5059,6 @@ private fun TermuxSettingsPage(
         WorkspaceModeSettingsSection(
             selectedWorkspaceMode = selectedWorkspaceMode,
             onWorkspaceModeSelected = onWorkspaceModeSelected,
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        TermuxLiveOutputSettingsSection(
-            liveOutputEnabled = liveOutputEnabled,
-            onLiveOutputEnabledChanged = onLiveOutputEnabledChanged,
         )
 
         Spacer(Modifier.height(16.dp))
@@ -5184,23 +5145,6 @@ private fun RuntimeCleanupDeveloperSettingsSection(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun TermuxLiveOutputSettingsSection(
-    liveOutputEnabled: Boolean,
-    onLiveOutputEnabledChanged: (Boolean) -> Unit,
-) {
-    SettingsCardGroup {
-        Column(modifier = Modifier.padding(16.dp)) {
-            SettingsToggleRow(
-                title = stringResource(R.string.settings_live_command_output),
-                subtitle = stringResource(R.string.settings_live_command_output_description),
-                checked = liveOutputEnabled,
-                onCheckedChange = onLiveOutputEnabledChanged,
-            )
         }
     }
 }

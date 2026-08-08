@@ -4,6 +4,12 @@ data class AetherAgentTurnResult(
     val assistantText: String,
     val tokenUsage: LlmTokenUsage? = null,
     val providerPayloadJson: String = "",
+    val piSessionId: String = "",
+    val piSessionFile: String = "",
+    val piSessionLeafId: String = "",
+    val runtime: String = "",
+    val cwd: String = "",
+    val piEntryIds: List<String> = emptyList(),
 )
 
 data class AgentToolEvent(

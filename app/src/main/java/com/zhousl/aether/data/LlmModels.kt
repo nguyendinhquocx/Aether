@@ -49,4 +49,7 @@ data class LlmMessage(
     val role: String,
     val contentParts: List<LlmContentPart>,
     val providerPayload: JSONObject? = null,
+    val toolCallId: String = "",
+    val toolName: String = "",
+    val isError: Boolean = false,
 )

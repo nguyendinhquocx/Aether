@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 
@@ -146,8 +147,8 @@ data class AppSettings(
     val customHeaders: List<LlmCustomHeader> = emptyList(),
     val reasoningEffort: String = DefaultReasoningEffort,
     val systemPrompt: String = platformDefaultSystemPrompt(),
-    val tavilyApiKey: String = "",
-    val tavilyBaseUrl: String = DefaultTavilyBaseUrl,
+    @Transient val tavilyApiKey: String = "",
+    @Transient val tavilyBaseUrl: String = DefaultTavilyBaseUrl,
     val llmInactivityReconnectTimeoutSeconds: Int = DefaultLlmInactivityReconnectTimeoutSeconds,
     val keepTasksRunningInBackground: Boolean = true,
     val notifyOnTaskCompletion: Boolean = true,
@@ -156,7 +157,6 @@ data class AppSettings(
     val oldCommandHistoryRetentionHours: Int = DefaultOldCommandHistoryRetentionHours,
     val termuxSetupCompleted: Boolean = false,
     val termuxSetupNoticeDismissed: Boolean = false,
-    val termuxLiveOutputEnabled: Boolean = true,
     val termuxEnvironmentVariables: List<TermuxEnvironmentVariable> = emptyList(),
     val enabledRuntimeIds: Set<LocalRuntimeId> = emptySet(),
     val defaultRuntimeId: LocalRuntimeId? = null,
@@ -171,7 +171,7 @@ data class AppSettings(
     val defaultTitleModelKey: String = "",
     val defaultNamingModelKey: String = "",
     val defaultCompactingModelKey: String = "",
-    val defaultSelectedSkillIds: List<String> = emptyList(),
+    @Transient val defaultSelectedSkillIds: List<String> = emptyList(),
     val onboardingSeenVersion: Int = 0,
     val onboardingCompletedVersion: Int = 0,
     val privacyPolicyAccepted: Boolean = false,

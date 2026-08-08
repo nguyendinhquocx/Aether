@@ -3,18 +3,20 @@ package com.zhousl.aether.data.pi
 import com.zhousl.aether.data.ActiveSkillContext
 import com.zhousl.aether.data.AetherAgentTurnResult
 import com.zhousl.aether.data.AetherDiagnosticLogger
+import com.zhousl.aether.data.AetherAppExtensionManager
+import com.zhousl.aether.data.AlpineChromeController
 import com.zhousl.aether.data.AetherSelfManagementTool
 import com.zhousl.aether.data.AetherToolExecutor
 import com.zhousl.aether.data.AgentToolEvent
 import com.zhousl.aether.data.AppSettings
-import com.zhousl.aether.data.InstalledSkill
 import com.zhousl.aether.data.LlmMessage
-import com.zhousl.aether.data.LlmProviderConfig
-import com.zhousl.aether.data.McpClientManager
-import com.zhousl.aether.data.McpToolBinding
+import com.zhousl.aether.data.LlmTextPart
+import com.zhousl.aether.data.LocalRuntimeId
 import com.zhousl.aether.data.PiExtensionStateRepository
 import com.zhousl.aether.data.StreamingStatus
 import com.zhousl.aether.data.SettingsRepository
+import com.zhousl.aether.termux.TermuxRuntimeOperations
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.coroutines.cancellation.CancellationException
@@ -36,6 +38,9 @@ class PiAgentRunner(
     private val toolExecutor: AetherToolExecutor? = null,
     private val settingsRepository: SettingsRepository? = null,
     private val piExtensionStateRepository: PiExtensionStateRepository? = null,
+    private val appExtensionManager: AetherAppExtensionManager? = null,
+    private val alpineChromeController: AlpineChromeController? = null,
+    private val termuxRuntimeOperations: TermuxRuntimeOperations? = null,
     private val diagnosticLogger: AetherDiagnosticLogger = AetherDiagnosticLogger.NoOp,
 ) {
     suspend fun runTurn(
@@ -43,23 +48,23 @@ class PiAgentRunner(
         messages: List<LlmMessage>,
         workspaceDirectory: String,
         termuxWorkspaceDirectory: String,
-        availableSkills: List<InstalledSkill> = emptyList(),
+        runtimeId: LocalRuntimeId = LocalRuntimeId.Alpine,
+        skillPaths: List<String> = emptyList(),
         activeSkills: List<ActiveSkillContext> = emptyList(),
-        mcpToolBindings: List<McpToolBinding> = emptyList(),
-        mcpClientManager: McpClientManager? = null,
         selfManagementTool: AetherSelfManagementTool? = null,
         agentModeEnabled: Boolean = false,
         chromeEnabled: Boolean = false,
-        providerConfigs: List<LlmProviderConfig> = emptyList(),
         sessionId: String = "",
+        sessionFile: String = "",
         onToolEvent: suspend (AgentToolEvent) -> Unit = {},
         onToolProgress: (suspend (AgentToolEvent) -> Unit)? = null,
         onAssistantTextDelta: suspend (String) -> Unit = {},
         onAssistantReasoningDelta: suspend (String) -> Unit = {},
         onAssistantReasoningSummaryDelta: suspend (String) -> Unit = {},
         onAssistantTextReset: suspend () -> Unit = {},
+        onAssistantRequestStarted: suspend () -> Unit = {},
+        onAssistantResponseReset: suspend () -> Unit = {},
         onStreamingStatus: suspend (StreamingStatus?) -> Unit = {},
-        onSkillActivated: suspend (ActiveSkillContext) -> Unit = {},
         pollInjectedUserMessages: suspend () -> List<LlmMessage> = { emptyList() },
     ): Result<AetherAgentTurnResult> {
         onStreamingStatus(StreamingStatus("Thinking", "Aether is working on this turn."))
@@ -68,18 +73,17 @@ class PiAgentRunner(
                 val resolvedSessionId = sessionId.ifBlank {
                     "aether-session-${System.currentTimeMillis()}"
                 }
-                val resolvedAvailableSkills = availableSkills
-                    .filter { it.isEnabled }
-                    .sortedBy { it.name.lowercase() }
-                val resolvedActiveSkills = activeSkills.toMutableList()
+                var currentRuntimeId = runtimeId
+                val appendedPiEntryIds = ConcurrentLinkedQueue<String>()
                 val prompt = {
                     buildPiAgentInstructions(
                         settings = settings,
-                        workspaceDirectory = workspaceDirectory,
-                        availableSkills = resolvedAvailableSkills,
-                        activeSkills = resolvedActiveSkills,
-                        mcpSnapshots = mcpClientManager?.snapshots().orEmpty(),
-                        mcpToolBindings = mcpToolBindings,
+                        workspaceDirectory = if (currentRuntimeId == LocalRuntimeId.Termux) {
+                            termuxWorkspaceDirectory
+                        } else {
+                            workspaceDirectory
+                        },
+                        runtimeId = currentRuntimeId,
                         agentModeEnabled = agentModeEnabled,
                         chromeEnabled = chromeEnabled,
                     )
@@ -88,9 +92,21 @@ class PiAgentRunner(
                     val extensionLoadOptions = piExtensionStateRepository?.loadOptions()
                     put("model_config", settings.toPiModelConfig().toJson())
                     put("session_id", resolvedSessionId)
+                    if (sessionFile.isNotBlank()) put("session_file", sessionFile)
                     put("system_prompt", prompt())
-                    put("messages", messages.toPiJson())
+                    put(
+                        "messages",
+                        messages.withSelectedSkillCommand(activeSkills.firstOrNull()?.name).toPiJson(),
+                    )
+                    put(
+                        "skill_paths",
+                        JSONArray(skillPaths),
+                    )
                     put("workspace_directory", workspaceDirectory)
+                    put("termux_workspace_directory", termuxWorkspaceDirectory)
+                    put("runtime", runtimeId.storageValue)
+                    put("platform", "android")
+                    put("chrome_enabled", chromeEnabled)
                     put("reasoning", settings.toPiThinkingLevel())
                     put(
                         "disabled_extension_paths",
@@ -104,16 +120,17 @@ class PiAgentRunner(
                         "host_tools",
                         AetherToolExecutor.hostToolDefinitions(
                             selfManagementTool = selfManagementTool,
-                            mcpClientManager = mcpClientManager,
-                            mcpToolBindings = mcpToolBindings,
                             agentModeEnabled = agentModeEnabled,
-                            chromeEnabled = chromeEnabled,
                         ),
                     )
                 }
 
                 coroutineScope {
                     val parallelHostToolJobs = ConcurrentHashMap<String, Job>()
+                    val runtimeOperationJobs = ConcurrentHashMap<String, Job>()
+                    val pendingRuntimeOperationRequests = ConcurrentHashMap<String, JSONObject>()
+                    val pendingRuntimeOperationChunks =
+                        ConcurrentHashMap<String, ConcurrentHashMap<Int, ByteArray>>()
                     val handledHostToolRequestIds = ConcurrentHashMap.newKeySet<String>()
                     val sequentialHostToolRequests = Channel<JSONObject>(Channel.UNLIMITED)
                     val sequentialHostToolWorker = launch {
@@ -124,16 +141,11 @@ class PiAgentRunner(
                                 settings = settings,
                                 workspaceDirectory = workspaceDirectory,
                                 termuxWorkspaceDirectory = termuxWorkspaceDirectory,
-                                availableSkills = resolvedAvailableSkills,
-                                activeSkills = resolvedActiveSkills,
-                                providerConfigs = providerConfigs,
-                                mcpClientManager = mcpClientManager,
                                 selfManagementTool = selfManagementTool,
-                                mcpToolBindings = mcpToolBindings,
                                 agentModeEnabled = agentModeEnabled,
-                                chromeEnabled = chromeEnabled,
+                                currentRuntimeId = { currentRuntimeId },
+                                onRuntimeChanged = { currentRuntimeId = it },
                                 updatedSystemPrompt = prompt,
-                                onSkillActivated = onSkillActivated,
                             )
                         }
                     }
@@ -158,16 +170,11 @@ class PiAgentRunner(
                                     settings = settings,
                                     workspaceDirectory = workspaceDirectory,
                                     termuxWorkspaceDirectory = termuxWorkspaceDirectory,
-                                    availableSkills = resolvedAvailableSkills,
-                                    activeSkills = resolvedActiveSkills,
-                                    providerConfigs = providerConfigs,
-                                    mcpClientManager = mcpClientManager,
                                     selfManagementTool = selfManagementTool,
-                                    mcpToolBindings = mcpToolBindings,
                                     agentModeEnabled = agentModeEnabled,
-                                    chromeEnabled = chromeEnabled,
+                                    currentRuntimeId = { currentRuntimeId },
+                                    onRuntimeChanged = { currentRuntimeId = it },
                                     updatedSystemPrompt = prompt,
-                                    onSkillActivated = onSkillActivated,
                                 )
                             } finally {
                                 parallelHostToolJobs.remove(toolRequestId)
@@ -175,6 +182,100 @@ class PiAgentRunner(
                         }
                         parallelHostToolJobs[toolRequestId] = job
                         job.start()
+                    }
+
+                    suspend fun startRuntimeOperation(
+                        eventPayload: JSONObject,
+                        inputData: ByteArray? = null,
+                    ) {
+                        val operationId = eventPayload.optString("operation_id").trim()
+                        if (operationId.isBlank() || runtimeOperationJobs.containsKey(operationId)) return
+                        val operationRuntime = eventPayload.optString("runtime").trim()
+                        val kind = eventPayload.optString("kind").trim()
+                        val operationPayload = eventPayload.optJSONObject("payload") ?: JSONObject()
+                        val job = launch(start = CoroutineStart.LAZY) {
+                            val result = runCatching {
+                                check(operationRuntime == LocalRuntimeId.Termux.storageValue) {
+                                    "Unsupported host runtime operation: $operationRuntime"
+                                }
+                                val operations = termuxRuntimeOperations
+                                    ?: error("Termux runtime operations are unavailable.")
+                                operations.execute(kind, operationPayload, inputData) { sequence, bytes ->
+                                    bridge.sendRuntimeOperationChunk(
+                                        JSONObject().apply {
+                                            put("operation_id", operationId)
+                                            put("session_id", resolvedSessionId)
+                                            put("runtime", operationRuntime)
+                                            put("direction", "output")
+                                            put("sequence", sequence)
+                                            put("data_base64", Base64.getEncoder().encodeToString(bytes))
+                                        }
+                                    )
+                                }
+                            }
+                            if (result.isSuccess) {
+                                bridge.sendRuntimeOperationResult(
+                                    JSONObject().apply {
+                                        put("operation_id", operationId)
+                                        put("session_id", resolvedSessionId)
+                                        put("runtime", operationRuntime)
+                                        put("ok", true)
+                                        put("result", result.getOrThrow())
+                                    }
+                                )
+                            } else if (result.exceptionOrNull() !is CancellationException) {
+                                bridge.sendRuntimeOperationResult(
+                                    JSONObject().apply {
+                                        put("operation_id", operationId)
+                                        put("session_id", resolvedSessionId)
+                                        put("runtime", operationRuntime)
+                                        put("ok", false)
+                                        put("error", result.exceptionOrNull()?.message ?: "Runtime operation failed.")
+                                    }
+                                )
+                            }
+                        }
+                        job.invokeOnCompletion { runtimeOperationJobs.remove(operationId) }
+                        runtimeOperationJobs[operationId] = job
+                        job.start()
+                    }
+
+                    suspend fun dispatchRuntimeOperation(eventPayload: JSONObject) {
+                        val operationId = eventPayload.optString("operation_id").trim()
+                        if (operationId.isBlank()) return
+                        val inputChunkCount = eventPayload.optInt("input_chunk_count").coerceAtLeast(0)
+                        if (inputChunkCount == 0) {
+                            startRuntimeOperation(eventPayload)
+                            return
+                        }
+                        pendingRuntimeOperationRequests[operationId] = JSONObject(eventPayload.toString())
+                        pendingRuntimeOperationChunks[operationId] = ConcurrentHashMap()
+                    }
+
+                    suspend fun dispatchRuntimeOperationInputChunk(eventPayload: JSONObject) {
+                        if (eventPayload.optString("direction") != "input") return
+                        val operationId = eventPayload.optString("operation_id").trim()
+                        val requestPayload = pendingRuntimeOperationRequests[operationId] ?: return
+                        val sequence = eventPayload.optInt("sequence", -1)
+                        if (sequence < 0) return
+                        val chunk = runCatching {
+                            Base64.getDecoder().decode(eventPayload.optString("data_base64"))
+                        }.getOrNull() ?: return
+                        val chunks = pendingRuntimeOperationChunks[operationId] ?: return
+                        chunks.putIfAbsent(sequence, chunk)
+                        val expected = requestPayload.optInt("input_chunk_count").coerceAtLeast(1)
+                        if (chunks.size < expected) return
+                        val ordered = (0 until expected).map { chunks[it] ?: return }
+                        val byteCount = ordered.sumOf(ByteArray::size)
+                        val inputData = ByteArray(byteCount)
+                        var offset = 0
+                        ordered.forEach { bytes ->
+                            bytes.copyInto(inputData, offset)
+                            offset += bytes.size
+                        }
+                        pendingRuntimeOperationRequests.remove(operationId)
+                        pendingRuntimeOperationChunks.remove(operationId)
+                        startRuntimeOperation(requestPayload, inputData)
                     }
 
                     val eventHandler: suspend (String, JSONObject) -> Unit = { event, eventPayload ->
@@ -189,6 +290,13 @@ class PiAgentRunner(
                                     onAssistantReasoningSummaryDelta(delta)
                                 }
                             }
+
+                            "assistant_request_start" -> onAssistantRequestStarted()
+
+                            "assistant_stream_reset" -> onAssistantResponseReset()
+
+                            "assistant_retry" ->
+                                onStreamingStatus(reconnectStreamingStatus(eventPayload))
 
                             "tool_call_start" -> {
                                 onAssistantTextReset()
@@ -208,6 +316,24 @@ class PiAgentRunner(
                                 onToolEvent(eventPayload.toToolEvent(isRunning = false))
 
                             "host_tool_request" -> dispatchHostToolRequest(eventPayload)
+
+                            "aether_host_call" -> dispatchAetherHostCall(eventPayload, resolvedSessionId)
+
+                            "runtime_op_request" -> dispatchRuntimeOperation(eventPayload)
+
+                            "runtime_op_chunk" -> dispatchRuntimeOperationInputChunk(eventPayload)
+
+                            "runtime_op_cancel" -> {
+                                val operationId = eventPayload.optString("operation_id").trim()
+                                pendingRuntimeOperationRequests.remove(operationId)
+                                pendingRuntimeOperationChunks.remove(operationId)
+                                runtimeOperationJobs.remove(operationId)?.cancel()
+                            }
+
+                            "session_entry_appended" -> {
+                                val entryId = eventPayload.optJSONObject("entry")?.optString("id").orEmpty()
+                                if (entryId.isNotBlank()) appendedPiEntryIds += entryId
+                            }
 
                             "assistant_error" -> onStreamingStatus(
                                 StreamingStatus(
@@ -271,6 +397,12 @@ class PiAgentRunner(
                             },
                             tokenUsage = completion.usage,
                             providerPayloadJson = completion.toProviderPayloadJson(),
+                            piSessionId = completion.sessionId,
+                            piSessionFile = completion.sessionFile,
+                            piSessionLeafId = completion.sessionLeafId,
+                            runtime = completion.runtime,
+                            cwd = completion.cwd,
+                            piEntryIds = appendedPiEntryIds.toList(),
                         )
                     } finally {
                         pollingJob.cancelAndJoin()
@@ -279,6 +411,11 @@ class PiAgentRunner(
                         parallelHostToolJobs.values.toList().forEach { job ->
                             job.cancelAndJoin()
                         }
+                        runtimeOperationJobs.values.toList().forEach { job ->
+                            job.cancelAndJoin()
+                        }
+                        pendingRuntimeOperationRequests.clear()
+                        pendingRuntimeOperationChunks.clear()
                     }
                 }
             }
@@ -293,16 +430,11 @@ class PiAgentRunner(
         settings: AppSettings,
         workspaceDirectory: String,
         termuxWorkspaceDirectory: String,
-        availableSkills: List<InstalledSkill>,
-        activeSkills: MutableList<ActiveSkillContext>,
-        providerConfigs: List<LlmProviderConfig>,
-        mcpClientManager: McpClientManager?,
         selfManagementTool: AetherSelfManagementTool?,
-        mcpToolBindings: List<McpToolBinding>,
         agentModeEnabled: Boolean,
-        chromeEnabled: Boolean,
+        currentRuntimeId: () -> LocalRuntimeId,
+        onRuntimeChanged: suspend (LocalRuntimeId) -> Unit,
         updatedSystemPrompt: () -> String,
-        onSkillActivated: suspend (ActiveSkillContext) -> Unit,
     ) {
         val toolRequestId = payload.optString("tool_request_id").trim()
         val toolCallId = payload.optString("tool_call_id").trim()
@@ -339,13 +471,10 @@ class PiAgentRunner(
                 termuxWorkspaceDirectory = termuxWorkspaceDirectory,
                 toolName = toolName,
                 argumentsJson = argumentsJson,
-                availableSkills = availableSkills,
-                activeSkills = activeSkills,
-                providerConfigs = providerConfigs,
-                mcpClientManager = mcpClientManager,
                 selfManagementTool = selfManagementTool,
                 agentModeEnabled = agentModeEnabled,
-                chromeEnabled = chromeEnabled,
+                currentRuntimeId = currentRuntimeId(),
+                onRuntimeChanged = onRuntimeChanged,
                 onProgress = { progress ->
                     bridge.sendHostToolProgress(
                         hostToolPayload(
@@ -361,7 +490,6 @@ class PiAgentRunner(
                         )
                     )
                 },
-                onSkillActivated = onSkillActivated,
             )
         }
 
@@ -398,6 +526,47 @@ class PiAgentRunner(
         bridge.sendHostToolResult(responsePayload)
     }
 
+    private suspend fun dispatchAetherHostCall(
+        payload: JSONObject,
+        sessionId: String,
+    ) {
+        val method = payload.optString("method").trim()
+        if (method != "aether_chrome_execute") {
+            appExtensionManager?.handleAgentBridgeEvent("aether_host_call", payload)
+                ?: bridge.sendAetherHostResult(
+                    callId = payload.optString("call_id"),
+                    error = "The Aether UI host is unavailable.",
+                )
+            return
+        }
+        val callId = payload.optString("call_id").trim()
+        val args = payload.optJSONObject("args") ?: JSONObject()
+        val arguments = args.optJSONObject("arguments") ?: JSONObject()
+        val result = runCatching {
+            alpineChromeController?.execute(arguments.toString())
+                ?: error("Chrome is unavailable on this platform.")
+        }
+        result.fold(
+            onSuccess = { raw ->
+                bridge.sendAetherHostResult(
+                    callId = callId,
+                    result = runCatching { JSONObject(raw) }.getOrElse {
+                        JSONObject().put("ok", false).put("errmsg", raw)
+                    },
+                )
+            },
+            onFailure = { throwable ->
+                bridge.sendAetherHostResult(
+                    callId = callId,
+                    result = JSONObject()
+                        .put("ok", false)
+                        .put("code", "setup_required")
+                        .put("errmsg", throwable.message ?: "Chrome is not installed in Alpine."),
+                )
+            },
+        )
+    }
+
     private fun logMalformedHostToolRequest(
         payload: JSONObject,
         sessionId: String,
@@ -414,6 +583,26 @@ class PiAgentRunner(
             ),
         )
     }
+}
+
+internal fun reconnectStreamingStatus(payload: JSONObject): StreamingStatus {
+    val delayMillis = payload.optInt("delay_ms").coerceAtLeast(0)
+    return StreamingStatus(
+        text =
+            "Reconnecting... ${payload.optInt("attempt")}/${payload.optInt("max_attempts")}",
+        detail = buildString {
+            append(payload.optString("error_message"))
+            if (delayMillis > 0) {
+                if (isNotEmpty()) append('\n')
+                append("Retrying in ")
+                if (delayMillis % 1_000 == 0) {
+                    append(delayMillis / 1_000).append('s')
+                } else {
+                    append(delayMillis).append("ms")
+                }
+            }
+        },
+    )
 }
 
 private fun JSONObject.toToolEvent(isRunning: Boolean): AgentToolEvent =
@@ -517,4 +706,23 @@ private inline fun <T> runCatchingPreservingCancellation(
     throw cancellationException
 } catch (throwable: Throwable) {
     Result.failure(throwable)
+}
+
+private fun List<LlmMessage>.withSelectedSkillCommand(skillName: String?): List<LlmMessage> {
+    val name = skillName?.trim().orEmpty()
+    if (name.isBlank()) return this
+    val userIndex = indexOfLast { it.role == "user" }
+    if (userIndex < 0) return this
+    val user = get(userIndex)
+    val textIndex = user.contentParts.indexOfFirst { it is LlmTextPart }
+    val command = "/skill:$name"
+    val updatedParts = if (textIndex >= 0) {
+        user.contentParts.toMutableList().apply {
+            val text = this[textIndex] as LlmTextPart
+            this[textIndex] = text.copy(text = "$command ${text.text}")
+        }
+    } else {
+        listOf(LlmTextPart(command)) + user.contentParts
+    }
+    return toMutableList().apply { this[userIndex] = user.copy(contentParts = updatedParts) }
 }

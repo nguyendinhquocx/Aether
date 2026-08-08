@@ -153,6 +153,62 @@ class SharedPiBridgeClient(
         abortOnCancellation = false,
     )
 
+    suspend fun compactSession(
+        sessionId: String,
+        customInstructions: String = "",
+    ): JsonObject = request(
+        type = "compact_session",
+        payload = buildJsonObject {
+            put("session_id", sessionId)
+            if (customInstructions.isNotBlank()) put("custom_instructions", customInstructions)
+        },
+        timeoutMillis = 10 * 60_000L,
+        abortOnCancellation = false,
+    )
+
+    suspend fun navigateSession(
+        sessionId: String,
+        entryId: String,
+        reset: Boolean = false,
+        summarize: Boolean = false,
+        customInstructions: String = "",
+    ): JsonObject = request(
+        type = "navigate_session",
+        payload = buildJsonObject {
+            put("session_id", sessionId)
+            put("entry_id", entryId)
+            put("reset", reset)
+            put("summarize", summarize)
+            if (customInstructions.isNotBlank()) put("custom_instructions", customInstructions)
+        },
+        timeoutMillis = 10 * 60_000L,
+        abortOnCancellation = false,
+    )
+
+    suspend fun reloadSession(sessionId: String): JsonObject = request(
+        type = "reload_session",
+        payload = buildJsonObject { put("session_id", sessionId) },
+        timeoutMillis = 10 * 60_000L,
+        abortOnCancellation = false,
+    )
+
+    suspend fun exportSessionJsonl(sessionId: String): JsonObject = request(
+        type = "export_session_jsonl",
+        payload = buildJsonObject { put("session_id", sessionId) },
+        timeoutMillis = 60_000L,
+        abortOnCancellation = false,
+    )
+
+    suspend fun importSessionJsonl(sessionId: String, jsonl: String): JsonObject = request(
+        type = "import_session_jsonl",
+        payload = buildJsonObject {
+            put("session_id", sessionId)
+            put("jsonl", jsonl)
+        },
+        timeoutMillis = 60_000L,
+        abortOnCancellation = false,
+    )
+
     suspend fun listExtensionPackages(): JsonObject =
         request("list_extension_packages", timeoutMillis = 30_000, abortOnCancellation = false)
 

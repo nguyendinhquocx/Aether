@@ -94,4 +94,17 @@ class AetherNativeModsTest {
             label = "Native mod demo",
         )
     }
+
+    @Test
+    fun nativeToolTitlesPreferPriorityAndCleanupByOwner() {
+        val registry = AetherNativeToolTitleRegistry()
+        val low = registry.register("Demo", "Using demo", "Used demo", "low", priority = 1)
+        registry.register("demo", "Running demo", "Completed demo", "high", priority = 2)
+        assertEquals("Running demo", registry.titleFor("DEMO", true))
+        assertEquals("Completed demo", registry.titleFor("demo", false))
+        registry.unregisterOwner("high")
+        assertEquals("Using demo", registry.titleFor("demo", true))
+        low()
+        assertNull(registry.titleFor("demo", false))
+    }
 }

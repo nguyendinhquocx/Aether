@@ -105,6 +105,7 @@ internal fun SharedSkillsSettingsDetail(
     platformServices: PlatformServices,
     installedSkills: List<SharedInstalledSkill>,
     onSkillsChanged: (List<SharedInstalledSkill>) -> Unit,
+    onReloadSessions: suspend () -> Unit,
     onTransientMessage: (String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -145,6 +146,7 @@ internal fun SharedSkillsSettingsDetail(
                 val changed = operation()
                 if (changed) {
                     onSkillsChanged(skillManager.list())
+                    onReloadSessions()
                     afterSuccess()
                 }
             } catch (failure: CancellationException) {
@@ -166,6 +168,7 @@ internal fun SharedSkillsSettingsDetail(
             try {
                 val installed = operation()
                 onSkillsChanged(skillManager.list())
+                onReloadSessions()
                 onTransientMessage(
                     installedMessageTemplate.replace(installedNamePlaceholder, installed.name),
                 )
@@ -369,7 +372,7 @@ private fun SharedSkillCard(
                 Icon(
                     Icons.Rounded.Delete,
                     contentDescription = stringResource(Res.string.action_remove),
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = Color(0xFFD25757),
                     modifier = Modifier.size(20.dp),
                 )
             }

@@ -33,9 +33,9 @@ private const val PiBridgeGuestPath = "/root/.aether/pi-bridge/bridge.mjs"
 private const val PiBridgeWorkingDirectory = "/root/.aether/pi-bridge"
 private const val PiBridgeNodeMinVersion = "22.19.0"
 private const val PiBridgeVersion = "2.0.0-alpha.0"
-private const val PiAiVersion = "0.83.0"
-private const val PiAgentCoreVersion = "0.83.0"
-private const val PiCodingAgentVersion = "0.83.0"
+private const val PiAiVersion = "0.84.1"
+private const val PiAgentCoreVersion = "0.84.1"
+private const val PiCodingAgentVersion = "0.84.1"
 private const val PiBridgeRequestTimeoutMillis = 10 * 60 * 1000L
 private const val PiBridgeOAuthTimeoutMillis = 15 * 60 * 1000L
 private const val PiBridgePingTimeoutMillis = 15_000L
@@ -172,13 +172,82 @@ class PiKernelBridge(
             onEvent = onEvent,
         )
 
-    suspend fun closeSession(sessionId: String): JSONObject =
+    suspend fun getSessionState(sessionId: String): JSONObject =
         request(
-            type = "close_session",
+            type = "get_session_state",
             payload = JSONObject().put("session_id", sessionId),
             timeoutMillis = PiBridgePingTimeoutMillis,
             abortOnCancellation = false,
-            startIfNeeded = false,
+        )
+
+    suspend fun compactSession(
+        sessionId: String,
+        customInstructions: String = "",
+        sessionPayload: JSONObject = JSONObject(),
+    ): JSONObject = request(
+        type = "compact_session",
+        payload = JSONObject(sessionPayload.toString()).apply {
+            put("session_id", sessionId)
+            if (customInstructions.isNotBlank()) put("custom_instructions", customInstructions)
+        },
+        timeoutMillis = null,
+        abortOnCancellation = false,
+    )
+
+    suspend fun navigateSession(
+        sessionId: String,
+        entryId: String,
+        reset: Boolean = false,
+        summarize: Boolean = false,
+        customInstructions: String = "",
+    ): JSONObject = request(
+        type = "navigate_session",
+        payload = JSONObject().apply {
+            put("session_id", sessionId)
+            put("entry_id", entryId)
+            put("reset", reset)
+            put("summarize", summarize)
+            if (customInstructions.isNotBlank()) put("custom_instructions", customInstructions)
+        },
+        timeoutMillis = null,
+        abortOnCancellation = false,
+    )
+
+    suspend fun reloadSession(sessionId: String): JSONObject = request(
+        type = "reload_session",
+        payload = JSONObject().put("session_id", sessionId),
+        timeoutMillis = PiBridgePingTimeoutMillis,
+        abortOnCancellation = false,
+    )
+
+    suspend fun exportSessionJsonl(sessionId: String): JSONObject = request(
+        type = "export_session_jsonl",
+        payload = JSONObject().put("session_id", sessionId),
+        timeoutMillis = PiBridgePingTimeoutMillis,
+        abortOnCancellation = false,
+    )
+
+    suspend fun importSessionJsonl(sessionId: String, jsonl: String): JSONObject = request(
+        type = "import_session_jsonl",
+        payload = JSONObject().put("session_id", sessionId).put("jsonl", jsonl),
+        timeoutMillis = PiBridgePingTimeoutMillis,
+        abortOnCancellation = false,
+    )
+
+    suspend fun closeSession(
+        sessionId: String,
+        sessionFile: String = "",
+        deleteFile: Boolean = false,
+    ): JSONObject =
+        request(
+            type = "close_session",
+            payload = JSONObject()
+                .put("session_id", sessionId)
+                .put("session_file", sessionFile)
+                .put("delete_file", deleteFile),
+            timeoutMillis = PiBridgePingTimeoutMillis,
+            abortOnCancellation = false,
+            startIfNeeded = deleteFile,
         )
 
     suspend fun listExtensions(sessionId: String): JSONObject =
@@ -370,6 +439,33 @@ class PiKernelBridge(
     suspend fun sendHostToolProgress(payload: JSONObject) {
         request(
             type = "host_tool_progress",
+            payload = payload,
+            timeoutMillis = PiBridgePingTimeoutMillis,
+            abortOnCancellation = false,
+        )
+    }
+
+    suspend fun sendRuntimeOperationChunk(payload: JSONObject) {
+        request(
+            type = "runtime_op_chunk",
+            payload = payload,
+            timeoutMillis = PiBridgePingTimeoutMillis,
+            abortOnCancellation = false,
+        )
+    }
+
+    suspend fun sendRuntimeOperationResult(payload: JSONObject) {
+        request(
+            type = "runtime_op_result",
+            payload = payload,
+            timeoutMillis = PiBridgePingTimeoutMillis,
+            abortOnCancellation = false,
+        )
+    }
+
+    suspend fun sendRuntimeOperationCancel(payload: JSONObject) {
+        request(
+            type = "runtime_op_cancel",
             payload = payload,
             timeoutMillis = PiBridgePingTimeoutMillis,
             abortOnCancellation = false,
@@ -590,40 +686,59 @@ class PiKernelBridge(
         }
         onSetupProgress(PiCoreSetupUpdate(PiCoreSetupPhase.CheckingNode))
         val version = readNodeVersion()
-        if (version != null && compareSemver(version, PiBridgeNodeMinVersion) >= 0) return
-
-        onSetupProgress(PiCoreSetupUpdate(PiCoreSetupPhase.InstallingNode))
-        diagnosticLogger.event(
-            category = "pi_bridge",
-            event = "node_profile_install_start",
-            level = "warn",
-            details = mapOf(
-                "current_version" to version.orEmpty(),
-                "required_version" to PiBridgeNodeMinVersion,
-            ),
-        )
-        val installState = alpineRuntime.installPackageProfile("node") { progress ->
-            onSetupProgress(
-                PiCoreSetupUpdate(
-                    phase = PiCoreSetupPhase.InstallingNode,
-                    activity = PiCoreSetupActivity.Downloading,
-                    bytesPerSecond = progress.bytesPerSecond,
-                    output = progress.output,
+        if (version == null || compareSemver(version, PiBridgeNodeMinVersion) < 0) {
+            onSetupProgress(PiCoreSetupUpdate(PiCoreSetupPhase.InstallingNode))
+            diagnosticLogger.event(
+                category = "pi_bridge",
+                event = "node_profile_install_start",
+                level = "warn",
+                details = mapOf(
+                    "current_version" to version.orEmpty(),
+                    "required_version" to PiBridgeNodeMinVersion,
+                ),
+            )
+            val installState = alpineRuntime.installPackageProfile("node") { progress ->
+                onSetupProgress(
+                    PiCoreSetupUpdate(
+                        phase = PiCoreSetupPhase.InstallingNode,
+                        activity = PiCoreSetupActivity.Downloading,
+                        bytesPerSecond = progress.bytesPerSecond,
+                        output = progress.output,
+                    )
                 )
-            )
+            }
+            if (!installState.isReady) {
+                throw PiBridgeException(
+                    installState.detail.ifBlank { "Failed to install Node.js inside Alpine." },
+                    code = "node_install_failed",
+                )
+            }
+            val installedVersion = readNodeVersion()
+            if (installedVersion == null || compareSemver(installedVersion, PiBridgeNodeMinVersion) < 0) {
+                throw PiBridgeException(
+                    "Pi bridge requires Alpine node >= $PiBridgeNodeMinVersion, found ${installedVersion ?: "none"}.",
+                    code = "node_version_too_old",
+                )
+            }
         }
-        if (!installState.isReady) {
-            throw PiBridgeException(
-                installState.detail.ifBlank { "Failed to install Node.js inside Alpine." },
-                code = "node_install_failed",
-            )
-        }
-        val installedVersion = readNodeVersion()
-        if (installedVersion == null || compareSemver(installedVersion, PiBridgeNodeMinVersion) < 0) {
-            throw PiBridgeException(
-                "Pi bridge requires Alpine node >= $PiBridgeNodeMinVersion, found ${installedVersion ?: "none"}.",
-                code = "node_version_too_old",
-            )
+
+        if (!alpineRuntime.isPackageProfileInstalled("git_search")) {
+            val installState = alpineRuntime.installPackageProfile("git_search") { progress ->
+                onSetupProgress(
+                    PiCoreSetupUpdate(
+                        phase = PiCoreSetupPhase.InstallingNode,
+                        activity = PiCoreSetupActivity.Downloading,
+                        bytesPerSecond = progress.bytesPerSecond,
+                        output = progress.output,
+                    )
+                )
+            }
+            if (!installState.isReady) {
+                throw PiBridgeException(
+                    installState.detail.ifBlank { "Failed to install Pi search tools inside Alpine." },
+                    code = "pi_search_tools_install_failed",
+                )
+            }
         }
     }
 

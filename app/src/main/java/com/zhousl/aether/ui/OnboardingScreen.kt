@@ -31,8 +31,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -147,7 +145,6 @@ private val FollowUpOnboardingSteps = listOf(
     OnboardingStep.LocalRuntimeChoice,
     OnboardingStep.TermuxSetup,
     OnboardingStep.AgentModeAuthorization,
-    OnboardingStep.TavilySetup,
 )
 
 private val TourBackground: Color
@@ -237,14 +234,11 @@ fun OnboardingScreen(
 
     fun indexOf(step: OnboardingStep): Int = steps.indexOf(step).coerceAtLeast(0)
     fun continueAfterLocalAccessSetup() {
-        currentStep = OnboardingStep.TavilySetup
+        onCompleteFollowUp()
     }
     fun continueAfterTermuxStep() {
-        currentStep = if (termuxSetupState.isReady) {
-            OnboardingStep.AgentModeAuthorization
-        } else {
-            OnboardingStep.TavilySetup
-        }
+        if (termuxSetupState.isReady) currentStep = OnboardingStep.AgentModeAuthorization
+        else onCompleteFollowUp()
     }
 
     AnimatedContent(
@@ -302,7 +296,7 @@ fun OnboardingScreen(
                 },
                 onSkip = {
                     selectedRuntimePath = null
-                    currentStep = OnboardingStep.TavilySetup
+                    onCompleteFollowUp()
                 },
             )
 
@@ -312,7 +306,6 @@ fun OnboardingScreen(
                 setupState = alpineSetupState,
                 piCoreSetupState = piCoreSetupState,
                 required = isInitialFlow,
-                replayMode = replayMode,
                 onBack = {
                     if (setupPreviewMode) {
                         onClose()
@@ -335,7 +328,7 @@ fun OnboardingScreen(
                         currentStep = if (isInitialFlow) {
                             OnboardingStep.ProviderSetup
                         } else {
-                            OnboardingStep.TavilySetup
+                            OnboardingStep.LocalRuntimeChoice
                         }
                     }
                 },
@@ -368,33 +361,11 @@ fun OnboardingScreen(
                 onClose = onClose,
                 onContinue = { enabled, method ->
                     onSaveAgentModeAuthorization(enabled, method)
-                    currentStep = OnboardingStep.TavilySetup
-                },
-            )
-
-            OnboardingStep.TavilySetup -> TavilyStep(
-                stepIndex = stepIndex,
-                stepCount = steps.size,
-                value = tavilyApiKeyValue,
-                onValueChange = { tavilyApiKeyValue = it },
-                onBack = {
-                    currentStep = if (selectedRuntimePath == OnboardingStep.TermuxSetup && termuxSetupState.isReady) {
-                        OnboardingStep.AgentModeAuthorization
-                    } else if (selectedRuntimePath == OnboardingStep.TermuxSetup) {
-                        OnboardingStep.TermuxSetup
-                    } else {
-                        OnboardingStep.LocalRuntimeChoice
-                    }
-                },
-                onClose = onClose,
-                onContinue = {
-                    val trimmed = tavilyApiKeyValue.trim()
-                    if (trimmed.isNotBlank()) {
-                        onSaveTavilyApiKey(trimmed)
-                    }
                     onCompleteFollowUp()
                 },
             )
+
+            OnboardingStep.TavilySetup -> LaunchedEffect(Unit) { onCompleteFollowUp() }
         }
     }
 }
@@ -584,9 +555,8 @@ private fun ProviderSetupStep(
                     ) {
                         ProviderWizardChoiceRow(
                             icon = Icons.Rounded.VerifiedUser,
-                            title = stringResource(R.string.onboarding_provider_subscription),
-                            subtitle = stringResource(R.string.onboarding_provider_subscription_description),
-                            bareIcon = true,
+                            title = stringResource(R.string.provider_add_subscription),
+                            subtitle = stringResource(R.string.provider_add_subscription_description),
                             onClick = {
                                 selectedAuthMethodName = ProviderAuthMethod.OAuth.name
                                 providerSearch = ""
@@ -596,9 +566,8 @@ private fun ProviderSetupStep(
                         )
                         ProviderWizardChoiceRow(
                             icon = Icons.Rounded.Key,
-                            title = stringResource(R.string.onboarding_provider_api_key),
-                            subtitle = stringResource(R.string.onboarding_provider_api_key_description),
-                            bareIcon = true,
+                            title = stringResource(R.string.provider_add_api_key),
+                            subtitle = stringResource(R.string.provider_add_api_key_description),
                             onClick = {
                                 selectedAuthMethodName = ProviderAuthMethod.ApiKey.name
                                 providerSearch = ""
@@ -608,9 +577,8 @@ private fun ProviderSetupStep(
                         )
                         ProviderWizardChoiceRow(
                             icon = Icons.Rounded.Cloud,
-                            title = stringResource(R.string.onboarding_provider_environment),
-                            subtitle = stringResource(R.string.onboarding_provider_environment_description),
-                            bareIcon = true,
+                            title = stringResource(R.string.provider_add_environment),
+                            subtitle = stringResource(R.string.provider_add_environment_description),
                             onClick = {
                                 selectedAuthMethodName = ProviderAuthMethod.Ambient.name
                                 providerSearch = ""
@@ -635,7 +603,7 @@ private fun ProviderSetupStep(
                         providerChoices.forEach { provider ->
                             ProviderStageButton(
                                 label = provider.displayName,
-                                subtitle = providerTourSubtitle(provider, selectedAuthMethod),
+                                subtitle = "${provider.category} · ${provider.id}",
                                 provider = provider,
                                 onClick = {
                                     onClearAuthState()
@@ -714,11 +682,11 @@ private fun ProviderSetupStep(
                             style = MaterialTheme.typography.bodySmall,
                             color = TourTextSecondary,
                         )
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(modelChoices, key = { model -> model }) { model ->
+                            modelChoices.take(8).forEach { model ->
                                 ModelOptionButton(
                                     label = model,
                                     selected = formState.modelId.trim().equals(model, ignoreCase = true),
@@ -760,24 +728,6 @@ private fun ProviderSetupStep(
             }
         }
     }
-}
-
-@Composable
-private fun providerTourSubtitle(
-    provider: PiProviderDefinition,
-    authMethod: ProviderAuthMethod,
-): String = when {
-    authMethod == ProviderAuthMethod.OAuth && provider.id == "openai-codex" ->
-        stringResource(R.string.onboarding_provider_openai_codex_oauth_summary)
-    authMethod == ProviderAuthMethod.OAuth && provider.id == "anthropic" ->
-        stringResource(R.string.onboarding_provider_anthropic_oauth_summary)
-    authMethod == ProviderAuthMethod.OAuth && provider.id == "github-copilot" ->
-        stringResource(R.string.onboarding_provider_github_copilot_oauth_summary)
-    authMethod == ProviderAuthMethod.ApiKey && provider.id == "openai" ->
-        stringResource(R.string.onboarding_provider_openai_api_summary)
-    authMethod == ProviderAuthMethod.ApiKey && provider.id == "openai-compatible" ->
-        stringResource(R.string.onboarding_provider_custom_api_summary)
-    else -> "${provider.category} · ${provider.id}"
 }
 
 @Composable
@@ -870,7 +820,6 @@ private fun AlpineRuntimeStep(
     setupState: LocalRuntimeSetupState,
     piCoreSetupState: PiCoreSetupState,
     required: Boolean,
-    replayMode: Boolean,
     onBack: () -> Unit,
     onClose: () -> Unit,
     onInitialize: () -> Unit,
@@ -920,11 +869,9 @@ private fun AlpineRuntimeStep(
                 PiCoreSetupProgress(piCoreSetupState)
             }
             when (setupState.issue) {
-                LocalRuntimeIssue.Ready -> if (replayMode || !required || piCoreSetupState.isReady) {
+                LocalRuntimeIssue.Ready -> if (!required || piCoreSetupState.isReady) {
                     TourActionRow(
-                        primaryLabel = stringResource(
-                            if (replayMode) R.string.common_next else R.string.common_continue,
-                        ),
+                        primaryLabel = stringResource(R.string.common_continue),
                         onPrimary = onContinue,
                         secondaryLabel = stringResource(R.string.common_refresh),
                         onSecondary = onRefresh,

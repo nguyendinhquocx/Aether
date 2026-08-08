@@ -69,7 +69,6 @@ import com.zhousl.aether.ui.theme.AetherScrim
 import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import com.zhousl.aether.platform.currentPlatformCapabilities
-import com.zhousl.aether.platform.LocalReduceMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -171,13 +170,9 @@ internal fun <T> SharedSettingsPageTransition(
     content: @Composable (T) -> Unit,
 ) {
     val richMotion = LocalSharedSettingsRichMotion.current
-    val reduceMotion = LocalReduceMotion.current
     AnimatedContent(
         targetState = targetState,
         transitionSpec = {
-            if (reduceMotion) {
-                return@AnimatedContent fadeIn(tween(80)) togetherWith fadeOut(tween(60))
-            }
             if (!currentPlatformCapabilities.layeredScreenTransitions && !richMotion) {
                 return@AnimatedContent fadeIn(tween(120)) togetherWith
                     fadeOut(tween(80))
@@ -482,7 +477,7 @@ private fun SettingsNavRowContent(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

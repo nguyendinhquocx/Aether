@@ -463,6 +463,27 @@ context.intercept("chat.new", priority = 500) { payload, _ ->
 
 Use `"*"` to observe/intercept every operation exposed through the registry.
 
+### Native tool titles
+
+Native Mods can provide the user-facing title shown while a registered Pi tool
+is running and after it completes. The mapping is case-insensitive and applies
+to both pending and completed tool cards. A higher `priority` wins when more
+than one Mod registers the same tool; otherwise the last registration wins.
+When a Native mapping exists it takes precedence over the built-in title; tools
+without a mapping keep the built-in title or the existing `Using ...` / `Used ...`
+fallback.
+
+```kotlin
+context.registerToolTitle(
+    toolName = "weather",
+    runningTitle = "Checking the weather",
+    completedTitle = "Checked the weather",
+    priority = 200,
+)
+```
+
+The returned cleanup function removes the mapping. Titles must be non-blank.
+
 ### Native Compose replacement
 
 Native component renderers are compiled with the Compose compiler and receive

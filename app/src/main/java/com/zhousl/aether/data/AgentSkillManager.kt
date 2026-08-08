@@ -3,8 +3,6 @@ package com.zhousl.aether.data
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
-import com.zhousl.aether.ui.ChatMessage
-import com.zhousl.aether.ui.MessageAuthor
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FilterInputStream
@@ -33,8 +31,6 @@ private const val MaxSkillArchiveBytes = 32L * 1024L * 1024L
 private const val MaxSkillExtractedBytes = 128L * 1024L * 1024L
 private const val MaxSkillEntryBytes = 16L * 1024L * 1024L
 private const val MaxSkillZipEntries = 4096
-private const val DefaultImplicitSkillMatchLimit = 2
-private const val ImplicitSkillMatchMinScore = 5
 
 data class PiPackageSkillSource(
     val packageSource: String,
@@ -219,36 +215,6 @@ class AgentSkillManager(
                 resourceEntries = skill.resourceEntries,
             )
         }
-    }
-
-    fun findImplicitlyRelevantSkills(
-        skills: List<InstalledSkill>,
-        messages: List<ChatMessage>,
-        excludedSkillIds: Set<String> = emptySet(),
-        limit: Int = DefaultImplicitSkillMatchLimit,
-    ): List<InstalledSkill> {
-        if (limit <= 0) return emptyList()
-        val requestText = buildImplicitSkillRequestText(messages)
-        if (requestText.isBlank()) return emptyList()
-        val normalizedRequestText = normalizeImplicitSkillMatchText(requestText)
-        val requestTokens = extractImplicitSkillTokens(requestText)
-        if (normalizedRequestText.isBlank() && requestTokens.isEmpty()) return emptyList()
-        return skills.asSequence()
-            .filter { it.isEnabled && it.id !in excludedSkillIds }
-            .mapNotNull { skill ->
-                scoreImplicitSkillMatch(
-                    skill = skill,
-                    normalizedRequestText = normalizedRequestText,
-                    requestTokens = requestTokens,
-                )?.let { match -> skill to match }
-            }
-            .sortedWith(
-                compareByDescending<Pair<InstalledSkill, ImplicitSkillMatch>> { it.second.score }
-                    .thenBy { it.first.name.lowercase(Locale.US) },
-            )
-            .take(limit)
-            .map { it.first }
-            .toList()
     }
 
     fun installedSkillsDirectory(): File = File(context.filesDir, SkillStorageDirectoryName).apply {
@@ -836,166 +802,6 @@ private data class ParsedSkillDocument(
     val allowedTools: List<String>,
     val bodyMarkdown: String,
     val diagnostics: List<String>,
-)
-
-private data class ImplicitSkillMatch(
-    val score: Int,
-    val matchedTokenCount: Int,
-    val matchedPhraseCount: Int,
-)
-
-internal fun buildImplicitSkillRequestText(
-    messages: List<ChatMessage>,
-): String {
-    if (messages.isEmpty()) return ""
-    val recentUserMessages = mutableListOf<ChatMessage>()
-    for (message in messages.asReversed()) {
-        when (message.author) {
-            MessageAuthor.User -> recentUserMessages += message
-            MessageAuthor.Agent -> if (recentUserMessages.isNotEmpty()) break
-        }
-    }
-    return recentUserMessages
-        .asReversed()
-        .joinToString(separator = "\n") { message ->
-            buildString {
-                var hasContent = false
-                if (message.text.isNotBlank()) {
-                    append(message.text)
-                    hasContent = true
-                }
-                if (message.attachments.isNotEmpty()) {
-                    if (hasContent) append('\n')
-                    append("Attachments: ")
-                    append(
-                        message.attachments.joinToString(", ") { attachment ->
-                            listOf(attachment.name, attachment.mimeType)
-                                .filter { it.isNotBlank() }
-                                .joinToString(" ")
-                        }
-                    )
-                }
-            }
-        }
-        .trim()
-}
-
-internal fun scoreImplicitSkillMatch(
-    skill: InstalledSkill,
-    requestText: String,
-): Int? = scoreImplicitSkillMatch(
-    skill = skill,
-    normalizedRequestText = normalizeImplicitSkillMatchText(requestText),
-    requestTokens = extractImplicitSkillTokens(requestText),
-)?.score
-
-private fun scoreImplicitSkillMatch(
-    skill: InstalledSkill,
-    normalizedRequestText: String,
-    requestTokens: Set<String>,
-): ImplicitSkillMatch? {
-    if (normalizedRequestText.isBlank() && requestTokens.isEmpty()) return null
-
-    val normalizedName = normalizeImplicitSkillMatchText(skill.name)
-    val normalizedActionLabel = normalizeImplicitSkillMatchText(skill.quickActionLabel())
-    val phraseMatches = buildSet {
-        if (normalizedName.length >= 3 && normalizedRequestText.contains(normalizedName)) add(normalizedName)
-        if (
-            normalizedActionLabel.length >= 3 &&
-            normalizedActionLabel != normalizedName &&
-            normalizedRequestText.contains(normalizedActionLabel)
-        ) {
-            add(normalizedActionLabel)
-        }
-    }
-
-    val primaryTokens = extractImplicitSkillTokens(
-        listOf(skill.name, skill.quickActionLabel()).joinToString(" "),
-    )
-    val secondaryTokens = extractImplicitSkillTokens(
-        buildString {
-            append(skill.description)
-            append(' ')
-            append(skill.compatibility)
-            if (skill.allowedTools.isNotEmpty()) {
-                append(' ')
-                append(skill.allowedTools.joinToString(" "))
-            }
-        },
-    )
-
-    val matchedPrimaryTokens = primaryTokens.intersect(requestTokens)
-    val matchedSecondaryTokens = secondaryTokens.intersect(requestTokens) - matchedPrimaryTokens
-
-    val score = phraseMatches.sumOf { phrase ->
-        if (phrase == normalizedName) 8 else 6
-    } + matchedPrimaryTokens.sumOf(::implicitSkillPrimaryTokenScore) +
-        matchedSecondaryTokens.sumOf(::implicitSkillSecondaryTokenScore)
-
-    val matchedTokenCount = matchedPrimaryTokens.size + matchedSecondaryTokens.size
-    if (phraseMatches.isEmpty() && matchedTokenCount < 2) return null
-    if (score < ImplicitSkillMatchMinScore) return null
-
-    return ImplicitSkillMatch(
-        score = score,
-        matchedTokenCount = matchedTokenCount,
-        matchedPhraseCount = phraseMatches.size,
-    )
-}
-
-private fun normalizeImplicitSkillMatchText(
-    value: String,
-): String = value.lowercase(Locale.US)
-    .replace(Regex("""[^\p{L}\p{Nd}]+"""), " ")
-    .trim()
-
-private fun extractImplicitSkillTokens(
-    value: String,
-): Set<String> = Regex("""[\p{L}\p{Nd}][\p{L}\p{Nd}_+.-]*""")
-    .findAll(value.lowercase(Locale.US))
-    .map { it.value.trim('.', '-', '_', '+') }
-    .filter { token ->
-        token.length >= 2 &&
-            token !in ImplicitSkillStopwords &&
-            token.any { character -> character.isLetterOrDigit() }
-    }
-    .toSet()
-
-private fun implicitSkillPrimaryTokenScore(token: String): Int = when {
-    token.length >= 8 -> 4
-    token.length >= 5 -> 3
-    else -> 2
-}
-
-private fun implicitSkillSecondaryTokenScore(token: String): Int = when {
-    token.length >= 8 -> 3
-    token.length >= 5 -> 2
-    else -> 1
-}
-
-private val ImplicitSkillStopwords = setOf(
-    "a",
-    "an",
-    "and",
-    "are",
-    "for",
-    "from",
-    "into",
-    "that",
-    "the",
-    "this",
-    "use",
-    "using",
-    "with",
-    "agent",
-    "skill",
-    "skills",
-    "tool",
-    "tools",
-    "task",
-    "tasks",
-    "help",
-    "your",
 )
 
 internal fun resolveRemoteDownloadPlan(rawUrl: String): RemoteDownloadPlan {

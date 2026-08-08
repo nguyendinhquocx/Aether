@@ -410,9 +410,7 @@ export async function loadAetherExtensions(
   });
   const modelRegistry = new ModelRegistry(modelRuntime);
   // The extension-facing facade has no refresh options, so keep catalog reloads offline.
-  modelRegistry.refresh = async () => {
-    await modelRuntime.refresh({ allowNetwork: false });
-  };
+  modelRegistry.refresh = () => modelRuntime.refresh({ allowNetwork: false });
   const runner = new ExtensionRunner(
     extensions,
     runtime,

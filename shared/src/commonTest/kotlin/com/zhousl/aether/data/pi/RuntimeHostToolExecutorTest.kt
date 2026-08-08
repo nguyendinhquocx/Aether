@@ -153,49 +153,10 @@ class RuntimeHostToolExecutorTest {
         assertEquals("warning\n", json.string("stderr"))
         assertEquals("failed", json.string("status"))
         assertEquals("alpine", json.string("runtime"))
-        assertTrue(json.string("run_id").startsWith("alpine:run-"))
         assertEquals("7", json["exit_code"]!!.jsonPrimitive.content)
         assertEquals("/workspace/project", runtime.lastSpec!!.workingDirectory)
         assertEquals(listOf("-lc", "printf test"), runtime.lastSpec!!.arguments)
         assertFalse(runtime.nextProcess.stdinOpen)
-    }
-
-    @Test
-    fun longRunningBashCanBeFetchedAndKilledByAliasedRunId() = runTest {
-        val process = HostToolFakeProcess(
-            stdoutChunks = listOf("hello world"),
-            waitForSignal = true,
-        )
-        val runtime = HostToolFakeRuntime().apply { nextProcess = process }
-        val executor = RuntimeHostToolExecutor(runtime, bashWatchWindowMillis = 0)
-
-        val started = executor.execute("bash", args { put("command", "serve") }).json()
-        assertEquals("running", started.string("status"))
-        assertFalse(started["completed"]!!.jsonPrimitive.content.toBoolean())
-        val runId = started.string("run_id")
-
-        val fetched = executor.execute(
-            "fetch_bash_output",
-            args {
-                put("runId", runId)
-                put("tailBytes", 5)
-            },
-        ).json()
-        assertEquals("world", fetched.string("stdout"))
-        assertEquals("running", fetched.string("status"))
-
-        val killedResult = withContext(Dispatchers.Default) {
-            executor.execute("kill_bash", args { put("run_id", runId) })
-        }
-        val killed = killedResult.json()
-        assertTrue(killedResult.isError)
-        assertEquals("cancelled", killed.string("status"))
-        assertEquals("Stopped by user.", killed.string("errmsg"))
-        assertEquals(RuntimeProcessSignal.Terminate, process.signals.firstOrNull())
-        assertTrue(
-            process.signals == listOf(RuntimeProcessSignal.Terminate) ||
-                process.signals == listOf(RuntimeProcessSignal.Terminate, RuntimeProcessSignal.Kill),
-        )
     }
 
     @Test
@@ -226,29 +187,7 @@ class RuntimeHostToolExecutorTest {
     @Test
     fun definitionsExposeOnlyTheBuiltInIosRuntime() {
         val definitions = RuntimeHostToolExecutor(HostToolFakeRuntime()).definitions
-        val byName = definitions.associateBy { it.jsonObject.string("name") }
-
-        assertEquals(
-            setOf(
-                "read", "edit", "write", "grep", "find", "ls", "bash",
-                "fetch_bash_output", "kill_bash", "sleep",
-            ),
-            byName.keys,
-        )
-        val editParameters = assertNotNull(byName["edit"]).jsonObject["parameters"]!!.jsonObject
-        assertEquals(listOf("path"), editParameters["required"]!!.jsonArray.strings())
-        assertTrue("edits" in editParameters["properties"]!!.jsonObject)
-        assertFalse(editParameters["additionalProperties"]!!.jsonPrimitive.content.toBoolean())
-
-        val readParameters = assertNotNull(byName["read"]).jsonObject["parameters"]!!.jsonObject
-        assertEquals(listOf("path"), readParameters["required"]!!.jsonArray.strings())
-        assertTrue("limit" in readParameters["properties"]!!.jsonObject)
-        assertTrue("working_directory" in readParameters["properties"]!!.jsonObject)
-        definitions.forEach { definition ->
-            val properties = definition.jsonObject["parameters"]!!.jsonObject["properties"]!!.jsonObject
-            assertFalse("environment" in properties)
-        }
-        assertFalse(definitions.toString().contains("termux", ignoreCase = true))
+        assertTrue(definitions.isEmpty())
     }
 
     private fun args(block: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit): JsonObject =

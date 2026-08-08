@@ -34,40 +34,16 @@ class SharedAgentManagementToolsTest {
             (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull
         }.toSet()
 
-        assertTrue(
+        assertEquals(
             setOf(
-                "analyze_image",
-                "activate_skill",
-                "read_skill_resource",
-                "mcp_list_tools",
-                "mcp_call_tool",
-                "mcp_list_resources",
-                "mcp_read_resource",
-                "mcp_list_prompts",
-                "mcp_get_prompt",
                 "aether_config_get",
                 "aether_config_set",
                 "aether_skill_manage",
-                "aether_mcp_manage",
                 "aether_extension_manage",
                 "aether_developer_manage",
-            ).all(names::contains)
+            ),
+            names,
         )
-        assertFalse("aether_termux_manage" in names)
-        assertFalse("aether_agent_mode_manage" in names)
-        assertFalse("aether_scheduled_task_manage" in names)
-        assertFalse("chrome" in names)
-    }
-
-    @Test
-    fun hidesGenericMcpToolsWhenCurrentSessionHasNoCatalog() {
-        val fixture = AgentManagementFixture()
-        val names = fixture.tools.definitions("session-without-mcp").mapNotNull {
-            (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull
-        }.toSet()
-
-        assertTrue(GenericMcpNamesForTest.none(names::contains))
-        assertTrue("aether_mcp_manage" in names)
     }
 
     @Test
@@ -113,39 +89,6 @@ class SharedAgentManagementToolsTest {
     }
 
     @Test
-    fun imageAnalysisRejectsPathsOutsideWorkspaceBeforeReading() = runTest {
-        val fixture = AgentManagementFixture()
-
-        val result = fixture.tools.execute(
-            "analyze_image",
-            buildJsonObject { put("path", "../../root/private.png") },
-        )
-        val payload = Json.parseToJsonElement(result.outputJson).jsonObject
-
-        assertTrue(result.isError)
-        assertTrue(payload.getValue("errmsg").jsonPrimitive.content.contains("workspace"))
-        assertFalse("error" in payload)
-        assertTrue(fixture.runtime.readPaths.isEmpty())
-    }
-
-    @Test
-    fun imageAnalysisUsesAndroidFiveMebibyteLimit() = runTest {
-        val fixture = AgentManagementFixture()
-        fixture.runtime.files["/workspace/large.png"] = ByteArray(5 * 1024 * 1024 + 1)
-
-        val result = fixture.tools.execute(
-            "analyze_image",
-            buildJsonObject { put("path", "large.png") },
-        )
-
-        assertTrue(result.isError)
-        assertTrue(
-            Json.parseToJsonElement(result.outputJson).jsonObject
-                .getValue("errmsg").jsonPrimitive.content.contains("allowed size"),
-        )
-    }
-
-    @Test
     fun cancellationIsNotConvertedIntoToolFailure() = runTest {
         val fixture = AgentManagementFixture(
             updateSettings = { throw CancellationException("cancelled") },
@@ -163,15 +106,6 @@ class SharedAgentManagementToolsTest {
     }
 }
 
-private val GenericMcpNamesForTest = setOf(
-    "mcp_list_tools",
-    "mcp_call_tool",
-    "mcp_list_resources",
-    "mcp_read_resource",
-    "mcp_list_prompts",
-    "mcp_get_prompt",
-)
-
 private class AgentManagementFixture(
     updateSettings: (suspend (AppSettings) -> Unit)? = null,
 ) {
@@ -182,14 +116,9 @@ private class AgentManagementFixture(
         runtime = runtime,
         bridge = bridge,
         skillManager = SharedSkillManager(runtime),
-        mcpManager = SharedMcpManager(runtime),
-        completionClient = SharedPiChatClient(bridge),
         settings = { settings },
         updateSettings = updateSettings ?: { settings = it },
-        activeSkills = { emptyList() },
-        activateSkill = { _, _ -> },
         currentSessionId = { "test-session" },
-        resolveProvider = { null },
     )
 }
 

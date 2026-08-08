@@ -1106,7 +1106,6 @@ fun AddProviderWizard(
                     providerSearch = providerSearch,
                     onProviderSearchChange = { providerSearch = it },
                     providerChoices = matchingProviders,
-                    authMethod = selectedAuthMethod,
                     onProviderSelected = { provider ->
                         onClearAuthState()
                         state.applyProviderDefaults(provider)

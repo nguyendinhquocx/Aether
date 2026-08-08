@@ -1,7 +1,5 @@
 package com.zhousl.aether.ui
 
-import com.zhousl.aether.platform.LocalReduceMotion
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -589,7 +587,6 @@ internal fun SharedConversationMessage(
                             ) {
                                 SharedBranchStepButton(
                                     icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                                    contentDescription = stringResource(Res.string.chat_previous_branch),
                                     enabled = message.branchIndex > 0,
                                     onClick = onPreviousBranch,
                                 )
@@ -600,7 +597,6 @@ internal fun SharedConversationMessage(
                                 )
                                 SharedBranchStepButton(
                                     icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                                    contentDescription = stringResource(Res.string.chat_next_branch),
                                     enabled = message.branchIndex < message.branchCount - 1,
                                     onClick = onNextBranch,
                                 )
@@ -793,16 +789,15 @@ internal fun SharedConversationMessage(
                         )
                     }
                 }
-                if (message.isStreaming) {
-                    if (message.status.isNotBlank()) {
-                        SharedGenerationStatusCard(
-                            text = message.status,
-                            detail = message.statusDetail,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
-                    } else if (message.responseBlocks.isEmpty()) {
-                        SharedThinkingIndicator()
-                    }
+                if (message.status.isNotBlank()) {
+                    SharedGenerationStatusCard(
+                        text = message.status,
+                        detail = message.statusDetail,
+                        isRunning = message.isStreaming,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                } else if (message.isStreaming && message.responseBlocks.isEmpty()) {
+                    SharedThinkingIndicator()
                 }
                 if (
                     !message.isStreaming &&
@@ -1520,19 +1515,14 @@ private fun SharedUserMessageActionRow(icon: ImageVector, label: String, onClick
 }
 
 @Composable
-private fun SharedBranchStepButton(
-    enabled: Boolean,
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-) {
+private fun SharedBranchStepButton(enabled: Boolean, icon: ImageVector, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.size(44.dp).clip(CircleShape).clickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier.size(32.dp).clip(CircleShape).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
-            contentDescription = contentDescription,
+            contentDescription = null,
             tint = if (enabled) AetherOnSurfaceVariant else AetherOnSurfaceVariant.copy(alpha = 0.32f),
             modifier = Modifier.size(30.dp),
         )
@@ -1625,15 +1615,6 @@ internal fun SharedReasoningShimmerText(
     travelDurationMillis: Int = 1_800,
     pauseDurationMillis: Int = 1_000,
 ) {
-    if (LocalReduceMotion.current) {
-        Text(
-            text = text,
-            modifier = modifier,
-            style = MaterialTheme.typography.bodyMedium,
-            color = AetherOnSurfaceVariant,
-        )
-        return
-    }
     val totalDurationMillis = travelDurationMillis + pauseDurationMillis
     val travelDistance = (280f + text.length * 18f).coerceIn(280f, 760f)
     val shimmerOffset by rememberInfiniteTransition(label = "shared_reasoning_status_shimmer").animateFloat(
@@ -2050,9 +2031,6 @@ internal fun summarizeSharedToolInvocationCommand(
     if (arguments == null) return toolName
     return when (toolName.lowercase()) {
         "bash" -> arguments.sharedString("command").trim()
-        "fetch_bash_output" -> "fetch ${arguments.sharedString("run_id").ifBlank { arguments.sharedString("runId") }.trim()}"
-        "kill_bash" -> "kill ${arguments.sharedString("run_id").ifBlank { arguments.sharedString("runId") }.trim()}"
-        "sleep" -> "sleep ${arguments.sharedString("duration_ms").ifBlank { arguments.sharedString("durationMs") }.trim()}ms"
         "read" -> buildString {
             append("read ")
             append(arguments.sharedString("path").trim())
@@ -2527,6 +2505,7 @@ private fun SharedThinkingIndicator() {
 private fun SharedGenerationStatusCard(
     text: String,
     detail: String,
+    isRunning: Boolean,
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(text, detail) { mutableStateOf(false) }
@@ -2545,7 +2524,15 @@ private fun SharedGenerationStatusCard(
             ) { expanded = !expanded },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SharedReasoningShimmerText(text)
+        if (isRunning) {
+            SharedReasoningShimmerText(text)
+        } else {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = AetherOnSurfaceVariant,
+            )
+        }
         AnimatedVisibility(
             visible = expanded && detail.isNotBlank(),
             enter = expandVertically(
@@ -2879,18 +2866,12 @@ internal enum class SharedToolPresentation {
 
 internal fun sharedToolPresentation(name: String): SharedToolPresentation = when (name.lowercase()) {
     "bash" -> SharedToolPresentation.Bash
-    "fetch_bash_output" -> SharedToolPresentation.BashOutput
-    "kill_bash" -> SharedToolPresentation.KillBash
-    "sleep" -> SharedToolPresentation.Sleep
     "read" -> SharedToolPresentation.Read
     "edit" -> SharedToolPresentation.Edit
     "write" -> SharedToolPresentation.Write
     "grep" -> SharedToolPresentation.Grep
     "find" -> SharedToolPresentation.Find
     "ls" -> SharedToolPresentation.List
-    "analyze_image" -> SharedToolPresentation.AnalyzeImage
-    "tavily_search" -> SharedToolPresentation.WebSearch
-    "fetch_web_url" -> SharedToolPresentation.WebFetch
     else -> SharedToolPresentation.Generic
 }
 
@@ -2899,24 +2880,9 @@ private fun toolTitle(tool: SharedChatToolInvocation): String {
     val isRunning = tool.isRunning
     val arguments = remember(tool.argumentsJson) { parseSharedJsonObject(tool.argumentsJson) }
     when (tool.name.lowercase()) {
-        "tavily_search" -> return formatSharedArgumentDrivenToolTitle(
-            isRunning = isRunning,
-            runningVerb = Res.string.tool_title_searching,
-            completedVerb = Res.string.tool_title_searched,
-            subject = arguments.sharedString("query"),
-            fallback = Res.string.tool_title_tavily_search_fallback,
-        )
-        "fetch_web_url" -> return formatSharedArgumentDrivenToolTitle(
-            isRunning = isRunning,
-            runningVerb = Res.string.tool_title_fetching,
-            completedVerb = Res.string.tool_title_fetched,
-            subject = arguments.sharedString("url"),
-            fallback = Res.string.tool_title_web_page_fallback,
-        )
         "aether_config_get",
         "aether_config_set",
         "aether_skill_manage",
-        "aether_mcp_manage",
         "aether_developer_manage" -> return formatSharedAetherToolTitle(
             toolName = tool.name,
             isRunning = isRunning,

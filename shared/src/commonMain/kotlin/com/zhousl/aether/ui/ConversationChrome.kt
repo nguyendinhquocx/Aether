@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherSurface
-import com.zhousl.aether.platform.LocalReduceMotion
 
 private val ConversationControlShadow = Color(0x14000000)
 private val ConversationMotionEasing = CubicBezierEasing(0.22f, 0.84f, 0.18f, 1f)
@@ -68,7 +67,7 @@ fun AetherConversationTopBarFrame(
                 icon = Icons.Rounded.Menu,
                 contentDescription = menuDescription,
                 onClick = onMenu,
-                size = 44.dp,
+                size = 38.dp,
                 iconSize = 19.dp,
                 containerColor = AetherSurface.copy(alpha = 0.96f),
             )
@@ -86,7 +85,7 @@ fun AetherConversationTopBarFrame(
             icon = LucideIcons.SquarePen,
             contentDescription = newChatDescription,
             onClick = onNewChat,
-            size = 44.dp,
+            size = 38.dp,
             iconSize = 19.dp,
             containerColor = AetherSurface.copy(alpha = 0.96f),
         )
@@ -130,18 +129,13 @@ fun AetherConversationEmptyState(
     codeLabel: String,
     helpWriteLabel: String,
     summarizeFileLabel: String,
-    analyzeImagePrompt: String,
-    codePrompt: String,
-    helpWritePrompt: String,
-    summarizeFilePrompt: String,
     inputFocused: Boolean,
     onStarterPromptSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val reduceMotion = LocalReduceMotion.current
     val titleOffset by animateDpAsState(
         targetValue = if (inputFocused) (-34).dp else (-24).dp,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = ConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = ConversationMotionEasing),
         label = "empty_state_title_offset",
     )
     Column(
@@ -171,13 +165,15 @@ fun AetherConversationEmptyState(
                     icon = Icons.Rounded.Image,
                     label = analyzeImageLabel,
                     iconTint = Color(0xFF38A961),
-                    onClick = { onStarterPromptSelected(analyzeImagePrompt) },
+                    onClick = {
+                        onStarterPromptSelected("Analyze this image and describe the important details.")
+                    },
                 )
                 ConversationStarterChip(
                     icon = Icons.Rounded.Terminal,
                     label = codeLabel,
                     iconTint = Color(0xFF7D70DD),
-                    onClick = { onStarterPromptSelected(codePrompt) },
+                    onClick = { onStarterPromptSelected("Help me write or debug this code: ") },
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -185,13 +181,17 @@ fun AetherConversationEmptyState(
                     icon = Icons.Rounded.AutoAwesome,
                     label = helpWriteLabel,
                     iconTint = Color(0xFFE48AAE),
-                    onClick = { onStarterPromptSelected(helpWritePrompt) },
+                    onClick = {
+                        onStarterPromptSelected("Help me write a clear, polished message about ")
+                    },
                 )
                 ConversationStarterChip(
                     icon = Icons.Rounded.AttachFile,
                     label = summarizeFileLabel,
                     iconTint = Color(0xFF66C7D4),
-                    onClick = { onStarterPromptSelected(summarizeFilePrompt) },
+                    onClick = {
+                        onStarterPromptSelected("Summarize this file and list the key points.")
+                    },
                 )
             }
         }

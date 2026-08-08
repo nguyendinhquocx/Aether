@@ -26,6 +26,22 @@ internal fun piThinkingLevelClamps(clamps: JSONObject): Map<String, String> =
 internal fun thinkingCatalogKey(providerId: String, modelId: String): String =
     "${providerId.trim()}/${modelId.substringAfterLast('/').trim()}"
 
+private fun publicCatalogProviderId(providerId: String): String = when (providerId.trim()) {
+    "openai-codex" -> "openai"
+    else -> providerId.trim()
+}
+
+private fun publicCatalogModelKeys(providerId: String, modelId: String): List<String> {
+    val normalized = modelId.substringAfterLast('/').trim()
+    return buildList {
+        add(normalized)
+        if (providerId == "kimi-coding" && normalized.startsWith("kimi-")) {
+            add(normalized.removePrefix("kimi-"))
+        }
+        if (providerId == "kimi-coding" && normalized == "k3") add("kimi-k3")
+    }.distinct()
+}
+
 object ProviderModelCatalogClient {
 
     data class FetchModelsResult(
@@ -74,6 +90,57 @@ object ProviderModelCatalogClient {
             FetchModelsResult(emptyList(), e.message ?: "Unknown error")
         }
     }
+
+    suspend fun fetchPublicThinkingLevels(options: List<ProviderModelOption>): Map<String, List<String>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL("https://models.dev/catalog.json").openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 20_000
+                try {
+                    if (connection.responseCode != 200) return@runCatching emptyMap()
+                    val providers = JSONObject(connection.inputStream.bufferedReader().readText())
+                        .optJSONObject("providers") ?: return@runCatching emptyMap()
+                    buildMap {
+                        options.forEach { option ->
+                            val provider = providers.optJSONObject(publicCatalogProviderId(option.piProviderId))
+                                ?: return@forEach
+                            val models = provider.optJSONObject("models") ?: return@forEach
+                            val model = publicCatalogModelKeys(option.piProviderId, option.modelId)
+                                .firstNotNullOfOrNull { key -> models.optJSONObject(key) }
+                                ?: models.keys().asSequence().mapNotNull { key ->
+                                    models.optJSONObject(key)?.takeIf { candidate ->
+                                        publicCatalogModelKeys(option.piProviderId, candidate.optString("id"))
+                                            .any { it.equals(option.modelId.substringAfterLast('/').trim(), ignoreCase = true) }
+                                    }
+                                }.firstOrNull()
+                            val levels = model?.takeIf { it.optBoolean("reasoning") }?.let { definition ->
+                                buildList {
+                                    val reasoningOptions = definition.optJSONArray("reasoning_options")
+                                    if ((0 until (reasoningOptions?.length() ?: 0)).any {
+                                            reasoningOptions?.optJSONObject(it)?.optString("type") == "toggle"
+                                        }) add("off")
+                                    for (index in 0 until (reasoningOptions?.length() ?: 0)) {
+                                        val effort = reasoningOptions?.optJSONObject(index) ?: continue
+                                        if (effort.optString("type") != "effort") continue
+                                        val values = effort.optJSONArray("values") ?: continue
+                                        for (valueIndex in 0 until values.length()) {
+                                            val value = values.optString(valueIndex).trim()
+                                            val normalizedValue = if (value == "none") "off" else value
+                                            if (normalizedValue in PiThinkingLevels && normalizedValue !in this) add(normalizedValue)
+                                        }
+                                    }
+                                }
+                            }.orEmpty()
+                            put(thinkingCatalogKey(option.piProviderId, option.modelId), levels)
+                        }
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrDefault(emptyMap())
+        }
 
     private suspend fun fetchPiBuiltinModels(
         definition: PiProviderDefinition,

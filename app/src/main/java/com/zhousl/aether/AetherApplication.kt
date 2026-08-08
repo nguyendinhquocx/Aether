@@ -27,7 +27,6 @@ import com.zhousl.aether.data.ScheduledTaskRepository
 import com.zhousl.aether.data.ScheduledTaskScheduler
 import com.zhousl.aether.data.SessionExecutionManager
 import com.zhousl.aether.data.SettingsRepository
-import com.zhousl.aether.data.WebToolsClient
 import com.zhousl.aether.data.WorkspaceFileBridge
 import com.zhousl.aether.data.pi.PiCompletionClient
 import com.zhousl.aether.data.pi.PiAgentRunner
@@ -37,6 +36,7 @@ import com.zhousl.aether.runtime.AlpineRuntime
 import com.zhousl.aether.runtime.RuntimeRouter
 import com.zhousl.aether.runtime.TermuxRuntime
 import com.zhousl.aether.termux.TermuxBashTool
+import com.zhousl.aether.termux.TermuxRuntimeOperations
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -186,20 +186,17 @@ class AetherAppRuntime(
         diagnosticLogger = diagnosticLogger,
         loadOptionsProvider = piExtensionStateRepository::loadOptions,
     )
-    val webToolsClient = WebToolsClient()
     val piAgentRunner = PiAgentRunner(
         bridge = piKernelBridge,
         settingsRepository = settingsRepository,
         piExtensionStateRepository = piExtensionStateRepository,
+        appExtensionManager = aetherAppExtensionManager,
+        alpineChromeController = alpineChromeController,
+        termuxRuntimeOperations = TermuxRuntimeOperations(bashTool),
         diagnosticLogger = diagnosticLogger,
         toolExecutor = AetherToolExecutor(
             runtimeRouter = runtimeRouter,
-            skillManager = skillManager,
-            webToolsClient = webToolsClient,
-            runtimeWorkspaceFileBridge = runtimeWorkspaceFileBridge,
-            piCompletionClient = piCompletionClient,
             agentModeController = agentModeController,
-            alpineChromeController = alpineChromeController,
         ),
     )
     val appForegroundTracker = AppForegroundTracker()

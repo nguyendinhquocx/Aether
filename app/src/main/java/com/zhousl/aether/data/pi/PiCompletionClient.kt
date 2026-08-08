@@ -68,5 +68,8 @@ fun LlmMessage.toPiJson(): JSONObject = JSONObject().apply {
         }
     }
     put("content", content)
+    if (toolCallId.isNotBlank()) put("tool_call_id", toolCallId)
+    if (toolName.isNotBlank()) put("tool_name", toolName)
+    if (isError) put("is_error", true)
     providerPayload?.let { put("provider_payload", it) }
 }

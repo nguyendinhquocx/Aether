@@ -67,7 +67,7 @@ static NSString *const AetherISHErrorDomain = @"com.baimoqilin.aether.ish";
 @property(nonatomic, readwrite, getter=isInitialized) BOOL initialized;
 @property(nonatomic) struct task *initTask;
 - (void)processExited:(int)processId code:(int)code signal:(int)signal;
-- (void)performGuestOperation:(dispatch_block_t)operation;
+- (BOOL)performGuestOperation:(dispatch_block_t)operation;
 - (void)closePipe:(int[2])pipeDescriptors;
 - (int)changeGuestDirectory:(const char *)path;
 - (void)assignHostFd:(int)hostFd toGuestFd:(int)guestFd task:(struct task *)task;
@@ -83,6 +83,10 @@ static NSError *AetherISHError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:AetherISHErrorDomain
                                code:code
                            userInfo:@{NSLocalizedDescriptionKey: message}];
+}
+
+static NSError *AetherISHNotInitializedError(void) {
+    return AetherISHError(_ENODEV, @"Alpine runtime is not initialized.");
 }
 
 static void AetherISHProcessExited(struct task *task, int code) {
@@ -404,10 +408,13 @@ static void AetherISHDie(const char *message) {
     return processId;
 }
 
-- (void)performGuestOperation:(dispatch_block_t)operation {
+- (BOOL)performGuestOperation:(dispatch_block_t)operation {
+    __block BOOL performed = NO;
     dispatch_block_t guarded = ^{
+        if (!self.initialized || self.initTask == NULL) return;
         struct task *savedCurrent = current;
         current = self.initTask;
+        performed = YES;
         operation();
         current = savedCurrent;
     };
@@ -416,6 +423,7 @@ static void AetherISHDie(const char *message) {
     } else {
         dispatch_sync(self.queue, guarded);
     }
+    return performed;
 }
 
 - (void)closePipe:(int[2])pipeDescriptors {
@@ -563,7 +571,7 @@ static void AetherISHDie(const char *message) {
 - (NSData *)readFile:(NSString *)path maximumBytes:(NSUInteger)maximumBytes error:(NSError **)error {
     __block NSData *result = nil;
     __block NSError *operationError = nil;
-    [self performGuestOperation:^{
+    BOOL performed = [self performGuestOperation:^{
         struct fd *fd = generic_open(path.UTF8String, O_RDONLY_, 0);
         if (IS_ERR(fd)) {
             operationError = AetherISHError(PTR_ERR(fd), @"Unable to open guest file.");
@@ -587,6 +595,7 @@ static void AetherISHDie(const char *message) {
         fd_close(fd);
         if (!operationError) result = [contents copy];
     }];
+    if (!performed && !operationError) operationError = AetherISHNotInitializedError();
     if (error) *error = operationError;
     return result;
 }
@@ -594,7 +603,7 @@ static void AetherISHDie(const char *message) {
 - (NSData *)readFilePrefix:(NSString *)path maximumBytes:(NSUInteger)maximumBytes error:(NSError **)error {
     __block NSData *result = nil;
     __block NSError *operationError = nil;
-    [self performGuestOperation:^{
+    BOOL performed = [self performGuestOperation:^{
         struct fd *fd = generic_open(path.UTF8String, O_RDONLY_, 0);
         if (IS_ERR(fd)) {
             operationError = AetherISHError(PTR_ERR(fd), @"Unable to open guest file.");
@@ -616,6 +625,7 @@ static void AetherISHDie(const char *message) {
         fd_close(fd);
         if (!operationError) result = [contents copy];
     }];
+    if (!performed && !operationError) operationError = AetherISHNotInitializedError();
     if (error) *error = operationError;
     return result;
 }
@@ -630,7 +640,7 @@ static void AetherISHDie(const char *message) {
          progress:(AetherISHFileWriteProgressBlock)progress
             error:(NSError **)error {
     __block NSError *operationError = nil;
-    [self performGuestOperation:^{
+    BOOL performed = [self performGuestOperation:^{
         struct fd *fd = generic_open(path.UTF8String, O_WRONLY_ | O_CREAT_ | O_TRUNC_, executable ? 0755 : 0644);
         if (IS_ERR(fd)) {
             operationError = AetherISHError(PTR_ERR(fd), @"Unable to open guest file for writing.");
@@ -653,13 +663,14 @@ static void AetherISHDie(const char *message) {
         }
         fd_close(fd);
     }];
+    if (!performed && !operationError) operationError = AetherISHNotInitializedError();
     if (error) *error = operationError;
     return operationError == nil;
 }
 
 - (BOOL)createDirectories:(NSString *)path error:(NSError **)error {
     __block NSError *operationError = nil;
-    [self performGuestOperation:^{
+    BOOL performed = [self performGuestOperation:^{
         NSArray<NSString *> *components = [path pathComponents];
         NSMutableString *currentPath = [NSMutableString string];
         for (NSString *component in components) {
@@ -672,12 +683,13 @@ static void AetherISHDie(const char *message) {
             }
         }
     }];
+    if (!performed && !operationError) operationError = AetherISHNotInitializedError();
     if (error) *error = operationError;
     return operationError == nil;
 }
 
 - (BOOL)removePath:(NSString *)path recursive:(BOOL)recursive error:(NSError **)error {
-    __block int result = 0;
+    __block int result = _ENODEV;
     [self performGuestOperation:^{
         result = recursive
             ? [self removeGuestPathRecursively:path.UTF8String]
@@ -722,7 +734,7 @@ static void AetherISHDie(const char *message) {
         if (error) *error = AetherISHError(1, @"Bind mount must remain inside the application sandbox.");
         return NO;
     }
-    __block int result = 0;
+    __block int result = _ENODEV;
     [self performGuestOperation:^{
         result = fakefs_bind_mount(guestPath.UTF8String, hostPath.UTF8String, readOnly);
     }];

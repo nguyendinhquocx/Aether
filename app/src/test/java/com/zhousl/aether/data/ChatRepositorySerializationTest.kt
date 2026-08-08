@@ -224,6 +224,33 @@ class ChatRepositorySerializationTest {
     }
 
     @Test
+    fun sessionRoundTripPreservesStoppedReconnectStatus() {
+        val serialized = serializeChatSessions(
+            listOf(
+                ChatSession(
+                    id = "session-reconnect",
+                    title = "Reconnect",
+                    preview = "Reconnect",
+                    messages = listOf(
+                        ChatMessage(
+                            id = "agent-reconnect",
+                            author = MessageAuthor.Agent,
+                            text = "partial output",
+                            statusText = "Reconnecting... 2/5",
+                            statusDetail = "fetch failed: connect timed out (ETIMEDOUT)",
+                        )
+                    ),
+                )
+            )
+        )
+
+        val restored = parseChatSessions(serialized).single().messages.single()
+
+        assertEquals("Reconnecting... 2/5", restored.statusText)
+        assertEquals("fetch failed: connect timed out (ETIMEDOUT)", restored.statusDetail)
+    }
+
+    @Test
     fun sessionRoundTripPreservesChromeSelection() {
         val serialized = serializeChatSessions(
             listOf(

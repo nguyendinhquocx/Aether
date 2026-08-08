@@ -21,7 +21,7 @@ class ChatHistoryMigrationTest {
     )
 
     @Test
-    fun migrate1To5PreservesDataAndAddsCurrentSchema() {
+    fun migrate1To7PreservesDataAndAddsCurrentSchema() {
         helper.createDatabase(TEST_DATABASE, 1).apply {
             execSQL(
                 """
@@ -78,7 +78,7 @@ class ChatHistoryMigrationTest {
 
         helper.runMigrationsAndValidate(
             TEST_DATABASE,
-            5,
+            7,
             true,
             *ChatHistoryMigrations,
         ).use { database ->
@@ -162,7 +162,7 @@ class ChatHistoryMigrationTest {
 
         helper.runMigrationsAndValidate(
             MALFORMED_JSON_DATABASE,
-            5,
+            7,
             true,
             *ChatHistoryMigrations,
         ).use { database ->

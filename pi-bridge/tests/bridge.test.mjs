@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, test } from "node:test";
+import {
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 
 const activeClients = new Set();
 
@@ -665,9 +674,9 @@ test("reports pinned bridge and Pi versions", async () => {
   const ping = await client.request("ping-1", "ping");
 
   assert.equal(ping.bridge_version, "2.0.0-alpha.0");
-  assert.equal(ping.pi_ai_version, "0.83.0");
-  assert.equal(ping.pi_agent_core_version, "0.83.0");
-  assert.equal(ping.pi_coding_agent_version, "0.83.0");
+  assert.equal(ping.pi_ai_version, "0.84.1");
+  assert.equal(ping.pi_agent_core_version, "0.84.1");
+  assert.equal(ping.pi_coding_agent_version, "0.84.1");
   assert.match(ping.node_version, /^v\d+\./);
 });
 
@@ -831,41 +840,7 @@ test("runs text turns and reuses the persisted Pi assistant session", async () =
   assert.equal(second.assistant_text, "first answer");
 });
 
-test("rebuilds a harness when any earlier persisted history changes", async () => {
-  const client = new BridgeClient();
-  const config = fauxConfig({ faux_response: "history answer" });
-  const first = await client.request(
-    "history-1",
-    "run_turn",
-    turnPayload("session-history-signature", [userMessage("ORIGINAL HISTORY")], config),
-  );
-
-  const second = await client.request(
-    "history-2",
-    "run_turn",
-    turnPayload(
-      "session-history-signature",
-      [
-        userMessage("REPLACED HISTORY"),
-        {
-          role: "assistant",
-          content: [{ type: "text", text: first.assistant_text }],
-          provider_payload: {
-            piAssistantMessage: first.assistant_message,
-            provider: first.provider,
-            model: first.model,
-          },
-        },
-        userMessage("continue"),
-      ],
-      config,
-    ),
-  );
-
-  assert.equal(second.session_reused, false);
-});
-
-test("closes harness sessions explicitly", async () => {
+test("closes AgentSession instances explicitly", async () => {
   const client = new BridgeClient();
   await client.request(
     "close-create",
@@ -886,219 +861,128 @@ test("closes harness sessions explicitly", async () => {
   );
 });
 
-test("evicts least-recently-used idle harness sessions", async () => {
-  const client = new BridgeClient({ AETHER_PI_MAX_HARNESS_SESSIONS: "2" });
-  await client.request("lru-a", "run_turn", turnPayload("session-lru-a", [userMessage("a")]));
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  await client.request("lru-b", "run_turn", turnPayload("session-lru-b", [userMessage("b")]));
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  await client.request("lru-c", "run_turn", turnPayload("session-lru-c", [userMessage("c")]));
-
+test("imports validated Pi JSONL into a relocated session file", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-jsonl-import-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  await client.request("jsonl-create", "run_turn", turnPayload("session-jsonl", [userMessage("hello")]));
+  const exported = await client.request("jsonl-export", "export_session_jsonl", {
+    session_id: "session-jsonl",
+  });
+  const jsonl = await readFile(exported.exported_path, "utf8");
+  await client.request("jsonl-close", "close_session", {
+    session_id: "session-jsonl",
+    session_file: exported.exported_path,
+    delete_file: true,
+  });
+  const imported = await client.request("jsonl-import", "import_session_jsonl", {
+    session_id: "session-jsonl",
+    jsonl,
+  });
+  assert.equal(imported.imported, true);
+  assert.match(imported.session_file, /_session-jsonl\.jsonl$/);
   await assert.rejects(
-    client.request("lru-a-follow-up", "follow_up", {
-      session_id: "session-lru-a",
-      message: userMessage("again"),
+    client.request("jsonl-invalid", "import_session_jsonl", {
+      session_id: "other-session",
+      jsonl,
     }),
-    /Unknown Pi session/,
+    /header\/session id mismatch/,
   );
 });
 
-test("expires idle harness sessions after the configured TTL", async () => {
-  const client = new BridgeClient({ AETHER_PI_HARNESS_SESSION_TTL_MS: "20" });
-  await client.request("ttl-a", "run_turn", turnPayload("session-ttl-a", [userMessage("a")]));
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  await client.request("ttl-b", "run_turn", turnPayload("session-ttl-b", [userMessage("b")]));
+test("uses Pi Coding Agent native tool schemas and platform runtime sets", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-native-tools-"));
+  const workspace = join(home, "alpine-workspace");
+  const termuxWorkspace = join(home, "termux-workspace");
+  await Promise.all([mkdir(workspace), mkdir(termuxWorkspace)]);
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
 
-  await assert.rejects(
-    client.request("ttl-a-follow-up", "follow_up", {
-      session_id: "session-ttl-a",
-      message: userMessage("again"),
-    }),
-    /Unknown Pi session/,
-  );
-});
+  const cases = [
+    ["android-alpine", "android", "alpine", ["read", "bash", "edit", "write", "grep", "find", "ls"]],
+    ["android-termux", "android", "termux", ["read", "bash", "edit", "write"]],
+    ["ios-alpine", "ios", "alpine", ["read", "bash", "edit", "write", "grep", "find", "ls"]],
+  ];
+  for (const [sessionId, platform, runtime, expectedTools] of cases) {
+    await client.request(`${sessionId}-turn`, "run_turn", {
+      ...turnPayload(sessionId, [userMessage("hello")]),
+      platform,
+      runtime,
+      workspace_directory: workspace,
+      termux_workspace_directory: termuxWorkspace,
+    });
+    const state = await client.request(`${sessionId}-state`, "get_session_state", {
+      session_id: sessionId,
+    });
+    assert.deepEqual(state.active_tools, expectedTools);
+  }
 
-test("rebuilds a persisted harness when the host tool set changes", async () => {
-  const client = new BridgeClient();
-  const config = fauxConfig({ faux_response: "first answer" });
-  const first = await client.request(
-    "tool-signature-1",
-    "run_turn",
-    turnPayload("session-tool-signature", [userMessage("hello")], config),
-  );
-
-  const second = await client.request(
-    "tool-signature-2",
-    "run_turn",
-    turnPayload(
-      "session-tool-signature",
-      [
-        userMessage("hello"),
-        {
-          role: "assistant",
-          content: [{ type: "text", text: first.assistant_text }],
-          provider_payload: {
-            piAssistantMessage: first.assistant_message,
-            provider: first.provider,
-            model: first.model,
-          },
-        },
-        userMessage("continue with a new tool"),
-      ],
-      config,
-      [hostTool("agent_display", "sequential")],
-    ),
-  );
-
-  assert.equal(second.session_reused, false);
-});
-
-test("routes harness tool calls through the host and resumes with the result", async () => {
-  const client = new BridgeClient();
-  const config = fauxConfig({
-    faux_response: "tool finished",
-    faux_tool_calls: [{ id: "call-1", name: "read", arguments: { path: "README.md" } }],
+  const state = await client.request("android-alpine-schemas", "get_session_state", {
+    session_id: "android-alpine",
   });
-  const run = client.request(
-    "tool-turn",
-    "run_turn",
-    turnPayload(
-      "session-tool",
-      [userMessage("read the file")],
-      config,
-      [
-        {
-          name: "read",
-          description: "Read a file.",
-          parameters: {
-            type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"],
-            additionalProperties: false,
-          },
-          execution_mode: "parallel",
-        },
-      ],
-    ),
-  );
-  const hostRequest = await client.waitForEvent(
-    (frame) => frame.id === "tool-turn" && frame.event === "host_tool_request",
-  );
-  assert.equal(hostRequest.payload.tool_name, "read");
-  const hostResult = await client.request("host-result", "host_tool_result", {
-    session_id: "session-tool",
-    tool_request_id: hostRequest.payload.tool_request_id,
-    tool_call_id: hostRequest.payload.tool_call_id,
-    tool_name: "read",
-    arguments_json: hostRequest.payload.arguments_json,
-    output_json: JSON.stringify({ ok: true, stdout: "contents" }),
-    raw_output_json: JSON.stringify({ ok: true, stdout: "contents" }),
-    is_error: false,
-    content: [{ type: "text", text: JSON.stringify({ ok: true, stdout: "contents" }) }],
-  });
-  assert.equal(hostResult.accepted, true);
-  const result = await run;
-  assert.equal(result.assistant_text, "tool finished");
-  assert.ok(
-    client.events.some(
-      (frame) => frame.id === "tool-turn" && frame.event === "tool_call_end",
-    ),
-  );
+  const actualByName = Object.fromEntries(state.tools.map((tool) => [tool.name, tool.parameters]));
+  const expectedDefinitions = [
+    createReadToolDefinition(workspace),
+    createBashToolDefinition(workspace),
+    createEditToolDefinition(workspace),
+    createWriteToolDefinition(workspace),
+    createGrepToolDefinition(workspace),
+    createFindToolDefinition(workspace),
+    createLsToolDefinition(workspace),
+  ];
+  for (const definition of expectedDefinitions) {
+    assert.deepEqual(actualByName[definition.name], definition.parameters);
+  }
+  assert.equal(actualByName.read.properties.offset.description.includes("1-indexed"), true);
+  assert.equal("working_directory" in actualByName.bash.properties, false);
+  assert.equal("environment" in actualByName.bash.properties, false);
 });
 
-test("runs parallel host tools concurrently", async () => {
-  const client = new BridgeClient();
-  const config = fauxConfig({
-    faux_response: "parallel finished",
-    faux_tool_calls: [
-      { id: "parallel-a", name: "parallel_a", arguments: { value: "a" } },
-      { id: "parallel-b", name: "parallel_b", arguments: { value: "b" } },
-    ],
+test("allows only Aether-owned host tools and keeps Chrome Android-only", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-host-tools-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  const sharedNames = [
+    "aether_config_get",
+    "aether_config_set",
+    "aether_skill_manage",
+    "aether_extension_manage",
+    "aether_developer_manage",
+  ];
+  const removedNames = [
+    "analyze_image",
+    "activate_skill",
+    "read_skill_resource",
+    "fetch_web_url",
+    "tavily_search",
+    "mcp_call_tool",
+    "aether_mcp_manage",
+  ];
+  const requested = [...sharedNames, ...removedNames].map((name) => hostTool(name));
+
+  await client.request("android-host-turn", "run_turn", {
+    ...turnPayload("android-host", [userMessage("hello")], fauxConfig(), requested),
+    platform: "android",
+    chrome_enabled: true,
   });
-  const run = client.request(
-    "parallel-turn",
-    "run_turn",
-    turnPayload(
-      "session-parallel",
-      [userMessage("run both")],
-      config,
-      [hostTool("parallel_a"), hostTool("parallel_b")],
-    ),
-  );
-
-  const [first, second] = await Promise.all([
-    client.waitForEvent(
-      (frame) =>
-        frame.id === "parallel-turn" &&
-        frame.event === "host_tool_request" &&
-        frame.payload.tool_name === "parallel_a",
-    ),
-    client.waitForEvent(
-      (frame) =>
-        frame.id === "parallel-turn" &&
-        frame.event === "host_tool_request" &&
-        frame.payload.tool_name === "parallel_b",
-    ),
-  ]);
-  assert.equal(first.payload.execution_mode, "parallel");
-  assert.equal(second.payload.execution_mode, "parallel");
-  await Promise.all([
-    respondToHostTool(client, first, "parallel-result-a"),
-    respondToHostTool(client, second, "parallel-result-b"),
-  ]);
-
-  const result = await run;
-  assert.equal(result.assistant_text, "parallel finished");
-});
-
-test("runs sequential host tools one at a time", async () => {
-  const client = new BridgeClient();
-  const config = fauxConfig({
-    faux_response: "sequential finished",
-    faux_tool_calls: [
-      { id: "sequential-a", name: "sequential_a", arguments: { value: "a" } },
-      { id: "sequential-b", name: "sequential_b", arguments: { value: "b" } },
-    ],
+  const android = await client.request("android-host-state", "get_session_state", {
+    session_id: "android-host",
   });
-  const run = client.request(
-    "sequential-turn",
-    "run_turn",
-    turnPayload(
-      "session-sequential",
-      [userMessage("run in order")],
-      config,
-      [hostTool("sequential_a", "sequential"), hostTool("sequential_b", "sequential")],
-    ),
-  );
+  assert.equal(android.active_tools.includes("chrome"), true);
+  assert.deepEqual(sharedNames.filter((name) => android.active_tools.includes(name)), sharedNames);
+  assert.deepEqual(removedNames.filter((name) => android.active_tools.includes(name)), []);
 
-  const first = await client.waitForEvent(
-    (frame) =>
-      frame.id === "sequential-turn" &&
-      frame.event === "host_tool_request" &&
-      frame.payload.tool_name === "sequential_a",
-  );
-  assert.equal(first.payload.execution_mode, "sequential");
-  await assert.rejects(
-    client.waitForEvent(
-      (frame) =>
-        frame.id === "sequential-turn" &&
-        frame.event === "host_tool_request" &&
-        frame.payload.tool_name === "sequential_b",
-      150,
-    ),
-    /Timed out waiting for Pi event/,
-  );
-  await respondToHostTool(client, first, "sequential-result-a");
-  const second = await client.waitForEvent(
-    (frame) =>
-      frame.id === "sequential-turn" &&
-      frame.event === "host_tool_request" &&
-      frame.payload.tool_name === "sequential_b",
-  );
-  await respondToHostTool(client, second, "sequential-result-b");
-
-  const result = await run;
-  assert.equal(result.assistant_text, "sequential finished");
+  await client.request("ios-host-turn", "run_turn", {
+    ...turnPayload("ios-host", [userMessage("hello")], fauxConfig(), requested),
+    platform: "ios",
+    chrome_enabled: true,
+  });
+  const ios = await client.request("ios-host-state", "get_session_state", {
+    session_id: "ios-host",
+  });
+  assert.equal(ios.active_tools.includes("chrome"), false);
+  assert.deepEqual(sharedNames.filter((name) => ios.active_tools.includes(name)), sharedNames);
+  assert.deepEqual(removedNames.filter((name) => ios.active_tools.includes(name)), []);
 });
 
 test("accepts steer and follow-up messages on a live persistent harness", async () => {
@@ -1162,6 +1046,125 @@ test("aborts an active harness by session id", async () => {
   }
   assert.equal(abortResult?.aborted, true);
   void run.catch(() => {});
+});
+
+test("reconnects a failed provider stream without restarting the harness turn", async (t) => {
+  let requestCount = 0;
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      requestCount += 1;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      const content = requestCount === 1 ? "STALE" : "RECOVERED";
+      response.write(
+        `data: ${JSON.stringify({
+          id: `chatcmpl-retry-${requestCount}`,
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "retry-model",
+          choices: [
+            {
+              index: 0,
+              delta: { role: "assistant", content },
+              finish_reason: null,
+            },
+          ],
+        })}\n\n`,
+      );
+      if (requestCount === 1) {
+        response.end();
+        return;
+      }
+      response.write(
+        `data: ${JSON.stringify({
+          id: `chatcmpl-retry-${requestCount}`,
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "retry-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        })}\n\n`,
+      );
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request(
+    "provider-reconnect",
+    "run_turn",
+    turnPayload(
+      "session-provider-reconnect",
+      [userMessage("retry this request")],
+      {
+        provider_type: "openai_compatible",
+        provider_config_id: "provider-reconnect",
+        pi_provider_id: "aether-retry-test",
+        pi_api: "openai-completions",
+        model_id: "retry-model",
+        base_url: `http://127.0.0.1:${address.port}/v1`,
+        api_key: "secret-key",
+        reasoning: false,
+        max_retries: 2,
+        max_retry_delay_ms: 1,
+      },
+    ),
+  );
+
+  assert.equal(requestCount, 2);
+  assert.equal(result.assistant_text, "RECOVERED", JSON.stringify(result));
+  assert.deepEqual(
+    client.events
+      .filter(
+        (frame) =>
+          frame.id === "provider-reconnect" &&
+          ["assistant_text_delta", "assistant_stream_reset", "assistant_retry"].includes(
+            frame.event,
+          ),
+      )
+      .map((frame) => frame.event),
+    ["assistant_text_delta", "assistant_stream_reset", "assistant_retry", "assistant_text_delta"],
+  );
+});
+
+test("reports Pi AgentSession retry errors", async () => {
+  const unavailable = createServer();
+  await new Promise((resolve) => unavailable.listen(0, "127.0.0.1", resolve));
+  const address = unavailable.address();
+  assert.ok(address && typeof address === "object");
+  await new Promise((resolve) => unavailable.close(resolve));
+
+  const client = new BridgeClient();
+  const run = client.request(
+    "provider-network-detail",
+    "run_turn",
+    turnPayload(
+      "session-provider-network-detail",
+      [userMessage("show the network failure")],
+      {
+        provider_type: "openai_compatible",
+        provider_config_id: "provider-network-detail",
+        pi_provider_id: "aether-network-detail-test",
+        pi_api: "openai-completions",
+        model_id: "network-detail-model",
+        base_url: `http://127.0.0.1:${address.port}/v1`,
+        api_key: "secret-key",
+        reasoning: false,
+        max_retries: 1,
+        max_retry_delay_ms: 1,
+      },
+    ),
+  );
+  const retry = await client.waitForEvent(
+    (frame) => frame.id === "provider-network-detail" && frame.event === "assistant_retry",
+  );
+  await run;
+
+  assert.equal(typeof retry.payload.error_message, "string");
+  assert.notEqual(retry.payload.error_message.trim(), "");
 });
 
 test("maps a custom OpenAI-compatible provider through Pi", async (t) => {
@@ -1315,8 +1318,8 @@ test("lists every built-in Pi provider and its model catalog", async () => {
   const catalog = await client.request("providers", "list_providers");
   const providers = catalog.providers;
 
-  assert.equal(providers.length, 35);
-  assert.equal(new Set(providers.map((provider) => provider.id)).size, 35);
+  assert.equal(providers.length, 39);
+  assert.equal(new Set(providers.map((provider) => provider.id)).size, 39);
   assert.ok(providers.every((provider) => provider.models.length > 0));
   assert.ok(providers.every((provider) => provider.models.every((model) => model.id)));
 
@@ -1324,7 +1327,14 @@ test("lists every built-in Pi provider and its model catalog", async () => {
     .filter((provider) => provider.auth.oauth)
     .map((provider) => provider.id)
     .sort();
-  assert.deepEqual(oauthProviders, ["anthropic", "github-copilot", "openai-codex"]);
+  assert.deepEqual(oauthProviders, [
+    "anthropic",
+    "github-copilot",
+    "kimi-coding",
+    "openai-codex",
+    "openrouter",
+    "xai",
+  ]);
 });
 
 test("validates Pi OAuth protocol requests without legacy provider fallbacks", async () => {
@@ -1476,14 +1486,26 @@ test("uses Pi provider-specific API key login prompts", async () => {
     CLOUDFLARE_GATEWAY_ID: "gateway-id",
   });
 
-  await assert.rejects(
-    client.request("api-key-bedrock", "login_provider", {
-      provider_id: "amazon-bedrock",
-      provider_config_id: `test-${"amazon-bedrock"}`,
-      auth_method: "api_key",
-    }),
-    /ambient credentials/,
+  const bedrockLogin = client.request("api-key-bedrock", "login_provider", {
+    provider_id: "amazon-bedrock",
+    provider_config_id: `test-${"amazon-bedrock"}`,
+    auth_method: "api_key",
+  });
+  const bedrockPrompt = await client.waitForEvent(
+    (frame) =>
+      frame.id === "api-key-bedrock" &&
+      frame.event === "auth_prompt" &&
+      frame.payload.prompt_type === "select",
   );
+  assert.deepEqual(
+    bedrockPrompt.payload.options.map((option) => option.id),
+    ["bearer-token", "aws-profile", "credential-chain"],
+  );
+  await client.request("api-key-bedrock-cancel", "auth_prompt_result", {
+    prompt_id: bedrockPrompt.payload.prompt_id,
+    cancelled: true,
+  });
+  await assert.rejects(bedrockLogin, /cancel/i);
 });
 
 test("rejects non-OpenAI custom Pi APIs", async () => {

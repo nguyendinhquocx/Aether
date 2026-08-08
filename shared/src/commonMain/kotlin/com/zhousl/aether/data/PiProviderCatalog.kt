@@ -54,7 +54,6 @@ object PiProviderCatalog {
             supportsCustomBaseUrl = true,
             category = "Recommended",
         ),
-        custom(DefaultPiProviderId, "OpenAI-compatible endpoint"),
         builtin("openai-codex", "OpenAI Codex", "https://chatgpt.com/backend-api", "gpt-5.3-codex-spark", supportsApiKey = false, supportsOAuth = true, category = "Recommended"),
         builtin(
             "anthropic",
@@ -97,6 +96,7 @@ object PiProviderCatalog {
         builtin("xiaomi-token-plan-ams", "Xiaomi Token Plan AMS", "https://token-plan-ams.xiaomimimo.com/v1", "mimo-v2.5-pro", category = "China"),
         builtin("xiaomi-token-plan-sgp", "Xiaomi Token Plan SGP", "https://token-plan-sgp.xiaomimimo.com/v1", "mimo-v2.5-pro", category = "China"),
         builtin("ant-ling", "Ant Ling", "https://api.ant-ling.com/v1", "Ling-2.6-flash", category = "China"),
+        custom(DefaultPiProviderId, "OpenAI-compatible endpoint"),
     )
 
     val builtInProviders: List<PiProviderDefinition>

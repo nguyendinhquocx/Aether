@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Job
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
@@ -14,6 +15,15 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class SharedChatBranchTest {
+    @Test
+    fun stoppedTurnRejectsLateStreamingStatusCallbacks() {
+        val runningJob = Job()
+
+        assertTrue(shouldApplySharedTurnEvent(runningJob, runningJob))
+        assertFalse(shouldApplySharedTurnEvent(null, runningJob))
+        assertFalse(shouldApplySharedTurnEvent(Job(), runningJob))
+    }
+
     @Test
     fun seenOnboardingRestoresChatEvenWhenProviderWasSkipped() {
         assertTrue(shouldRestoreSharedChat(onboardingSeenVersion = 1))
@@ -56,6 +66,8 @@ class SharedChatBranchTest {
             text = "",
             fromUser = false,
             isStreaming = true,
+            status = "Reconnecting... 2/5",
+            statusDetail = "fetch failed: connect timed out (ETIMEDOUT)",
             tools = listOf(runningTool),
             responseBlocks = listOf(
                 SharedAssistantResponseBlock.Reasoning(
@@ -71,12 +83,15 @@ class SharedChatBranchTest {
             ),
         ).finalizeSharedInterruptedAssistantWork(
             status = "Stopped",
+            preserveStatus = true,
             completedAtMillis = 1_000,
         )
 
         assertEquals("", message.text)
         assertFalse(message.isError)
         assertFalse(message.isStreaming)
+        assertEquals("Reconnected", message.status)
+        assertEquals("fetch failed: connect timed out (ETIMEDOUT)", message.statusDetail)
         assertEquals(1_000L, message.completedAtMillis)
         assertEquals(1_000L, message.tools.single().completedAtMillis)
         val reasoning = message.responseBlocks[0] as SharedAssistantResponseBlock.Reasoning
@@ -91,6 +106,23 @@ class SharedChatBranchTest {
         assertEquals("cancelled", output["status"]!!.jsonPrimitive.content)
         assertEquals(143, output["exit_code"]!!.jsonPrimitive.int)
         assertEquals("Stopped by user.", output["errmsg"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun userStopPreservesNonReconnectStatus() {
+        val stopped = SharedChatMessage(
+            text = "",
+            fromUser = false,
+            isStreaming = true,
+            status = "Waiting for approval",
+            statusDetail = "Approval is still pending.",
+        ).finalizeSharedInterruptedAssistantWork(
+            status = "Stopped",
+            preserveStatus = true,
+        )
+
+        assertEquals("Waiting for approval", stopped.status)
+        assertEquals("Approval is still pending.", stopped.statusDetail)
     }
 
     @Test

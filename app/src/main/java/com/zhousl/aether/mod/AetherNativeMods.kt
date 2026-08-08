@@ -77,6 +77,52 @@ data class AetherNativeComponentRegistration(
     val renderer: AetherNativeComponentRenderer?,
 )
 
+data class AetherNativeToolTitleRegistration(
+    val toolName: String,
+    val runningTitle: String,
+    val completedTitle: String,
+    val owner: String,
+    val priority: Int,
+    val sequence: Long,
+)
+
+class AetherNativeToolTitleRegistry {
+    private val lock = Any()
+    private val sequence = AtomicLong()
+    private val _registrations = MutableStateFlow<List<AetherNativeToolTitleRegistration>>(emptyList())
+    val registrations: StateFlow<List<AetherNativeToolTitleRegistration>> = _registrations.asStateFlow()
+
+    fun register(
+        toolName: String,
+        runningTitle: String,
+        completedTitle: String,
+        owner: String,
+        priority: Int = 100,
+    ): () -> Unit {
+        val registration = AetherNativeToolTitleRegistration(
+            toolName = toolName.trim().also { require(it.isNotBlank()) { "Native tool title requires a tool name." } },
+            runningTitle = runningTitle.trim().also { require(it.isNotBlank()) { "Native tool title requires a running title." } },
+            completedTitle = completedTitle.trim().also { require(it.isNotBlank()) { "Native tool title requires a completed title." } },
+            owner = owner.trim().ifBlank { "unknown" },
+            priority = priority,
+            sequence = sequence.incrementAndGet(),
+        )
+        synchronized(lock) { _registrations.value = _registrations.value + registration }
+        return { synchronized(lock) { _registrations.value = _registrations.value - registration } }
+    }
+
+    fun titleFor(toolName: String, running: Boolean): String? = _registrations.value
+        .filter { it.toolName.equals(toolName, ignoreCase = true) }
+        .maxWithOrNull(compareBy<AetherNativeToolTitleRegistration> { it.priority }.thenBy { it.sequence })
+        ?.let { if (running) it.runningTitle else it.completedTitle }
+
+    fun unregisterOwner(owner: String) {
+        synchronized(lock) {
+            _registrations.value = _registrations.value.filterNot { it.owner == owner }
+        }
+    }
+}
+
 class AetherNativeComponentRegistry {
     private val lock = Any()
     private val sequence = AtomicLong()
@@ -202,6 +248,15 @@ class AetherNativeModContext internal constructor(
         )
     )
 
+    fun registerToolTitle(
+        toolName: String,
+        runningTitle: String,
+        completedTitle: String,
+        priority: Int = 100,
+    ): () -> Unit = track(
+        kernel.toolTitles.register(toolName, runningTitle, completedTitle, modId, priority)
+    )
+
     fun packageFile(relativePath: String): File =
         File(packageRoot, relativePath).canonicalFile
 
@@ -226,6 +281,7 @@ class AetherNativeModContext internal constructor(
         kernel.services.unregisterOwner(modId)
         kernel.operations.unregisterOwner(modId)
         kernel.components.unregisterOwner(modId)
+        kernel.toolTitles.unregisterOwner(modId)
     }
 
     private fun track(cleanup: () -> Unit): () -> Unit {

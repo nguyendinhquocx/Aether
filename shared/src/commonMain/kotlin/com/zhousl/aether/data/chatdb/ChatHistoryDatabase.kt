@@ -8,11 +8,13 @@ import androidx.room.RoomDatabaseConstructor
 @Database(
     entities = [
         ChatSessionEntity::class,
+        ChatAgentSessionEntity::class,
+        ChatAgentMessageRefEntity::class,
         ChatMessageEntity::class,
         ChatWorkspaceFileRefEntity::class,
         ChatStateMetaEntity::class,
     ],
-    version = 5,
+    version = 7,
     exportSchema = true,
 )
 @ConstructedBy(ChatHistoryDatabaseConstructor::class)

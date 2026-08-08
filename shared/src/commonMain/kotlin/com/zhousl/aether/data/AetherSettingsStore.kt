@@ -43,10 +43,6 @@ class AetherSettingsStore(
             themeMode = AppThemeMode.fromStorage(preferences[ThemeMode]),
             systemPrompt = preferences[SystemPrompt] ?: defaults.systemPrompt,
             reasoningEffort = normalizeReasoningEffort(preferences[ReasoningEffort]),
-            tavilyApiKey = preferences[TavilyApiKey].orEmpty(),
-            tavilyBaseUrl = normalizeTavilyBaseUrl(
-                preferences[TavilyBaseUrl] ?: defaults.tavilyBaseUrl,
-            ),
             onboardingCompletedVersion = preferences[OnboardingCompletedVersion] ?: 0,
         )
         val fullSettings = parseAppSettings(preferences[AppSettingsJson].orEmpty(), legacySettings)
@@ -113,8 +109,6 @@ class AetherSettingsStore(
             preferences[ThemeMode] = settings.themeMode.storageValue
             preferences[SystemPrompt] = settings.systemPrompt
             preferences[ReasoningEffort] = normalizeReasoningEffort(settings.reasoningEffort)
-            preferences[TavilyApiKey] = settings.tavilyApiKey
-            preferences[TavilyBaseUrl] = normalizeTavilyBaseUrl(settings.tavilyBaseUrl)
         }
     }
 
@@ -164,8 +158,6 @@ class AetherSettingsStore(
             preferences[ThemeMode] = persisted.appSettings.themeMode.storageValue
             preferences[SystemPrompt] = persisted.appSettings.systemPrompt
             preferences[ReasoningEffort] = normalizeReasoningEffort(persisted.appSettings.reasoningEffort)
-            preferences[TavilyApiKey] = persisted.appSettings.tavilyApiKey
-            preferences[TavilyBaseUrl] = normalizeTavilyBaseUrl(persisted.appSettings.tavilyBaseUrl)
         }
     }
 
@@ -177,8 +169,6 @@ class AetherSettingsStore(
         val ThemeMode = stringPreferencesKey("theme_mode")
         val SystemPrompt = stringPreferencesKey("system_prompt")
         val ReasoningEffort = stringPreferencesKey("reasoning_effort")
-        val TavilyApiKey = stringPreferencesKey("tavily_api_key")
-        val TavilyBaseUrl = stringPreferencesKey("tavily_base_url")
         val AppSettingsJson = stringPreferencesKey("app_settings_json")
         val ThinkingCatalogCacheJson = stringPreferencesKey("thinking_catalog_cache_json")
     }

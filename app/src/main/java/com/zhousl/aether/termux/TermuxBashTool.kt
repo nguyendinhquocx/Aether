@@ -28,6 +28,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 private const val ManagedCommandWatchWindowSeconds = 45
+private const val RuntimeOperationPollIntervalMillis = 250L
 private const val DefaultManagedLogTailBytes = 12 * 1024
 private const val MaxManagedLogTailBytes = 64 * 1024
 private const val InternalCommandTimeoutMillis = 15_000L
@@ -55,6 +56,12 @@ data class TermuxSetupState(
     val isReady: Boolean
         get() = issue == TermuxSetupIssue.Ready
 }
+
+private data class ManagedLogChunk(
+    val data: ByteArray,
+    val running: Boolean,
+    val exitCode: Int?,
+)
 
 class TermuxBashTool(
     private val context: Context,
@@ -197,6 +204,68 @@ class TermuxBashTool(
             withContext(NonCancellable) {
                 runCatching { killExecutionByRunId(runId) }
             }
+            throw cancellationException
+        }
+    }
+
+    suspend fun executeStreaming(
+        command: String,
+        workingDirectory: String,
+        timeoutSeconds: Double? = null,
+        onData: suspend (ByteArray) -> Unit,
+    ): Int? = withContext(Dispatchers.IO) {
+        require(command.isNotBlank()) { "Missing bash command." }
+        require(timeoutSeconds == null || timeoutSeconds.isFinite() && timeoutSeconds > 0.0) {
+            "timeout must be a positive number of seconds."
+        }
+        val normalizedWorkingDirectory = normalizeTermuxPath(workingDirectory)
+        prepareWorkingDirectoryIfNeeded(normalizedWorkingDirectory)?.let { setup ->
+            error(setup.optString("errmsg").ifBlank { "Couldn't prepare the Termux working directory." })
+        }
+        val runId = TermuxManagedRuns.nextRunId()
+        var offset = 0L
+        var finalExitCode: Int? = null
+        val startedAtNanos = System.nanoTime()
+        try {
+            val launched = executeManagedScript(
+                script = buildLaunchManagedCommandScript(
+                    runId = runId,
+                    command = command,
+                    workingDirectory = normalizedWorkingDirectory,
+                    tailBytes = 1,
+                    watchSeconds = 0,
+                ),
+                commandFallback = command,
+                workingDirectoryFallback = normalizedWorkingDirectory,
+                runIdFallback = runId,
+            )
+            val launchJson = JSONObject(launched)
+            if (!launchJson.optBoolean("ok") && !launchJson.optBoolean("running")) {
+                error(launchJson.optString("errmsg").ifBlank { "Failed to launch Termux bash command." })
+            }
+            while (true) {
+                val snapshot = readManagedLogChunk(runId, offset)
+                val chunk = snapshot.data
+                if (chunk.isNotEmpty()) {
+                    onData(chunk)
+                    offset += chunk.size
+                }
+                if (!snapshot.running) {
+                    finalExitCode = snapshot.exitCode
+                    break
+                }
+                if (timeoutSeconds != null) {
+                    val elapsedSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000.0
+                    if (elapsedSeconds >= timeoutSeconds) {
+                        withContext(NonCancellable) { killExecutionByRunId(runId) }
+                        error("timeout:$timeoutSeconds")
+                    }
+                }
+                delay(RuntimeOperationPollIntervalMillis)
+            }
+            finalExitCode
+        } catch (cancellationException: CancellationException) {
+            withContext(NonCancellable) { runCatching { killExecutionByRunId(runId) } }
             throw cancellationException
         }
     }
@@ -391,6 +460,35 @@ class TermuxBashTool(
             fallbackCommand = commandFallback,
             fallbackWorkingDirectory = workingDirectoryFallback,
             fallbackRunId = runIdFallback,
+        )
+    }
+
+    private suspend fun readManagedLogChunk(
+        runId: String,
+        offset: Long,
+    ): ManagedLogChunk {
+        val raw = JSONObject(
+            dispatchCommand(
+                command = buildReadManagedLogScript(runId, offset),
+                workingDirectory = TermuxContract.HomeDirectory,
+                awaitTimeoutMillis = InternalCommandTimeoutMillis,
+            )
+        )
+        check(raw.optBoolean("ok")) {
+            raw.optString("errmsg").ifBlank { "Failed to read Termux bash output." }
+        }
+        val values = parseKeyValueOutput(raw.optString("stdout"))
+        check(values["exists"].toBoolean()) { "The managed Termux bash process disappeared." }
+        val data = values["data_b64"].orEmpty().takeIf(String::isNotBlank)?.let {
+            Base64.getDecoder().decode(it)
+        } ?: ByteArray(0)
+        val totalBytes = values["total_bytes"]?.toLongOrNull() ?: offset + data.size
+        val nextOffset = offset + data.size
+        val state = values["status"].orEmpty()
+        return ManagedLogChunk(
+            data = data,
+            running = state == "running" || state == "launching" || nextOffset < totalBytes,
+            exitCode = values["exit_code"]?.toIntOrNull(),
         )
     }
 
@@ -729,7 +827,7 @@ class TermuxBashTool(
         }
         val hint = when (status) {
             "running",
-            "launching" -> "Command is still running. Use sleep, then fetch_bash_output with this run_id to inspect more logs, or kill_bash to stop it."
+            "launching" -> "Command is still running."
             else -> ""
         }
         val ok = when (status) {
@@ -844,6 +942,7 @@ class TermuxBashTool(
         command: String,
         workingDirectory: String,
         tailBytes: Int,
+        watchSeconds: Int = ManagedCommandWatchWindowSeconds,
     ): String = buildString {
         appendManagedShellPreamble(this)
         appendLine("run_id='${escapeForSingleQuoted(runId)}'")
@@ -871,7 +970,7 @@ class TermuxBashTool(
         appendLine("nohup \"\$runner_path\" >/dev/null 2>&1 </dev/null &")
         appendLine("printf '%s' \"\$!\" > \"\$pid_path\"")
         appendLine("elapsed=0")
-        appendLine("while [ \"\$elapsed\" -lt $ManagedCommandWatchWindowSeconds ]; do")
+        appendLine("while [ \"\$elapsed\" -lt ${watchSeconds.coerceAtLeast(0)} ]; do")
         appendLine("  state=\"\$(cat \"\$state_path\" 2>/dev/null || printf 'launching')\"")
         appendLine("  if [ \"\$state\" != 'launching' ] && [ \"\$state\" != 'running' ]; then")
         appendLine("    break")
@@ -893,6 +992,31 @@ class TermuxBashTool(
         appendCommonManagedPaths(this)
         appendSnapshotHelpers(this)
         appendLine("emit_managed_snapshot")
+    }
+
+    private fun buildReadManagedLogScript(
+        runId: String,
+        offset: Long,
+    ): String = buildString {
+        appendManagedShellPreamble(this)
+        appendLine("run_dir='${escapeForSingleQuoted(TermuxContract.ManagedCommandsDirectory)}/$runId'")
+        appendLine("offset=${offset.coerceAtLeast(0L)}")
+        appendCommonManagedPaths(this)
+        appendLine("if [ ! -d \"\$run_dir\" ]; then")
+        appendLine("  emit_kv exists false")
+        appendLine("  exit 0")
+        appendLine("fi")
+        appendLine("total_bytes=\"\$(file_bytes \"\$stdout_path\")\"")
+        appendLine("emit_kv exists true")
+        appendLine("emit_kv status \"\$(cat \"\$state_path\" 2>/dev/null || printf 'unknown')\"")
+        appendLine("emit_kv exit_code \"\$(read_file_trimmed \"\$exit_code_path\")\"")
+        appendLine("emit_kv total_bytes \"\$total_bytes\"")
+        appendLine("if [ \"\$offset\" -lt \"\$total_bytes\" ]; then")
+        appendLine("  data_b64=\"\$(tail -c +\$((offset + 1)) -- \"\$stdout_path\" | head -c 65536 | base64 | tr -d '\\n')\"")
+        appendLine("else")
+        appendLine("  data_b64=''")
+        appendLine("fi")
+        appendLine("emit_kv data_b64 \"\$data_b64\"")
     }
 
     private fun buildKillManagedCommandScript(
@@ -983,7 +1107,7 @@ class TermuxBashTool(
         builder.appendLine("runner_path=\"\$run_dir/runner.sh\"")
         builder.appendLine("command_meta_path=\"\$run_dir/command.b64\"")
         builder.appendLine("working_directory_meta_path=\"\$run_dir/working_directory.b64\"")
-        builder.appendLine("stdout_path=\"\$run_dir/stdout.log\"")
+        builder.appendLine("stdout_path=\"\$run_dir/combined.log\"")
         builder.appendLine("stderr_path=\"\$run_dir/stderr.log\"")
         builder.appendLine("state_path=\"\$run_dir/state\"")
         builder.appendLine("pid_path=\"\$run_dir/pid\"")
@@ -1059,7 +1183,7 @@ class TermuxBashTool(
         builder.appendLine("}")
         builder.appendLine("run_dir='${escapeForSingleQuoted(TermuxContract.ManagedCommandsDirectory)}/$runId'")
         builder.appendLine("working_directory=\"\$(printf '%s' '${encodeBase64(workingDirectory)}' | base64 -d)\"")
-        builder.appendLine("stdout_path=\"\$run_dir/stdout.log\"")
+        builder.appendLine("stdout_path=\"\$run_dir/combined.log\"")
         builder.appendLine("stderr_path=\"\$run_dir/stderr.log\"")
         builder.appendLine("state_path=\"\$run_dir/state\"")
         builder.appendLine("child_pid_path=\"\$run_dir/child_pid\"")
@@ -1076,7 +1200,7 @@ class TermuxBashTool(
         builder.appendLine("  now_ms > \"\$finished_path\"")
         builder.appendLine("  exit 1")
         builder.appendLine("fi")
-        builder.appendLine("bash \"\$command_path\" > \"\$stdout_path\" 2> \"\$stderr_path\" &")
+        builder.appendLine("bash \"\$command_path\" > \"\$stdout_path\" 2>&1 &")
         builder.appendLine("child_pid=\$!")
         builder.appendLine("printf '%s' \"\$child_pid\" > \"\$child_pid_path\"")
         builder.appendLine("set +e")

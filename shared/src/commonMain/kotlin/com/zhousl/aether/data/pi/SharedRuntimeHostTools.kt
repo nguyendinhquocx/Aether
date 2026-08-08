@@ -1,27 +1,12 @@
 package com.zhousl.aether.data.pi
 
-import com.zhousl.aether.data.platformCurrentTimeMillis
-import com.zhousl.aether.data.platformRandomUuid
 import com.zhousl.aether.runtime.MultiplatformLocalRuntime
-import com.zhousl.aether.runtime.RuntimeProcess
 import com.zhousl.aether.runtime.RuntimeProcessExit
-import com.zhousl.aether.runtime.RuntimeProcessSignal
 import com.zhousl.aether.runtime.RuntimeProcessSpec
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -31,15 +16,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 private const val DefaultSearchResultLimit = 200
 private const val DefaultLsEntryLimit = 200
-private const val DefaultBashTailBytes = 12 * 1024
-private const val MaxBashTailBytes = 64 * 1024
-private const val DefaultBashWatchWindowMillis = 45_000L
-private const val MaxSleepDurationMillis = 10 * 60 * 1_000L
 private const val AlpineRuntimeName = "alpine"
 
 data class SharedHostToolResult(
@@ -58,13 +38,11 @@ interface SharedSessionAwareHostToolExecutor : SharedHostToolExecutor {
 
 class RuntimeHostToolExecutor(
     private val runtime: MultiplatformLocalRuntime,
-    private val bashWatchWindowMillis: Long = DefaultBashWatchWindowMillis,
 ) : SharedHostToolExecutor {
-    override val definitions: JsonArray = sharedRuntimeHostToolDefinitions()
-
-    private val managedScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val runsMutex = Mutex()
-    private val runs = mutableMapOf<String, ManagedBashRun>()
+    // Pi Coding Agent owns read/bash/edit/write/grep/find/ls on every platform.
+    // The legacy executor remains available to migrate old callers, but it is
+    // deliberately not exposed as a model Host tool.
+    override val definitions: JsonArray = JsonArray(emptyList())
 
     override suspend fun execute(name: String, arguments: JsonObject): SharedHostToolResult = try {
         when (name) {
@@ -75,9 +53,6 @@ class RuntimeHostToolExecutor(
             "find" -> find(arguments)
             "ls" -> ls(arguments)
             "bash" -> bash(arguments)
-            "fetch_bash_output" -> fetchBashOutput(arguments)
-            "kill_bash" -> killBash(arguments)
-            "sleep" -> sleep(arguments)
             else -> toolError("Unknown tool '$name'.", errorKey = "error")
         }
     } catch (cancellationException: CancellationException) {
@@ -459,154 +434,22 @@ class RuntimeHostToolExecutor(
     private suspend fun bash(arguments: JsonObject): SharedHostToolResult {
         val command = arguments.requiredString("command", allowBlank = false)
         val workingDirectory = resolveWorkingDirectory(arguments)
-        val process = runtime.startProcess(processSpec(command, workingDirectory))
-        process.closeStdin()
-        val innerRunId = "run-${platformCurrentTimeMillis()}-${platformRandomUuid().take(8)}"
-        val runId = "$AlpineRuntimeName:$innerRunId"
-        val run = ManagedBashRun(
-            runId = runId,
-            command = command,
-            workingDirectory = workingDirectory,
-            startedAtMillis = platformCurrentTimeMillis(),
-            process = process,
+        val output = executeCommand(command, workingDirectory)
+        val ok = output.exit.exitCode == 0
+        return SharedHostToolResult(
+            outputJson = buildJsonObject {
+                put("ok", ok)
+                put("runtime", AlpineRuntimeName)
+                put("command", command)
+                put("working_directory", workingDirectory)
+                put("status", if (ok) "completed" else "failed")
+                put("stdout", output.stdout)
+                put("stderr", output.stderr)
+                put("exit_code", output.exit.exitCode)
+                if (!ok) put("errmsg", "Alpine command exited with code ${output.exit.exitCode}.")
+            }.toString(),
+            isError = !ok,
         )
-        runsMutex.withLock { runs[runId] = run }
-        watch(run)
-        try {
-            withTimeoutOrNull(bashWatchWindowMillis.coerceAtLeast(0L)) {
-                run.completed.await()
-            }
-        } catch (cancellationException: CancellationException) {
-            run.mutex.withLock { run.cancelled = true }
-            runCatching { process.signal(RuntimeProcessSignal.Kill) }
-            throw cancellationException
-        }
-        return snapshot(run, DefaultBashTailBytes)
-    }
-
-    private suspend fun fetchBashOutput(arguments: JsonObject): SharedHostToolResult {
-        val requestedRunId = arguments.runId()
-        if (requestedRunId.isBlank()) {
-            return invalidArguments("Missing required 'run_id' argument.")
-        }
-        val run = findRun(requestedRunId)
-            ?: return invalidArguments("Unknown Alpine run_id: ${requestedRunId.removePrefix("$AlpineRuntimeName:")}")
-        return snapshot(run, arguments.tailBytes())
-    }
-
-    private suspend fun killBash(arguments: JsonObject): SharedHostToolResult {
-        val requestedRunId = arguments.runId()
-        if (requestedRunId.isBlank()) {
-            return invalidArguments("Missing required 'run_id' argument.")
-        }
-        val run = findRun(requestedRunId)
-            ?: return invalidArguments("Unknown Alpine run_id: ${requestedRunId.removePrefix("$AlpineRuntimeName:")}")
-        run.mutex.withLock { run.cancelled = true }
-        if (!run.completed.isCompleted) {
-            runCatching { run.process.signal(RuntimeProcessSignal.Terminate) }
-            val stopped = withTimeoutOrNull(800L) {
-                run.completed.await()
-                true
-            } ?: false
-            if (!stopped) {
-                runCatching { run.process.signal(RuntimeProcessSignal.Kill) }
-                withTimeoutOrNull(200L) { run.completed.await() }
-            }
-        }
-        return snapshot(run, arguments.tailBytes())
-    }
-
-    private suspend fun sleep(arguments: JsonObject): SharedHostToolResult {
-        val durationMillis = when {
-            arguments.containsKey("duration_ms") -> arguments.long("duration_ms")
-            arguments.containsKey("durationMs") -> arguments.long("durationMs")
-            else -> null
-        } ?: return invalidArguments("Missing required 'duration_ms' argument.")
-        if (durationMillis < 0 || durationMillis > MaxSleepDurationMillis) {
-            return invalidArguments("'duration_ms' must be between 0 and $MaxSleepDurationMillis.")
-        }
-        delay(durationMillis)
-        return toolSuccess {
-            put("duration_ms", durationMillis)
-            put("stdout", "Slept for ${durationMillis}ms.")
-        }
-    }
-
-    private fun watch(run: ManagedBashRun) {
-        managedScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            try {
-                coroutineScope {
-                    val stdout = launch(start = CoroutineStart.UNDISPATCHED) {
-                        run.process.stdout.collect { bytes ->
-                            run.mutex.withLock { run.stdout.append(bytes) }
-                        }
-                    }
-                    val stderr = launch(start = CoroutineStart.UNDISPATCHED) {
-                        run.process.stderr.collect { bytes ->
-                            run.mutex.withLock { run.stderr.append(bytes) }
-                        }
-                    }
-                    val exit = run.process.awaitExit()
-                    stdout.join()
-                    stderr.join()
-                    run.mutex.withLock { run.exit = exit }
-                }
-            } catch (cancellationException: CancellationException) {
-                throw cancellationException
-            } catch (error: Throwable) {
-                run.mutex.withLock {
-                    run.failureMessage = error.message ?: "Failed to execute Alpine command."
-                }
-            } finally {
-                run.completed.complete(Unit)
-            }
-        }
-    }
-
-    private suspend fun snapshot(run: ManagedBashRun, tailBytes: Int): SharedHostToolResult =
-        run.mutex.withLock {
-            val running = !run.completed.isCompleted
-            val status = when {
-                running -> "running"
-                run.cancelled -> "cancelled"
-                run.failureMessage.isNotBlank() -> "failed"
-                run.exit?.exitCode == 0 -> "completed"
-                else -> "failed"
-            }
-            val ok = status == "running" || status == "completed"
-            val stdout = run.stdout.tail(tailBytes)
-            val stderr = run.stderr.tail(tailBytes)
-            SharedHostToolResult(
-                outputJson = buildJsonObject {
-                    put("ok", ok)
-                    put("runtime", AlpineRuntimeName)
-                    put("run_id", run.runId)
-                    put("command", run.command)
-                    put("working_directory", run.workingDirectory)
-                    put("status", status)
-                    put("running", running)
-                    put("completed", !running)
-                    put("stdout", stdout)
-                    put("stderr", stderr)
-                    put("stdout_bytes", run.stdout.totalBytes)
-                    put("stderr_bytes", run.stderr.totalBytes)
-                    put("exit_code", run.exit?.exitCode?.let(::JsonPrimitive) ?: JsonNull)
-                    put("err", -1)
-                    put("duration_ms", (platformCurrentTimeMillis() - run.startedAtMillis).coerceAtLeast(0L))
-                    when (status) {
-                        "failed" -> put(
-                            "errmsg",
-                            run.failureMessage.ifBlank { "Alpine command failed." },
-                        )
-                        "cancelled" -> put("errmsg", "Stopped by user.")
-                    }
-                }.toString(),
-                isError = !ok,
-            )
-        }
-
-    private suspend fun findRun(requestedRunId: String): ManagedBashRun? = runsMutex.withLock {
-        runs[requestedRunId] ?: runs["$AlpineRuntimeName:${requestedRunId.removePrefix("$AlpineRuntimeName:")}"]
     }
 
     private suspend fun executeCommand(command: String, workingDirectory: String): ProcessOutput = coroutineScope {
@@ -769,46 +612,12 @@ private fun sharedRuntimeHostToolDefinitions(): JsonArray = buildJsonArray {
     add(
         toolDefinition(
             name = "bash",
-            description = "Execute a bash command in the built-in local runtime. If it is still running after the live window, the tool returns status=running and a runtime-prefixed run_id.",
+            description = "Execute a bash command in the built-in local runtime and wait for it to exit.",
             executionMode = "sequential",
             required = listOf("command"),
             "command" to stringProperty("The bash command or script to execute."),
             "working_directory" to stringProperty("Optional working directory inside the local runtime."),
             "workingDirectory" to stringProperty("Alias of working_directory."),
-        ),
-    )
-    add(
-        toolDefinition(
-            name = "fetch_bash_output",
-            description = "Fetch the latest stdout/stderr snapshot and status for a previously started long-running bash command by runtime-prefixed run_id.",
-            executionMode = "sequential",
-            required = listOf("run_id"),
-            "run_id" to stringProperty("The run_id returned by bash when it reported status=running."),
-            "runId" to stringProperty("Alias of run_id."),
-            "tail_bytes" to integerProperty("Optional maximum number of bytes to return from the end of stdout and stderr."),
-            "tailBytes" to integerProperty("Alias of tail_bytes."),
-        ),
-    )
-    add(
-        toolDefinition(
-            name = "kill_bash",
-            description = "Stop a previously started long-running bash command by runtime-prefixed run_id and return its latest logs.",
-            executionMode = "sequential",
-            required = listOf("run_id"),
-            "run_id" to stringProperty("The run_id returned by bash when it reported status=running."),
-            "runId" to stringProperty("Alias of run_id."),
-            "tail_bytes" to integerProperty("Optional maximum number of bytes to return from the end of stdout and stderr."),
-            "tailBytes" to integerProperty("Alias of tail_bytes."),
-        ),
-    )
-    add(
-        toolDefinition(
-            name = "sleep",
-            description = "Pause the agent for a fixed duration so a long-running bash command can continue before you fetch logs again.",
-            executionMode = "sequential",
-            required = listOf("duration_ms"),
-            "duration_ms" to integerProperty("How long to sleep in milliseconds."),
-            "durationMs" to integerProperty("Alias of duration_ms."),
         ),
     )
 }
@@ -904,15 +713,8 @@ private fun JsonObject.string(name: String): String =
 
 private fun JsonObject.int(name: String): Int? = get(name)?.jsonPrimitive?.intOrNull
 
-private fun JsonObject.long(name: String): Long? = get(name)?.jsonPrimitive?.longOrNull
-
 private fun JsonObject.boolean(name: String, default: Boolean = false): Boolean =
     get(name)?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: default
-
-private fun JsonObject.runId(): String = string("run_id").trim().ifBlank { string("runId").trim() }
-
-private fun JsonObject.tailBytes(): Int =
-    (int("tail_bytes") ?: int("tailBytes") ?: DefaultBashTailBytes).coerceIn(1, MaxBashTailBytes)
 
 private fun JsonObject.parseEdits(): List<TextEdit> =
     ((get("edits") as? JsonArray)?.mapNotNull { item ->
@@ -1045,43 +847,6 @@ private data class ProcessOutput(
     val stderr: String,
 )
 
-private class ManagedBashRun(
-    val runId: String,
-    val command: String,
-    val workingDirectory: String,
-    val startedAtMillis: Long,
-    val process: RuntimeProcess,
-) {
-    val mutex = Mutex()
-    val completed = CompletableDeferred<Unit>()
-    val stdout = TailBuffer()
-    val stderr = TailBuffer()
-    var exit: RuntimeProcessExit? = null
-    var cancelled = false
-    var failureMessage = ""
-}
-
-private class TailBuffer {
-    private var bytes = ByteArray(0)
-    var totalBytes: Long = 0
-        private set
-
-    fun append(chunk: ByteArray) {
-        totalBytes += chunk.size
-        val combined = bytes + chunk
-        bytes = if (combined.size > MaxBashTailBytes) {
-            combined.copyOfRange(combined.size - MaxBashTailBytes, combined.size)
-        } else {
-            combined
-        }
-    }
-
-    fun tail(maximumBytes: Int): String {
-        val start = (bytes.size - maximumBytes).coerceAtLeast(0)
-        return bytes.copyOfRange(start, bytes.size).decodeToString()
-    }
-}
-
 private val RuntimeToolNames = setOf(
     "read",
     "write",
@@ -1090,6 +855,4 @@ private val RuntimeToolNames = setOf(
     "find",
     "ls",
     "bash",
-    "fetch_bash_output",
-    "kill_bash",
 )

@@ -6,11 +6,8 @@ import com.zhousl.aether.data.chatdb.SharedChatHistoryStore
 import com.zhousl.aether.data.chatdb.resolveSharedCurrentSessionId
 import com.zhousl.aether.data.chatdb.decodeAndroidChatSessions
 import com.zhousl.aether.data.chatdb.encodeAndroidChatSessions
-import com.zhousl.aether.data.pi.SharedMcpManager
-import com.zhousl.aether.data.pi.SharedMcpServerConfig
-import com.zhousl.aether.data.pi.SharedMcpTransport
-import com.zhousl.aether.data.pi.parseSharedMcpServers
-import com.zhousl.aether.data.pi.serializeSharedMcpServers
+import com.zhousl.aether.runtime.MultiplatformLocalRuntime
+import com.zhousl.aether.runtime.SharedPiBridgeClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -25,10 +22,10 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import kotlinx.coroutines.CancellationException
 
 const val SharedAppDataSchemaVersion = 2
 
@@ -43,7 +40,13 @@ data class SharedAppDataArchive(
     val sessions: List<PersistedChatSession>,
     val currentSessionId: String? = null,
     val skillBundles: List<SharedSkillBundle>,
-    val mcpServers: JsonArray,
+    val piSessions: List<SharedPiSessionArchive> = emptyList(),
+)
+
+@Serializable
+data class SharedPiSessionArchive(
+    val sessionId: String,
+    val jsonl: String,
 )
 
 data class SharedAppDataRestoreResult(
@@ -51,14 +54,14 @@ data class SharedAppDataRestoreResult(
     val sessions: List<PersistedChatSession>,
     val currentSessionId: String?,
     val installedSkills: List<SharedInstalledSkill>,
-    val mcpServers: List<SharedMcpServerConfig>,
 )
 
 class SharedAppDataManager(
     private val settingsStore: AetherSettingsStore,
     private val historyStore: SharedChatHistoryStore,
     private val skillManager: SharedSkillManager,
-    private val mcpManager: SharedMcpManager,
+    private val runtime: MultiplatformLocalRuntime,
+    private val bridgeClient: SharedPiBridgeClient,
 ) {
     suspend fun exportJson(): String = encodeSharedAppDataArchive(readArchive())
 
@@ -78,6 +81,17 @@ class SharedAppDataManager(
         val settings = persisted.appSettings.copy(
             providerConfigId = persisted.activeProviderConfigId,
         )
+        val sessions = historyStore.loadAll().map { it.copy(activeSkills = emptyList()) }
+        val piSessions = sessions.mapNotNull { session ->
+            runCatching {
+                val exported = bridgeClient.exportSessionJsonl(session.id)
+                val path = exported["exported_path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val jsonl = path.takeIf(String::isNotBlank)
+                    ?.let { runtime.fileSystem.read(it).decodeToString() }
+                    .orEmpty()
+                SharedPiSessionArchive(sessionId = session.id, jsonl = jsonl)
+            }.getOrNull()?.takeIf { it.jsonl.isNotBlank() }
+        }
         return SharedAppDataArchive(
             exportedAtMillis = platformCurrentTimeMillis(),
             settings = settings,
@@ -85,12 +99,10 @@ class SharedAppDataManager(
                 serializeProviderConfigs(persisted.providerConfigs),
             ).jsonArray,
             activeProviderConfigId = persisted.activeProviderConfigId,
-            sessions = historyStore.loadAll().map { it.copy(activeSkills = emptyList()) },
+            sessions = sessions,
             currentSessionId = historyStore.loadCurrentSessionId(),
             skillBundles = skillManager.exportBundles(),
-            mcpServers = Json.parseToJsonElement(
-                serializeSharedMcpServers(mcpManager.loadServers()),
-            ).jsonArray,
+            piSessions = piSessions,
         )
     }
 
@@ -100,10 +112,6 @@ class SharedAppDataManager(
         val enabledSkillIds = installedSkills
             .filter(SharedInstalledSkill::isEnabled)
             .map(SharedInstalledSkill::id)
-            .toSet()
-        val enabledMcpServerIds = decoded.mcpServers
-            .filter(SharedMcpServerConfig::enabled)
-            .map(SharedMcpServerConfig::id)
             .toSet()
         val settings = archive.settings.copy(
             providerConfigId = decoded.activeProviderConfigId,
@@ -120,7 +128,7 @@ class SharedAppDataManager(
             session.copy(
                 selectedSkillIds = session.selectedSkillIds.filter(enabledSkillIds::contains),
                 activeSkills = emptyList(),
-                activeMcpServerIds = session.activeMcpServerIds.filter(enabledMcpServerIds::contains),
+                activeMcpServerIds = emptyList(),
             )
         }
         val currentSessionId = resolveSharedCurrentSessionId(
@@ -128,20 +136,16 @@ class SharedAppDataManager(
             sessionIds = sessions.map(PersistedChatSession::id),
         )
         historyStore.replaceAll(sessions, currentSessionId)
-        mcpManager.saveServers(decoded.mcpServers)
-        try {
-            val activeMcpServerIds = sessions
-                .firstOrNull { it.id == currentSessionId }
-                ?.activeMcpServerIds
-                .orEmpty()
-                .toSet()
-            mcpManager.refreshBindings(
-                decoded.mcpServers.filter { it.enabled && it.id in activeMcpServerIds },
+        archive.piSessions.forEach { piSession ->
+            if (sessions.none { it.id == piSession.sessionId } || piSession.jsonl.isBlank()) return@forEach
+            val imported = bridgeClient.importSessionJsonl(piSession.sessionId, piSession.jsonl)
+            val sessionFile = imported["session_file"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            historyStore.upsertAgentSessionMetadata(
+                chatSessionId = piSession.sessionId,
+                piSessionId = piSession.sessionId,
+                jsonlPath = sessionFile,
+                runtime = "alpine",
             )
-        } catch (failure: CancellationException) {
-            throw failure
-        } catch (_: Throwable) {
-            // Restored configuration remains valid even when a server is temporarily unavailable.
         }
 
         return SharedAppDataRestoreResult(
@@ -149,7 +153,6 @@ class SharedAppDataManager(
             sessions = sessions,
             currentSessionId = currentSessionId,
             installedSkills = installedSkills,
-            mcpServers = decoded.mcpServers,
         )
     }
 }
@@ -157,7 +160,6 @@ class SharedAppDataManager(
 private data class ValidatedSharedAppData(
     val providerConfigs: List<LlmProviderConfig>,
     val activeProviderConfigId: String,
-    val mcpServers: List<SharedMcpServerConfig>,
 )
 
 private val SharedAppDataJson = Json {
@@ -192,7 +194,10 @@ fun encodeSharedAppDataArchive(archive: SharedAppDataArchive): String {
             "skillBundles",
             Json.parseToJsonElement(SharedAppDataJson.encodeToString(archive.skillBundles)),
         )
-        put("mcpServers", encodeAndroidMcpServers(validated.mcpServers))
+        put(
+            "piSessions",
+            Json.parseToJsonElement(SharedAppDataJson.encodeToString(archive.piSessions)),
+        )
     }
     return SharedAppDataJson.encodeToString(JsonObject.serializer(), root)
 }
@@ -220,6 +225,11 @@ fun decodeSharedAppDataArchive(value: String): SharedAppDataArchive {
             runCatching { validateSharedSkillBundles(listOf(bundle)) }.isSuccess
         }
     }
+    val piSessions = (root["piSessions"] as? JsonArray).orEmpty().mapNotNull { element ->
+        runCatching {
+            SharedAppDataJson.decodeFromString<SharedPiSessionArchive>(element.toString())
+        }.getOrNull()?.takeIf { it.sessionId.isNotBlank() && it.jsonl.isNotBlank() }
+    }
     val archive = SharedAppDataArchive(
         schemaVersion = (root["schemaVersion"] as? JsonPrimitive)?.intOrNull ?: SharedAppDataSchemaVersion,
         exportType = (root["exportType"] as? JsonPrimitive)?.contentOrNull.orEmpty().ifBlank { "app" },
@@ -234,7 +244,7 @@ fun decodeSharedAppDataArchive(value: String): SharedAppDataArchive {
             sessionIds = sessions.map(PersistedChatSession::id),
         ),
         skillBundles = skillBundles,
-        mcpServers = root["mcpServers"] as? JsonArray ?: JsonArray(emptyList()),
+        piSessions = piSessions,
     )
     validateSharedAppDataArchive(archive)
     return archive
@@ -245,13 +255,10 @@ private fun validateSharedAppDataArchive(archive: SharedAppDataArchive): Validat
     val activeProviderConfigId = archive.activeProviderConfigId
         .ifBlank { archive.settings.providerConfigId }
 
-    val mcpServers = parseImportedMcpServers(archive.mcpServers)
-
     validateSharedSkillBundles(archive.skillBundles)
     return ValidatedSharedAppData(
         providerConfigs = providerConfigs,
         activeProviderConfigId = activeProviderConfigId,
-        mcpServers = mcpServers,
     )
 }
 
@@ -276,8 +283,6 @@ private fun AppSettings.toAndroidAppSettingsJson(): JsonObject = buildJsonObject
     })
     put("reasoningEffort", normalizeReasoningEffort(reasoningEffort))
     put("systemPrompt", systemPrompt)
-    put("tavilyApiKey", tavilyApiKey)
-    put("tavilyBaseUrl", normalizeTavilyBaseUrl(tavilyBaseUrl))
     put("llmInactivityReconnectTimeoutSeconds", llmInactivityReconnectTimeoutSeconds)
     put("keepTasksRunningInBackground", keepTasksRunningInBackground)
     put("notifyOnTaskCompletion", notifyOnTaskCompletion)
@@ -289,7 +294,6 @@ private fun AppSettings.toAndroidAppSettingsJson(): JsonObject = buildJsonObject
             add(buildJsonObject { put("name", variable.name); put("value", variable.value) })
         }
     })
-    put("termuxLiveOutputEnabled", termuxLiveOutputEnabled)
     put("enabledRuntimeIds", buildJsonArray {
         enabledRuntimeIds.forEach { add(JsonPrimitive(it.storageValue)) }
     })
@@ -348,10 +352,6 @@ private fun parseAndroidAppSettings(value: JsonObject): AppSettings {
             value.stringValueOrDefault("reasoningEffort", defaults.reasoningEffort),
         ),
         systemPrompt = value.stringValueOrDefault("systemPrompt", defaults.systemPrompt),
-        tavilyApiKey = value.stringValueOrDefault("tavilyApiKey", defaults.tavilyApiKey),
-        tavilyBaseUrl = normalizeTavilyBaseUrl(
-            value.stringValueOrDefault("tavilyBaseUrl", defaults.tavilyBaseUrl),
-        ),
         llmInactivityReconnectTimeoutSeconds = normalizeLlmInactivityReconnectTimeoutSeconds(
             value.intValueOrDefault(
                 "llmInactivityReconnectTimeoutSeconds",
@@ -386,10 +386,6 @@ private fun parseAndroidAppSettings(value: JsonObject): AppSettings {
         termuxSetupNoticeDismissed = value.booleanValueOrDefault(
             "termuxSetupNoticeDismissed",
             defaults.termuxSetupNoticeDismissed,
-        ),
-        termuxLiveOutputEnabled = value.booleanValueOrDefault(
-            "termuxLiveOutputEnabled",
-            defaults.termuxLiveOutputEnabled,
         ),
         termuxEnvironmentVariables = parseImportedTermuxEnvironmentVariables(
             value["termuxEnvironmentVariables"] as? JsonArray,
@@ -497,6 +493,10 @@ private fun JsonObject.intValueOrDefault(name: String, fallback: Int): Int =
 private fun JsonObject.longValueOrDefault(name: String, fallback: Long): Long =
     (this[name] as? JsonPrimitive)?.longOrNull ?: fallback
 
+private fun JsonArray?.toTrimmedStringList(): List<String> = orEmpty().mapNotNull { element ->
+    (element as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+}
+
 private fun JsonArray.usesAndroidChatSchema(): Boolean = any { session ->
     val sessionObject = session as? JsonObject ?: return@any true
     if ("agentModeEnabled" in sessionObject || "activeSkillsJson" in sessionObject) return@any true
@@ -504,105 +504,5 @@ private fun JsonArray.usesAndroidChatSchema(): Boolean = any { session ->
     if (messagesValue !is JsonArray) return@any true
     messagesValue.any { message ->
         message !is JsonObject || "author" in message
-    }
-}
-
-private fun parseImportedMcpServers(value: JsonArray): List<SharedMcpServerConfig> =
-    value.mapIndexedNotNull { index, element ->
-        val item = element as? JsonObject ?: return@mapIndexedNotNull null
-        val transportObject = item["transport"] as? JsonObject
-        if (transportObject == null) {
-            if ((item["transport"] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
-                return@mapIndexedNotNull null
-            }
-            return@mapIndexedNotNull parseSharedMcpServers(JsonArray(listOf(item)).toString()).firstOrNull()
-        }
-        val transport = if (transportObject.stringValue("type") == "stdio") {
-            SharedMcpTransport.Stdio
-        } else {
-            SharedMcpTransport.Http
-        }
-        val name = item.stringValue("displayName")
-        val quickActionSource = if (transport == SharedMcpTransport.Stdio) {
-            transportObject.stringValue("command")
-        } else {
-            transportObject.stringValue("url")
-        }
-        val createdAt = (item["createdAtMillis"] as? JsonPrimitive)?.longOrNull
-            ?: platformCurrentTimeMillis()
-        SharedMcpServerConfig(
-            id = item.stringValue("id").ifBlank { "mcp-$index" },
-            name = name,
-            actionLabel = item.stringValue("actionLabel")
-                .ifBlank { generateSharedQuickActionLabel(name, quickActionSource) },
-            transport = transport,
-            url = transportObject.stringValue("url"),
-            command = transportObject.stringValue("command"),
-            arguments = ((transportObject["arguments"] ?: transportObject["args"]) as? JsonArray)
-                .toTrimmedStringList(),
-            headers = (transportObject["headers"] as? JsonArray).toKeyValueMap(),
-            workingDirectory = transportObject.stringValue("workingDirectory"),
-            environment = (transportObject["environment"] as? JsonArray).toKeyValueMap(),
-            runtimeEnvironment = transportObject.stringValue("runtimeEnvironment")
-                .ifBlank { transportObject.stringValue("runtime_environment") }
-                .ifBlank { "default" },
-            connectTimeoutMillis = (item["connectTimeoutMillis"] as? JsonPrimitive)?.longOrNull ?: 15_000L,
-            requestTimeoutMillis = (item["requestTimeoutMillis"] as? JsonPrimitive)?.longOrNull ?: 60_000L,
-            enabled = ((item["isEnabled"] as? JsonPrimitive)?.booleanOrNull ?: true) &&
-                ((item["isTrusted"] as? JsonPrimitive)?.booleanOrNull ?: true),
-            createdAtMillis = createdAt,
-            updatedAtMillis = (item["updatedAtMillis"] as? JsonPrimitive)?.longOrNull ?: createdAt,
-        )
-    }
-
-private fun JsonArray?.toTrimmedStringList(): List<String> = orEmpty().mapNotNull { element ->
-    (element as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
-}
-
-private fun JsonArray?.toKeyValueMap(): Map<String, String> = orEmpty().mapNotNull { element ->
-    val item = element as? JsonObject ?: return@mapNotNull null
-    item.stringValue("key").trim().takeIf(String::isNotEmpty)?.let { key ->
-        key to item.stringValue("value")
-    }
-}.toMap()
-
-private fun encodeAndroidMcpServers(servers: List<SharedMcpServerConfig>): JsonArray = buildJsonArray {
-    servers.forEach { server ->
-        add(buildJsonObject {
-            put("id", server.id)
-            put("displayName", server.name)
-            put("actionLabel", server.actionLabel)
-            put("transport", buildJsonObject {
-                when (server.transport) {
-                    SharedMcpTransport.Stdio -> {
-                        put("type", "stdio")
-                        put("command", server.command)
-                        put("arguments", buildJsonArray { server.arguments.forEach { add(JsonPrimitive(it)) } })
-                        put("workingDirectory", server.workingDirectory)
-                        put("environment", buildJsonArray {
-                            server.environment.forEach { (key, value) ->
-                                add(buildJsonObject { put("key", key); put("value", value) })
-                            }
-                        })
-                        server.runtimeEnvironment.takeUnless { it == "default" || it.isBlank() }
-                            ?.let { put("runtimeEnvironment", it) }
-                    }
-                    SharedMcpTransport.Http -> {
-                        put("type", "streamable_http")
-                        put("url", server.url)
-                        put("headers", buildJsonArray {
-                            server.headers.forEach { (key, value) ->
-                                add(buildJsonObject { put("key", key); put("value", value) })
-                            }
-                        })
-                    }
-                }
-            })
-            put("isEnabled", server.enabled)
-            put("connectTimeoutMillis", server.connectTimeoutMillis)
-            put("requestTimeoutMillis", server.requestTimeoutMillis)
-            put("createdAtMillis", server.createdAtMillis)
-            put("updatedAtMillis", server.updatedAtMillis)
-        })
     }
 }

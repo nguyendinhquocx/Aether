@@ -433,8 +433,8 @@
     <string name="settings_notify_background_tasks_finish_subtitle">هنگامی که یک اجرا در حالی که Aether روی صفحه نیست پایان می‌یابد، هشدار تکمیل را نشان می‌دهد.</string>
     <string name="settings_reconnect">دوباره وصل شوید</string>
     <string name="settings_reconnect_after_seconds">بعد از %1$ds دوباره وصل شوید</string>
-    <string name="settings_reconnect_after_idle_seconds">پس از چند ثانیه بیکار دوباره وصل شوید</string>
-    <string name="settings_reconnect_after_idle_description">اگر درخواستی برای این چند ثانیه اصلاً فعالیت پاسخی نداشته باشد، اتر آن تلاش را لغو می‌کند و با backoff دوباره وصل می‌شود. برد: 30-3600 ثانیه.</string>
+    <string name="settings_reconnect_after_idle_seconds">مهلت زمانی ارائه‌دهنده (ثانیه)</string>
+    <string name="settings_reconnect_after_idle_description">ارائه‌دهندگان این مهلت را به شکل‌های متفاوتی تفسیر می‌کنند. Aether خطاهای صریح و قابل تلاش مجدد را دوباره امتحان می‌کند، اما پس از شروع فعالیت پاسخ، درخواست را به دلیل مهلت زمانی مبهم دوباره ارسال نمی‌کند. محدوده: 30 تا 3600 ثانیه.</string>
     <string name="settings_skills_count_configured">%1$d پیکربندی شد</string>
     <string name="settings_scheduled_tasks">وظایف برنامه ریزی شده</string>
     <string name="settings_scheduled_tasks_count_configured">%1$d پیکربندی شد</string>
@@ -835,8 +835,6 @@
     <string name="settings_default_runtime_help">استفاده از تنظیمات &gt; پیش فرض های زمان اجرا</string>
     <string name="settings_runtime_termux_stdio_subtitle">این سرور stdio را از طریق Termux اجرا کنید.</string>
     <string name="settings_runtime_alpine_stdio_subtitle">این سرور stdio را در داخل Alpine اجرا کنید.</string>
-    <string name="settings_live_command_output">خروجی فرمان زنده</string>
-    <string name="settings_live_command_output_description">در حالی که دستورات Termux هنوز فعال هستند، عکس‌های فوری bash stdout و stderr را در کارت ابزار نمایش دهید.</string>
     <string name="settings_alpine_description">محیط لینوکس داخلی Aether یک برنامه خصوصی و مستقل از Termux است. از آن برای اسکریپت های پوسته، ابزارهای توسعه و سرورهای stdio MCP استفاده کنید.</string>
     <string name="settings_open_terminal">ترمینال را باز کنید</string>
     <string name="settings_open_chrome">کروم را باز کنید</string>

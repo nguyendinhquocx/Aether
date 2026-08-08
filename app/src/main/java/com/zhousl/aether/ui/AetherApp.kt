@@ -73,6 +73,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -121,6 +122,7 @@ import com.zhousl.aether.data.AppLanguage
 import com.zhousl.aether.data.AppSettings
 import com.zhousl.aether.data.AutomaticModelPurpose
 import com.zhousl.aether.data.ProviderModelOption
+import com.zhousl.aether.data.PiExtensionUiRequest
 import com.zhousl.aether.data.availableModelOptions
 import com.zhousl.aether.data.isOnboardingComplete
 import com.zhousl.aether.data.resolveAutomaticModelKey
@@ -236,6 +238,7 @@ fun AetherApp(
     }
     val extensionManager = appRuntime.aetherAppExtensionManager
     val extensionState = extensionManager.state.collectAsStateWithLifecycle().value
+    val piExtensionUiRequest = extensionManager.piUiRequest.collectAsStateWithLifecycle().value
     val nativeModState = appRuntime.nativeModManager.state.collectAsStateWithLifecycle().value
     val nativeComponents =
         appRuntime.modKernel.components.registrations.collectAsStateWithLifecycle().value
@@ -348,8 +351,76 @@ fun AetherApp(
                     AetherExtensionOverlaySlot(Modifier.fillMaxSize())
                 }
             }
+            piExtensionUiRequest?.let { request ->
+                PiExtensionUiDialog(
+                    request = request,
+                    onResult = { value ->
+                        extensionManager.respondToPiExtensionUiRequest(request.callId, value)
+                    },
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun PiExtensionUiDialog(
+    request: PiExtensionUiRequest,
+    onResult: (Any?) -> Unit,
+) {
+    var input by remember(request.callId) { mutableStateOf("") }
+    val dismissValue: Any? = if (request.method == "pi_extension_confirm") false else null
+    AlertDialog(
+        onDismissRequest = { onResult(dismissValue) },
+        containerColor = AetherSurface,
+        titleContentColor = AetherOnSurface,
+        textContentColor = AetherOnSurfaceVariant,
+        title = { Text(request.title) },
+        text = {
+            when (request.method) {
+                "pi_extension_select" -> Column {
+                    request.options.forEach { option ->
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onResult(option) },
+                        ) {
+                            Text(option, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+
+                "pi_extension_input" -> OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = request.placeholder.takeIf(String::isNotBlank)?.let { placeholder ->
+                        { Text(placeholder) }
+                    },
+                    singleLine = true,
+                )
+
+                else -> Text(request.message)
+            }
+        },
+        confirmButton = {
+            if (request.method != "pi_extension_select") {
+                TextButton(
+                    onClick = {
+                        onResult(
+                            if (request.method == "pi_extension_confirm") true else input,
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.common_done))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onResult(dismissValue) }) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -464,13 +535,16 @@ private fun AetherAppContent(
             viewModel.consumePendingUpdateInstallUri()
         }
     }
+    LaunchedEffect(uiState.settings.privacyPolicyAccepted) {
+        if (uiState.settings.privacyPolicyAccepted) {
+            onNotificationPermissionRequested()
+        }
+    }
     var pendingSaveTarget by remember { mutableStateOf<PendingSaveTarget?>(null) }
     var pendingSessionExportId by remember { mutableStateOf<String?>(null) }
     var pendingSkillZipCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
     var pendingTermuxPermissionSource by remember { mutableStateOf("unknown") }
     var showAppDataExportWarning by remember { mutableStateOf(false) }
-    var showNotificationPermissionRationale by remember { mutableStateOf(false) }
-    var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     val onPickedDocuments: (List<Uri>) -> Unit = { uris ->
         uris.forEach { uri ->
             runCatching {
@@ -696,7 +770,7 @@ private fun AetherAppContent(
                     pendingSessionExportId = session.id
                     sessionExportLauncher.launch("${session.title.ifBlank { "aether-session" }}.json")
                 },
-                onDeleteSession = { sessionId -> pendingDeleteSessionId = sessionId },
+                onDeleteSession = viewModel::deleteSession,
                 onSettingsSelected = {
                     scope.launch {
                         drawerState.close()
@@ -716,9 +790,6 @@ private fun AetherAppContent(
             AnimatedContent(
                 targetState = uiState.currentScreen,
                 transitionSpec = {
-                    if (reduceMotion) {
-                        return@AnimatedContent fadeIn(tween(80)) togetherWith fadeOut(tween(60))
-                    }
                     val isForward = targetState.depth() > initialState.depth()
                     val enterSlide = slideInHorizontally(
                         animationSpec = tween(ScreenTransitionDuration, easing = ScreenTransitionEasing),
@@ -950,7 +1021,6 @@ private fun AetherAppContent(
                         uiState.settings.autoCleanOldCommandHistory,
                     oldCommandHistoryRetentionHours =
                         uiState.settings.oldCommandHistoryRetentionHours,
-                    termuxLiveOutputEnabled = uiState.settings.termuxLiveOutputEnabled,
                     termuxEnvironmentVariables = uiState.settings.termuxEnvironmentVariables,
                     agentModeAuthorizationEnabled = uiState.settings.agentModeAuthorizationEnabled,
                     agentModeAuthorizationMethod = uiState.settings.agentModeAuthorizationMethod,
@@ -1043,9 +1113,6 @@ private fun AetherAppContent(
                     onToggleScheduledTaskEnabled = viewModel::setScheduledTaskEnabled,
                     onRemoveScheduledTask = viewModel::removeScheduledTask,
                     onRequestTermuxPermission = { requestTermuxPermission("settings_termux_permission") },
-                    onRequestNotificationPermission = {
-                        showNotificationPermissionRationale = true
-                    },
                     onImportAppData = {
                         appDataImportLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
                     },
@@ -1101,59 +1168,6 @@ private fun AetherAppContent(
             }
         }
 
-        if (showNotificationPermissionRationale) {
-            AlertDialog(
-                onDismissRequest = { showNotificationPermissionRationale = false },
-                containerColor = AetherSurface,
-                titleContentColor = AetherOnSurface,
-                textContentColor = AetherOnSurfaceVariant,
-                title = { Text(stringResource(R.string.notification_permission_title)) },
-                text = { Text(stringResource(R.string.notification_permission_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showNotificationPermissionRationale = false
-                            onNotificationPermissionRequested()
-                        },
-                    ) {
-                        Text(stringResource(R.string.notification_permission_allow))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showNotificationPermissionRationale = false }) {
-                        Text(stringResource(R.string.common_later))
-                    }
-                },
-            )
-        }
-        pendingDeleteSessionId?.let { sessionId ->
-            AlertDialog(
-                onDismissRequest = { pendingDeleteSessionId = null },
-                containerColor = AetherSurface,
-                titleContentColor = AetherOnSurface,
-                textContentColor = AetherOnSurfaceVariant,
-                title = { Text(stringResource(R.string.chat_delete_session_title)) },
-                text = { Text(stringResource(R.string.chat_delete_session_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            pendingDeleteSessionId = null
-                            viewModel.deleteSession(sessionId)
-                        },
-                    ) {
-                        Text(
-                            stringResource(R.string.common_delete),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { pendingDeleteSessionId = null }) {
-                        Text(stringResource(R.string.common_cancel))
-                    }
-                },
-            )
-        }
         if (uiState.isStartupRouteResolved && !uiState.settings.privacyPolicyAccepted) {
             PrivacyPolicyConsentDialog(
                 onOpenPolicy = { openPrivacyPolicy(context) },
@@ -1232,7 +1246,7 @@ private fun PrivacyPolicyConsentDialog(
                     tag = PrivacyPolicyAnnotationTag,
                     annotation = AetherPrivacyPolicyUrl,
                 )
-                withStyle(SpanStyle(color = AetherPrimary)) {
+                withStyle(SpanStyle(color = Color(0xFF3B82F6))) {
                     append(policyText)
                 }
                 pop()

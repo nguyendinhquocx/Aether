@@ -18,6 +18,8 @@ interface ChatHistoryDao {
         workspaceFileRefs: List<ChatWorkspaceFileRefEntity>,
         meta: ChatStateMetaEntity,
     ) {
+        deleteAllAgentMessageRefs()
+        deleteAllAgentSessions()
         deleteAllWorkspaceFileRefs()
         deleteAllMessages()
         deleteAllSessions()
@@ -41,6 +43,18 @@ interface ChatHistoryDao {
 
     @Query("SELECT * FROM chat_sessions WHERE id = :sessionId")
     suspend fun getSession(sessionId: String): ChatSessionEntity?
+
+    @Query("SELECT * FROM chat_agent_sessions WHERE chatSessionId = :sessionId")
+    suspend fun getAgentSession(sessionId: String): ChatAgentSessionEntity?
+
+    @Query("SELECT * FROM chat_agent_sessions ORDER BY updatedAtMillis DESC")
+    suspend fun getAgentSessions(): List<ChatAgentSessionEntity>
+
+    @Query("SELECT * FROM chat_agent_message_refs WHERE chatSessionId = :sessionId ORDER BY aetherMessageId, ordinal")
+    suspend fun getAgentMessageRefs(sessionId: String): List<ChatAgentMessageRefEntity>
+
+    @Query("SELECT * FROM chat_agent_message_refs WHERE chatSessionId = :sessionId AND aetherMessageId = :messageId ORDER BY ordinal")
+    suspend fun getAgentMessageRefs(sessionId: String, messageId: String): List<ChatAgentMessageRefEntity>
 
     @Query("SELECT COUNT(*) FROM chat_messages WHERE sessionId = :sessionId")
     suspend fun getMessageCountForSession(sessionId: String): Int
@@ -156,6 +170,12 @@ interface ChatHistoryDao {
     @Upsert
     suspend fun upsertSessions(sessions: List<ChatSessionEntity>)
 
+    @Upsert
+    suspend fun upsertAgentSession(session: ChatAgentSessionEntity)
+
+    @Upsert
+    suspend fun upsertAgentMessageRefs(refs: List<ChatAgentMessageRefEntity>)
+
     @Query("UPDATE chat_sessions SET selectedModelKey = :selectedModelKey WHERE id = :sessionId")
     suspend fun updateSelectedModelKey(sessionId: String, selectedModelKey: String)
 
@@ -252,6 +272,18 @@ interface ChatHistoryDao {
 
     @Query("DELETE FROM chat_sessions WHERE id = :sessionId")
     suspend fun deleteSession(sessionId: String)
+
+    @Query("DELETE FROM chat_agent_sessions WHERE chatSessionId = :sessionId")
+    suspend fun deleteAgentSession(sessionId: String)
+
+    @Query("DELETE FROM chat_agent_message_refs WHERE chatSessionId = :sessionId")
+    suspend fun deleteAgentMessageRefs(sessionId: String)
+
+    @Query("DELETE FROM chat_agent_sessions")
+    suspend fun deleteAllAgentSessions()
+
+    @Query("DELETE FROM chat_agent_message_refs")
+    suspend fun deleteAllAgentMessageRefs()
 
     @Query("DELETE FROM chat_sessions WHERE id NOT IN (:sessionIds)")
     suspend fun deleteSessionsExcept(sessionIds: List<String>)

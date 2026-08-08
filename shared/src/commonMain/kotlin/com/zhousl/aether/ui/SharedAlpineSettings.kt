@@ -264,14 +264,6 @@ internal fun SharedAlpineSettingsDetailPage(
     var busy by remember { mutableStateOf(false) }
     val installProgress = remember { mutableStateMapOf<String, SharedAlpineInstallProgress>() }
     val rootFileSystemUnavailableMessage = stringResource(Res.string.settings_alpine_rootfs_unavailable)
-    val runtimeReadyMessage = stringResource(Res.string.settings_alpine_status_ready)
-    val runtimeInstallFailedMessage = stringResource(Res.string.settings_alpine_install_failed)
-    val profileInstalledPlaceholder = "{profile_id}"
-    val profileInstalledTemplate = stringResource(
-        Res.string.settings_alpine_profile_installed,
-        profileInstalledPlaceholder,
-    )
-    val profileInstallFailedMessage = stringResource(Res.string.settings_alpine_profile_install_failed)
     val profiles = listOf(
         SharedAlpineProfileDefinition(
             id = "python",
@@ -392,13 +384,13 @@ internal fun SharedAlpineSettingsDetailPage(
                 saveReadyState(true)
                 setupIssue = SharedAlpineSetupIssue.Ready
                 detail = ""
-                onTransientMessage(runtimeReadyMessage)
+                onTransientMessage("Alpine runtime is ready.")
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 ready = false
                 setupIssue = SharedAlpineSetupIssue.Failed
-                detail = error.message.orEmpty().ifBlank { runtimeInstallFailedMessage }
+                detail = error.message.orEmpty().ifBlank { "Failed to install Alpine runtime." }
                 onTransientMessage(detail)
             } finally {
                 busy = false
@@ -464,9 +456,9 @@ internal fun SharedAlpineSettingsDetailPage(
             }
             val now = com.zhousl.aether.data.platformCurrentTimeMillis()
             val resultDetail = if (result.isSuccess) {
-                profileInstalledTemplate.replace(profileInstalledPlaceholder, profile.id)
+                "Installed Alpine profile ${profile.id}."
             } else {
-                result.exceptionOrNull()?.message.orEmpty().ifBlank { profileInstallFailedMessage }
+                result.exceptionOrNull()?.message.orEmpty().ifBlank { "Install failed." }
             }
             profileStateCache[profile.id] = PackageProfileState(
                 profileId = profile.id,

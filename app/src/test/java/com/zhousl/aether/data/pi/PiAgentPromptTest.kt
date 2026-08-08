@@ -1,25 +1,27 @@
 package com.zhousl.aether.data.pi
 
 import com.zhousl.aether.data.AppSettings
+import com.zhousl.aether.data.LocalRuntimeId
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PiAgentPromptTest {
     @Test
-    fun instructionsRequireFileUriLinksForLocalDownloads() {
+    fun instructionsOnlyAppendAetherRuntimeConstraints() {
         val instructions = buildPiAgentInstructions(
             settings = AppSettings(),
             workspaceDirectory = "/workspace",
-            availableSkills = emptyList(),
-            activeSkills = emptyList(),
-            mcpSnapshots = emptyList(),
-            mcpToolBindings = emptyList(),
+            runtimeId = LocalRuntimeId.Alpine,
             agentModeEnabled = false,
         )
 
-        assertTrue(instructions.contains("[report.pdf](file:///absolute/path/report.pdf)"))
-        assertTrue(instructions.contains("Do not use another URI scheme for local file downloads."))
+        assertTrue(instructions.contains("current local runtime is alpine"))
+        assertTrue(instructions.contains("use read on the provided path"))
+        assertFalse(instructions.contains("analyze_image"))
+        assertFalse(instructions.contains("fetch_web_url"))
+        assertFalse(instructions.contains("mcp_"))
+        assertFalse(instructions.contains("<active_skill"))
     }
 
     @Test
@@ -27,26 +29,18 @@ class PiAgentPromptTest {
         val disabledInstructions = buildPiAgentInstructions(
             settings = AppSettings(),
             workspaceDirectory = "/workspace",
-            availableSkills = emptyList(),
-            activeSkills = emptyList(),
-            mcpSnapshots = emptyList(),
-            mcpToolBindings = emptyList(),
+            runtimeId = LocalRuntimeId.Alpine,
             agentModeEnabled = false,
         )
         val enabledInstructions = buildPiAgentInstructions(
             settings = AppSettings(),
             workspaceDirectory = "/workspace",
-            availableSkills = emptyList(),
-            activeSkills = emptyList(),
-            mcpSnapshots = emptyList(),
-            mcpToolBindings = emptyList(),
+            runtimeId = LocalRuntimeId.Alpine,
             agentModeEnabled = false,
             chromeEnabled = true,
         )
 
-        assertFalse(disabledInstructions.contains("Alpine Chrome is enabled for this chat."))
-        assertFalse(disabledInstructions.contains("normalized 0..1000 range"))
-        assertTrue(enabledInstructions.contains("Alpine Chrome is enabled for this chat."))
-        assertTrue(enabledInstructions.contains("normalized 0..1000 range"))
+        assertFalse(disabledInstructions.contains("Chrome Extension tool"))
+        assertTrue(enabledInstructions.contains("Chrome Extension tool"))
     }
 }

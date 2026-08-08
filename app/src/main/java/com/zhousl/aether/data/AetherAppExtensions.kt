@@ -94,6 +94,15 @@ data class AetherAppExtensionNotification(
     val level: String,
 )
 
+data class PiExtensionUiRequest(
+    val callId: String,
+    val method: String,
+    val title: String,
+    val message: String = "",
+    val placeholder: String = "",
+    val options: List<String> = emptyList(),
+)
+
 data class AetherAppExtensionEventResult(
     val handled: Boolean,
     val cancelled: Boolean,
@@ -115,6 +124,9 @@ class AetherAppExtensionManager(
     private val _notifications = MutableSharedFlow<AetherAppExtensionNotification>(
         extraBufferCapacity = 8,
     )
+    private val _piUiRequest = MutableStateFlow<PiExtensionUiRequest?>(null)
+    private val pendingPiUiRequests = ArrayDeque<PiExtensionUiRequest>()
+    private val piUiRequestLock = Any()
     private var subscriptionJob: Job? = null
     private var invalidationJob: Job? = null
     private var latestContextJson = "{}"
@@ -124,6 +136,7 @@ class AetherAppExtensionManager(
 
     val state: StateFlow<AetherAppExtensionState> = _state.asStateFlow()
     val notifications: SharedFlow<AetherAppExtensionNotification> = _notifications.asSharedFlow()
+    val piUiRequest: StateFlow<PiExtensionUiRequest?> = _piUiRequest.asStateFlow()
 
     fun setHostHandler(handler: suspend (String, JSONObject) -> JSONObject) {
         hostHandler = handler
@@ -274,6 +287,31 @@ class AetherAppExtensionManager(
         }
     }
 
+    suspend fun handleAgentBridgeEvent(
+        event: String,
+        payload: JSONObject,
+    ) {
+        handleBridgeEvent(event, payload)
+    }
+
+    fun respondToPiExtensionUiRequest(
+        callId: String,
+        value: Any?,
+    ) {
+        val request = synchronized(piUiRequestLock) {
+            val current = _piUiRequest.value
+            if (current?.callId != callId) return
+            _piUiRequest.value = pendingPiUiRequests.removeFirstOrNull()
+            current
+        }
+        scope.launch {
+            bridge.sendAetherHostResult(
+                callId = request.callId,
+                result = JSONObject().put("value", value ?: JSONObject.NULL),
+            )
+        }
+    }
+
     private suspend fun handleBridgeEvent(
         event: String,
         payload: JSONObject,
@@ -296,6 +334,37 @@ class AetherAppExtensionManager(
                 val callId = payload.optString("call_id")
                 val method = payload.optString("method")
                 val args = payload.optJSONObject("args") ?: JSONObject()
+                if (method == "pi_extension_notify") {
+                    _notifications.emit(
+                        AetherAppExtensionNotification(
+                            message = args.optString("message"),
+                            level = args.optString("type").ifBlank { "info" },
+                        )
+                    )
+                    bridge.sendAetherHostResult(
+                        callId = callId,
+                        result = JSONObject().put("notified", true),
+                    )
+                    return
+                }
+                if (method in PiExtensionInteractiveUiMethods) {
+                    val request = PiExtensionUiRequest(
+                        callId = callId,
+                        method = method,
+                        title = args.optString("title"),
+                        message = args.optString("message"),
+                        placeholder = args.optString("placeholder"),
+                        options = args.optJSONArray("options").toStringList(),
+                    )
+                    synchronized(piUiRequestLock) {
+                        if (_piUiRequest.value == null) {
+                            _piUiRequest.value = request
+                        } else {
+                            pendingPiUiRequests.addLast(request)
+                        }
+                    }
+                    return
+                }
                 val result = runCatching {
                     val handler = hostHandler
                         ?: error("The Aether UI host is not attached.")
@@ -333,6 +402,17 @@ class AetherAppExtensionManager(
             error = throwable.message ?: throwable.javaClass.simpleName,
         )
     }
+}
+
+private val PiExtensionInteractiveUiMethods = setOf(
+    "pi_extension_select",
+    "pi_extension_confirm",
+    "pi_extension_input",
+)
+
+private fun JSONArray?.toStringList(): List<String> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { index -> optString(index).takeIf(String::isNotBlank) }
 }
 
 internal fun JSONObject.extensionReloadError(): String {

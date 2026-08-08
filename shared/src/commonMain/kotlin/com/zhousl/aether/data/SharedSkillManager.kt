@@ -399,14 +399,9 @@ class SharedSkillManager(
         val explicit = selectedIds.distinct().mapNotNull { id ->
             enabledById[id]?.let { skill -> runCatching { buildActiveSkillContext(skill) }.getOrNull() }
         }
-        val implicit = findImplicitlyRelevantSharedSkills(
-            skills = enabledSkills,
-            requestText = requestText,
-            excludedSkillIds = explicit.map(SharedActiveSkillContext::skillId).toSet(),
-        ).mapNotNull { skill -> runCatching { buildActiveSkillContext(skill) }.getOrNull() }
         return SharedTurnSkillSelection(
             selectedSkillIds = explicit.map(SharedActiveSkillContext::skillId),
-            activeSkills = (explicit + implicit).distinctBy(SharedActiveSkillContext::skillId),
+            activeSkills = explicit,
             availableSkills = enabledSkills.sortedBy { it.name.lowercase() },
         )
     }

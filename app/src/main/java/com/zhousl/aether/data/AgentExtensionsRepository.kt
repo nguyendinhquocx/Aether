@@ -16,7 +16,9 @@ class AgentExtensionsRepository(
     val extensionState: Flow<AgentExtensionsState> = context.agentExtensionsDataStore.data.map { preferences ->
         AgentExtensionsState(
             installedSkills = parseInstalledSkills(preferences[INSTALLED_SKILLS_JSON].orEmpty()),
-            mcpServers = parseMcpServerConfigs(preferences[MCP_SERVERS_JSON].orEmpty()),
+            // MCP is no longer an Aether persistence/runtime feature. Keep the
+            // state slot empty for callers compiled against the old UI model.
+            mcpServers = emptyList(),
         )
     }
 
@@ -57,9 +59,7 @@ class AgentExtensionsRepository(
     }
 
     suspend fun updateMcpServers(servers: List<McpServerConfig>) {
-        context.agentExtensionsDataStore.edit {
-            it[MCP_SERVERS_JSON] = serializeMcpServerConfigs(servers)
-        }
+        // Intentionally ignored: Pi Coding Agent Extensions own external integrations.
     }
 
     suspend fun upsertMcpServer(server: McpServerConfig) {
@@ -108,6 +108,5 @@ class AgentExtensionsRepository(
 
     private companion object {
         val INSTALLED_SKILLS_JSON = stringPreferencesKey("installed_skills_json")
-        val MCP_SERVERS_JSON = stringPreferencesKey("mcp_servers_json")
     }
 }

@@ -48,6 +48,7 @@ class SharedMcpManagerTest {
             """[{"id":"android-id","displayName":"Docs","actionLabel":"Search Docs","transport":{"type":"streamable_http","url":"https://example.com/mcp","headers":[{"key":"Authorization","value":"Bearer token"}]},"isEnabled":false}]"""
         )
 
+        val actual = parsed.single()
         assertEquals(
             SharedMcpServerConfig(
                 id = "android-id",
@@ -57,8 +58,10 @@ class SharedMcpManagerTest {
                 url = "https://example.com/mcp",
                 headers = mapOf("Authorization" to "Bearer token"),
                 enabled = false,
+                createdAtMillis = actual.createdAtMillis,
+                updatedAtMillis = actual.updatedAtMillis,
             ),
-            parsed.single(),
+            actual,
         )
     }
 

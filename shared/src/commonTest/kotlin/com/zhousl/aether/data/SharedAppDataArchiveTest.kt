@@ -69,7 +69,6 @@ class SharedAppDataArchiveTest {
             settings = AppSettings(
                 providerConfigId = provider.id,
                 apiKey = "legacy-secret",
-                tavilyApiKey = "tavily-secret",
                 defaultSelectedSkillIds = listOf("review"),
             ),
             providerConfigs = Json.parseToJsonElement(
@@ -111,13 +110,12 @@ class SharedAppDataArchiveTest {
                     ),
                 ),
             ),
-            mcpServers = JsonArray(emptyList()),
         )
 
         val decoded = decodeSharedAppDataArchive(encodeSharedAppDataArchive(archive))
 
         assertEquals("secret", parseProviderConfigs(decoded.providerConfigs.toString()).single().apiKey)
-        assertEquals("tavily-secret", decoded.settings.tavilyApiKey)
+        assertEquals("", decoded.settings.tavilyApiKey)
         assertEquals("Answer", decoded.sessions.single().messages.last().text)
         assertEquals(30L, decoded.sessions.single().messages.last().completedAtMillis)
         assertEquals(false, decoded.skillBundles.single().isEnabled)
@@ -170,7 +168,6 @@ class SharedAppDataArchiveTest {
                     ),
                 ),
             ),
-            mcpServers = JsonArray(emptyList()),
         )
 
         assertFailsWith<IllegalArgumentException> { encodeSharedAppDataArchive(archive) }
@@ -330,11 +327,17 @@ class SharedAppDataArchiveTest {
             providerConfigs = JsonArray(emptyList()),
             sessions = listOf(session),
             skillBundles = emptyList(),
-            mcpServers = JsonArray(emptyList()),
+            piSessions = listOf(
+                SharedPiSessionArchive(
+                    sessionId = "session-1",
+                    jsonl = "{\"type\":\"session\",\"id\":\"session-1\"}",
+                ),
+            ),
         )
 
         val encoded = encodeSharedAppDataArchive(archive)
         val root = Json.parseToJsonElement(encoded).jsonObject
+        assertEquals("session-1", root["piSessions"]!!.jsonArray.single().jsonObject["sessionId"]?.toString()?.trim('"'))
         val messages = root["sessions"]!!.jsonArray.single().jsonObject["messages"]!!.jsonArray
         assertEquals(4, messages.size)
         val assistantMessages = messages.drop(1).map { it.jsonObject }
@@ -351,17 +354,15 @@ class SharedAppDataArchiveTest {
         assertEquals("Done", restored.text)
         assertEquals(3, restored.responseBlocks.size)
         assertEquals(5, restored.usage?.totalTokens)
-        assertEquals("Inspect the change.", restoredSession.activeSkills.single().bodyMarkdown)
+        assertTrue(restoredSession.activeSkills.isEmpty())
+        assertEquals("session-1", decodeSharedAppDataArchive(encoded).piSessions.single().sessionId)
 
         val singleExportText = serializePersistedChatSession(session)
         assertTrue(singleExportText.contains("\n  \"schemaVersion\": 1,"))
         assertTrue(singleExportText.contains("\n  \"session\": {"))
         val singleExport = Json.parseToJsonElement(singleExportText).jsonObject
         assertEquals("1", singleExport["schemaVersion"].toString())
-        val activeSkillsJson = singleExport["session"]!!.jsonObject["activeSkillsJson"]!!
-            .jsonPrimitive.content
-        assertEquals("review", Json.parseToJsonElement(activeSkillsJson).jsonArray.single()
-            .jsonObject["skillId"]?.jsonPrimitive?.content)
+        assertFalse("activeSkillsJson" in singleExport["session"]!!.jsonObject)
         assertEquals("Agent", singleExport["session"]!!.jsonObject["messages"]!!
             .jsonArray.last().jsonObject["author"]?.toString()?.trim('"'))
     }
@@ -400,10 +401,7 @@ class SharedAppDataArchiveTest {
         assertEquals(listOf("review"), decoded.skillBundles.map { it.id })
         val reencoded = Json.parseToJsonElement(encodeSharedAppDataArchive(decoded)).jsonObject
         assertEquals(1, reencoded["providerConfigs"]!!.jsonArray.size)
-        val mcp = reencoded["mcpServers"]!!.jsonArray.single().jsonObject
-        assertEquals("mcp-1", mcp["id"]?.toString()?.trim('"'))
-        assertEquals("123", mcp["createdAtMillis"].toString())
-        assertEquals("456", mcp["updatedAtMillis"].toString())
+        assertFalse("mcpServers" in reencoded)
     }
 
     @Test

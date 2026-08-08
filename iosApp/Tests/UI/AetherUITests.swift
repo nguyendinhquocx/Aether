@@ -5,6 +5,36 @@ final class AetherUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testMessageSubmissionDoesNotTerminateApp() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        let privacyAgreement = app.buttons["Agree"]
+        if privacyAgreement.waitForExistence(timeout: 5) {
+            privacyAgreement.tap()
+        }
+
+        let composer = app.textViews.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 30))
+        composer.tap()
+        composer.typeText("iOS message submission regression test")
+
+        let send = app.buttons["Send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 10))
+        send.tap()
+
+        for second in 1...30 {
+            XCTAssertEqual(
+                app.state,
+                .runningForeground,
+                "Aether left the foreground \(second) seconds after sending a message"
+            )
+            Thread.sleep(forTimeInterval: 1)
+        }
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+    }
+
     func testOnboardingRuntimeAndIOSCapabilitySurface() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

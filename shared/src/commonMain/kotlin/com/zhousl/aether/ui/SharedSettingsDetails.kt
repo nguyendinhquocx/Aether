@@ -114,8 +114,8 @@ private suspend fun <T> runSharedSettingsCatching(block: suspend () -> T): Resul
 
 private val SharedStatisticsInputColor = Color(0xFF5D7CFF)
 private val SharedStatisticsOutputColor = Color(0xFF7B68EE)
-private val SharedStatisticsReasoningColor = Color(0xFF6E56CF)
-private val SharedStatisticsNeutralChartColor = Color(0xFF747C89)
+private val SharedStatisticsReasoningColor = Color(0xFFA9B8FF)
+private val SharedStatisticsNeutralChartColor = Color(0xFFDCE4FF)
 
 @Composable
 internal fun SharedPersonalizationSettingsDetail(

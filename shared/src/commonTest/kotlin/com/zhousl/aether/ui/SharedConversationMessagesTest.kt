@@ -83,9 +83,9 @@ class SharedConversationMessagesTest {
     @Test
     fun toolPresentationMatchesAndroidToolNames() {
         assertEquals(SharedToolPresentation.Generic, sharedToolPresentation("web_fetch"))
-        assertEquals(SharedToolPresentation.WebFetch, sharedToolPresentation("fetch_web_url"))
+        assertEquals(SharedToolPresentation.Generic, sharedToolPresentation("fetch_web_url"))
         assertEquals(SharedToolPresentation.Generic, sharedToolPresentation("web_search"))
-        assertEquals(SharedToolPresentation.WebSearch, sharedToolPresentation("tavily_search"))
+        assertEquals(SharedToolPresentation.Generic, sharedToolPresentation("tavily_search"))
         assertEquals(SharedToolPresentation.Generic, sharedToolPresentation(" TAVILY_SEARCH "))
     }
 
@@ -276,61 +276,6 @@ class SharedConversationMessagesTest {
 
         assertEquals(16_002, usage.inputTokens)
         assertEquals(16_002, usage.totalTokens)
-    }
-
-    @Test
-    fun compactionInputUsesAndroidReasoningAndToolFields() {
-        val compactStatus = SharedChatMessage(
-            id = "compact-status",
-            text = "Context compacted",
-            fromUser = false,
-            displayKind = SharedMessageDisplayKind.CompactStatus,
-        )
-        val input = buildSharedCompactConversationInput(
-            listOf(
-                SharedChatMessage(id = "user", text = "Question", fromUser = true),
-                SharedChatMessage(
-                    id = "assistant",
-                    text = "Answer",
-                    fromUser = false,
-                    reasoningText = "raw reasoning must not be included",
-                    responseBlocks = listOf(
-                        SharedAssistantResponseBlock.Reasoning(
-                            id = "reasoning",
-                            trace = SharedReasoningTrace(
-                                id = "trace",
-                                chunks = listOf(
-                                    SharedReasoningSummaryChunk(
-                                        id = "chunk",
-                                        title = "Fallback title",
-                                        detail = "Retained reasoning summary",
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                    tools = listOf(
-                        SharedChatToolInvocation(
-                            id = "tool",
-                            name = "read",
-                            summary = "presentation summary must not be included",
-                            output = "presentation output must not be included",
-                            argumentsJson = "{\"path\":\"/workspace/note.txt\"}",
-                            outputJson = "{\"text\":\"contents\"}",
-                        ),
-                    ),
-                ),
-                compactStatus,
-            ),
-        )
-
-        assertContains(input, "## 1. User\nQuestion")
-        assertContains(input, "Retained reasoning summary")
-        assertContains(input, "- read: {\"path\":\"/workspace/note.txt\"}")
-        assertContains(input, "output: {\"text\":\"contents\"}")
-        assertFalse(input.contains("raw reasoning must not be included"))
-        assertFalse(input.contains("presentation summary must not be included"))
-        assertFalse(input.contains("Context compacted"))
     }
 
     @Test

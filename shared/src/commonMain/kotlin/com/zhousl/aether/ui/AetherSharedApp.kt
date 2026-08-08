@@ -62,6 +62,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -73,6 +75,7 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Extension
@@ -146,8 +149,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.SpanStyle
@@ -220,6 +221,7 @@ import com.zhousl.aether.data.pi.PiProviderAuthState
 import com.zhousl.aether.data.pi.SharedPiChatClient
 import com.zhousl.aether.data.pi.SharedPiChatMessage
 import com.zhousl.aether.data.pi.SharedPiContentPart
+import com.zhousl.aether.data.pi.SharedPiTurnResult
 import com.zhousl.aether.data.pi.SharedPiUsage
 import com.zhousl.aether.data.pi.RuntimeHostToolExecutor
 import com.zhousl.aether.data.pi.SharedAgentManagementTools
@@ -230,7 +232,6 @@ import com.zhousl.aether.data.pi.SharedToolRegistry
 import com.zhousl.aether.data.pi.SharedChromeManager
 import com.zhousl.aether.data.pi.SharedCompositeHostTools
 import com.zhousl.aether.data.pi.SharedHostToolResult
-import com.zhousl.aether.data.pi.SharedWebToolExecutor
 import com.zhousl.aether.data.pi.toPiOAuthPrompt
 import com.zhousl.aether.data.pi.toPiProviderEnvironmentVariables
 import com.zhousl.aether.data.chatdb.ChatHistoryDatabase
@@ -259,12 +260,8 @@ import com.zhousl.aether.ui.theme.AetherBackground
 import com.zhousl.aether.ui.theme.AetherBackgroundGradientTop
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
-import com.zhousl.aether.ui.theme.AetherOnPrimaryContainer
-import com.zhousl.aether.ui.theme.AetherOnSecondaryContainer
 import com.zhousl.aether.ui.theme.AetherOutlineSoft
 import com.zhousl.aether.ui.theme.AetherPrimary
-import com.zhousl.aether.ui.theme.AetherPrimaryContainer
-import com.zhousl.aether.ui.theme.AetherSecondaryContainer
 import com.zhousl.aether.ui.theme.AetherScrim
 import com.zhousl.aether.ui.theme.AetherSecondary
 import com.zhousl.aether.ui.theme.AetherSurface
@@ -292,6 +289,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.jetbrains.compose.resources.painterResource
@@ -801,8 +799,6 @@ private const val SharedProviderValidationErrorText =
 private const val SharedInlineImageAttachmentMaxBytes = 5L * 1024L * 1024L
 private const val SharedSessionTitleSystemPrompt =
     "Generate a concise chat title for this conversation. Return only the title, in the user's language when possible, with no quotes, no emoji, and at most 6 words."
-private const val SharedSessionCompactingSystemPrompt =
-    "You are Aether's conversation compactor. Summarize the provided conversation so a future assistant can continue seamlessly. Preserve user goals, constraints, decisions, important facts, open tasks, files/paths mentioned, tool results, errors, and next steps. Do not invent details. Return only the compacted context."
 
 @Composable
 fun AetherSharedApp(
@@ -834,20 +830,12 @@ fun AetherSharedApp(
         val unableToOpenLinkMessage = stringResource(Res.string.app_unable_to_open_link)
         val chatStoppedStatus = stringResource(Res.string.chat_stopped)
         val chatInterruptedStatus = stringResource(Res.string.chat_interrupted)
-        val unknownErrorMessage = stringResource(Res.string.common_unknown_error)
-        val requestErrorPlaceholder = "{request_error}"
-        val requestFailureTemplate = stringResource(
-            Res.string.chat_request_failed_detail,
-            requestErrorPlaceholder,
-        )
-        val backgroundExpiredMessage = stringResource(Res.string.chat_background_expired)
         val mcpRefreshErrorPlaceholder = "{mcp_error}"
         val mcpRefreshFailedTemplate = stringResource(
             Res.string.message_refresh_mcp_failed,
             mcpRefreshErrorPlaceholder,
         )
         val appScope = rememberCoroutineScope()
-        var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
         val extensionStateStore = remember(runtime) { SharedExtensionStateStore(runtime) }
         val bridgeClient = remember(runtime, extensionStateStore) {
             SharedPiBridgeClient(
@@ -929,9 +917,15 @@ fun AetherSharedApp(
         val historyStore = remember(chatHistoryDatabase) {
             chatHistoryDatabase?.let(::SharedChatHistoryStore)
         }
-        val appDataManager = remember(settingsStore, historyStore, skillManager, mcpManager) {
+        val appDataManager = remember(settingsStore, historyStore, skillManager, runtime, bridgeClient) {
             if (settingsStore != null && historyStore != null) {
-                SharedAppDataManager(settingsStore, historyStore, skillManager, mcpManager)
+                SharedAppDataManager(
+                    settingsStore = settingsStore,
+                    historyStore = historyStore,
+                    skillManager = skillManager,
+                    runtime = runtime,
+                    bridgeClient = bridgeClient,
+                )
             } else {
                 null
             }
@@ -984,13 +978,11 @@ fun AetherSharedApp(
                 failure.message.orEmpty().ifBlank { "Unknown error." },
             )
         }
-        val managementTools = remember(runtime, bridgeClient, skillManager, mcpManager, completionClient) {
+        val managementTools = remember(runtime, bridgeClient, skillManager) {
             SharedAgentManagementTools(
                 runtime = runtime,
                 bridge = bridgeClient,
                 skillManager = skillManager,
-                mcpManager = mcpManager,
-                completionClient = completionClient,
                 settings = { withContext(Dispatchers.Main) { sharedAppSettings } },
                 updateSettings = { updated ->
                     withContext(Dispatchers.Main) {
@@ -998,68 +990,13 @@ fun AetherSharedApp(
                         settingsStore?.saveGeneralSettings(updated)
                     }
                 },
-                activeSkills = { requestedSessionId ->
-                    withContext(Dispatchers.Main) {
-                        val target = sessionStates[requestedSessionId]
-                            ?: currentSession.takeIf { it.id == requestedSessionId }
-                            ?: currentSession.takeIf { requestedSessionId.isBlank() }
-                        target?.activeSkills?.toList().orEmpty()
-                    }
-                },
-                activateSkill = { requestedSessionId, activeSkill ->
-                    val target = withContext(Dispatchers.Main) {
-                        val state = sessionStates[requestedSessionId]
-                            ?: currentSession.takeIf { it.id == requestedSessionId }
-                            ?: currentSession.takeIf { requestedSessionId.isBlank() }
-                        state?.also {
-                            if (activeSkill.skillId !in it.selectedSkillIds) {
-                                it.selectedSkillIds += activeSkill.skillId
-                            }
-                            it.activeSkills.upsertSharedActiveSkill(activeSkill)
-                        }
-                    }
-                    if (target != null && !target.isDraft) {
-                        historyStore?.save(
-                            sessionId = target.id,
-                            messages = target.messages.toPersistedMessages(),
-                            selectedSkillIds = target.selectedSkillIds.toList(),
-                            activeSkills = target.activeSkills.toList(),
-                            activeMcpServerIds = target.activeMcpServerIds.toList(),
-                            chromeEnabled = chromeEnabled,
-                            selectedModelKey = target.selectedModelKey,
-                            titleOverride = target.title,
-                            hasCustomTitle = target.hasCustomTitle,
-                        )
-                    }
-                },
-                activeMcpServerIds = { requestedSessionId ->
-                    withContext(Dispatchers.Main) {
-                        val target = sessionStates[requestedSessionId]
-                            ?: currentSession.takeIf { it.id == requestedSessionId }
-                            ?: currentSession.takeIf { requestedSessionId.isBlank() }
-                        target?.activeMcpServerIds?.toSet().orEmpty()
-                    }
-                },
                 currentSessionId = { withContext(Dispatchers.Main) { currentSession.id } },
-                resolveProvider = { preferredKey ->
-                    withContext(Dispatchers.Main) {
-                        resolveSharedProviderForModel(
-                            providerConfigs = providerConfigs,
-                            baseConfig = providerConfig,
-                            preferredKey = preferredKey,
-                            fallbackKey = sharedAppSettings.defaultChatModelKey,
-                        )
-                    }
-                },
             )
         }
-        val hostToolRegistry = remember(runtimeTools, mcpManager, chromeManager, managementTools) {
+        val hostToolRegistry = remember(managementTools) {
             SharedCompositeHostTools(
                 listOf(
-                    SharedToolRegistry(runtimeTools, mcpManager),
                     managementTools,
-                    chromeManager,
-                    SharedWebToolExecutor(settings = { sharedAppSettings }),
                 )
             )
         }
@@ -1208,10 +1145,7 @@ fun AetherSharedApp(
                     val pending = target.messages.lastOrNull()
                     if (pending?.fromUser == false) {
                         target.messages.updateMessage(pending.id) {
-                            it.interruptedByBackgroundExpiration(
-                                status = chatInterruptedStatus,
-                                fallbackText = backgroundExpiredMessage,
-                            )
+                            it.interruptedByBackgroundExpiration(status = chatInterruptedStatus)
                         }
                     }
                     persistSession(target)
@@ -1556,69 +1490,23 @@ fun AetherSharedApp(
                 transientMessage = notEnoughConversationMessage
                 return
             }
-            val compactInput = buildSharedCompactConversationInput(target.messages)
-            if (compactInput.isBlank()) {
-                transientMessage = noTextToCompactMessage
-                return
-            }
             target.input = ""
-            val modelOptions = providerConfigs.availableModelOptions()
-            val compactingModelKey = resolveSharedStoredOrAutomaticModelKey(
-                storedKey = sharedAppSettings.defaultCompactingModelKey,
-                options = modelOptions,
-                purpose = AutomaticModelPurpose.Compacting,
-                fallbackPurpose = AutomaticModelPurpose.Chat,
-            )
-            val fallbackModelKey = resolveSharedStoredOrAutomaticModelKey(
-                storedKey = sharedAppSettings.defaultChatModelKey,
-                options = modelOptions,
-                purpose = AutomaticModelPurpose.Chat,
-            )
-            val compactConfig = resolveProviderForModel(
-                preferredKey = compactingModelKey,
-                fallbackKey = fallbackModelKey,
-            )
-            if (compactConfig == null || !compactConfig.isSharedProviderSetupValid()) {
-                transientMessage = configureProviderBeforeCompactingMessage
-                return
-            }
             target.streamingStatus = SharedCompactingStatus
             target.job = appScope.launch {
                 try {
                     runSharedAppCatching {
-                        completionClient.completeOnce(
-                            config = compactConfig,
-                            messages = listOf(SharedPiChatMessage("user", compactInput)),
-                            systemPrompt = SharedSessionCompactingSystemPrompt,
-                            reasoning = "off",
-                            timeoutMillis = sharedAppSettings.llmInactivityReconnectTimeoutSeconds
-                                .coerceIn(30, 3_600) * 1_000,
-                        )
+                        bridgeClient.compactSession(target.id)
                     }.fold(
                         onSuccess = { result ->
-                            val summary = result.assistantText.trim()
-                            if (result.errorMessage.isNotBlank() || summary.isBlank()) {
-                                val detail = result.errorMessage.ifBlank { "empty model response" }
-                                transientMessage = "$compactionFailedPrefix $detail".trim()
-                            } else {
-                                val now = platformCurrentTimeMillis()
-                                target.messages += SharedChatMessage(
-                                    id = "compact-context-$now",
-                                    text = buildSharedCompactedContextMessage(summary),
-                                    fromUser = true,
-                                    createdAtMillis = now,
-                                    providerPayloadJson = result.providerPayloadJson,
-                                    displayKind = SharedMessageDisplayKind.HiddenContext,
-                                )
-                                target.messages += SharedChatMessage(
-                                    id = "compact-status-$now",
-                                    text = "Context compacted",
-                                    fromUser = false,
-                                    createdAtMillis = now + 1,
-                                    assistantActionsHidden = true,
-                                    displayKind = SharedMessageDisplayKind.CompactStatus,
-                                )
-                            }
+                            val now = platformCurrentTimeMillis()
+                            target.messages += SharedChatMessage(
+                                id = "compact-status-$now",
+                                text = "Context compacted",
+                                fromUser = false,
+                                createdAtMillis = now,
+                                assistantActionsHidden = true,
+                                displayKind = SharedMessageDisplayKind.CompactStatus,
+                            )
                         },
                         onFailure = { error ->
                             if (error is CancellationException && error !is TimeoutCancellationException) {
@@ -1642,6 +1530,8 @@ fun AetherSharedApp(
             rawValue: String,
             attachments: List<SharedChatAttachment> = emptyList(),
             retryResponseGroupId: String = "",
+            piBranchMessageId: String? = null,
+            resetPiBranchWhenMissing: Boolean = false,
             target: SharedSessionUiState = currentSession,
         ) {
             val value = rawValue.trim()
@@ -1681,6 +1571,12 @@ fun AetherSharedApp(
             val editingIndex = target.editingMessageId.takeIf(String::isNotBlank)?.let { editingId ->
                 target.messages.indexOfFirst { it.id == editingId && it.fromUser }
             } ?: -1
+            val resolvedPiBranchMessageId = piBranchMessageId ?: if (editingIndex >= 0) {
+                target.messages.take(editingIndex).lastOrNull()?.id
+            } else {
+                null
+            }
+            val shouldResetPiBranch = resetPiBranchWhenMissing || editingIndex >= 0
             val replacementMessage = SharedChatMessage(
                 text = value,
                 fromUser = true,
@@ -1726,6 +1622,8 @@ fun AetherSharedApp(
             val turnStartedAt = platformCurrentTimeMillis()
             var responseStartedAt = 0L
             val reasoningTracker = SharedReasoningTurnTracker()
+            var providerRequestCheckpoint: SharedChatMessage? = null
+            var completedPiTurnResult: SharedPiTurnResult? = null
             target.messages += SharedChatMessage(
                 id = assistantId,
                 text = "",
@@ -1742,7 +1640,6 @@ fun AetherSharedApp(
             target.hasUnviewedCompletion = false
             target.job = appScope.launch {
                 val runningJob = currentCoroutineContext()[Job]
-                var shouldAutoCompact = false
                 try {
                     persistSession(target, moveToFront = true)
                 if (shouldGenerateTitle) generateSessionTitle(target, userMessage, config)
@@ -1775,6 +1672,18 @@ fun AetherSharedApp(
                         it.id != assistantId && !it.isError && it.isActiveBranch &&
                             it.displayKind != SharedMessageDisplayKind.CompactStatus
                     }
+                val mappedPiEntryId = resolvedPiBranchMessageId?.let { messageId ->
+                    historyStore?.getAgentMessageEntryIds(target.id, messageId)?.lastOrNull()
+                }
+                if (mappedPiEntryId != null || shouldResetPiBranch) {
+                    runSharedAppCatching {
+                        bridgeClient.navigateSession(
+                            sessionId = target.id,
+                            entryId = mappedPiEntryId.orEmpty(),
+                            reset = mappedPiEntryId == null && shouldResetPiBranch,
+                        )
+                    }
+                }
                 val estimatedUsage = estimateSharedRequestTokenUsage(requestMessages)
                 val turnMessages = requestMessages.map { message ->
                     message.toPiChatMessage(
@@ -1793,8 +1702,10 @@ fun AetherSharedApp(
                         availableSkills = installedSkills.filter(SharedInstalledSkill::isEnabled),
                     )
                 }
-                target.selectedSkillIds.replaceSharedContents(skillSelection.selectedSkillIds)
-                target.activeSkills.replaceSharedContents(skillSelection.activeSkills)
+                // Skill selection is a one-shot command. Pi's ResourceLoader owns
+                // discovery and reads SKILL.md lazily through the native read tool.
+                target.selectedSkillIds.clear()
+                target.activeSkills.clear()
                 val enabledMcpServersById = mcpServers
                     .filter(SharedMcpServerConfig::enabled)
                     .associateBy(SharedMcpServerConfig::id)
@@ -1812,6 +1723,10 @@ fun AetherSharedApp(
                         config = config,
                         messages = turnMessages,
                         sessionId = target.id,
+                        skillPaths = skillSelection.availableSkills
+                            .filter(SharedInstalledSkill::isEnabled)
+                            .map(SharedInstalledSkill::guestPath),
+                        skillCommand = skillSelection.activeSkills.firstOrNull()?.name.orEmpty(),
                         systemPrompt = buildSharedPiAgentInstructions(
                             configuredPrompt = sharedAppSettings.systemPrompt,
                             workspaceDirectory = runtime.workspaceRoot,
@@ -1875,6 +1790,20 @@ fun AetherSharedApp(
                                 )
                             }
                         },
+                        onAssistantRequestStarted = {
+                            providerRequestCheckpoint = target.messages.lastOrNull { it.id == assistantId }
+                        },
+                        onAssistantResponseReset = {
+                            providerRequestCheckpoint?.let { checkpoint ->
+                                target.messages.updateMessage(assistantId) {
+                                    checkpoint.copy(
+                                        isStreaming = true,
+                                        status = SharedInitialStreamingStatusText,
+                                        statusDetail = SharedInitialStreamingStatusDetail,
+                                    )
+                                }
+                            }
+                        },
                         onHostToolStarted = { call ->
                             backgroundLeases[target.id]?.update("Running ${call.name}")
                             reasoningTracker.finishDirectSummaryChunk()
@@ -1905,6 +1834,7 @@ fun AetherSharedApp(
                             }
                         },
                         onStreamingStatus = { status ->
+                            if (!shouldApplySharedTurnEvent(target.job, runningJob)) return@runTurn
                             status?.text?.takeIf(String::isNotBlank)
                                 ?.let { backgroundLeases[target.id]?.update(it) }
                             target.messages.updateMessage(assistantId) { current ->
@@ -1956,6 +1886,7 @@ fun AetherSharedApp(
                     )
                 }.fold(
                     onSuccess = { result ->
+                        completedPiTurnResult = result
                         val completedAt = platformCurrentTimeMillis()
                         val resolvedUsage = if (result.usageAvailable) result.usage else estimatedUsage
                         target.messages.updateMessage(assistantId) { current ->
@@ -1971,12 +1902,7 @@ fun AetherSharedApp(
                         target.messages.updateMessage(assistantId) { current ->
                             val completed = current.completeAssistantReasoning(completedAt)
                             val finalized = if (result.errorMessage.isNotBlank()) {
-                                completed.withSharedRequestFailure(
-                                    result.errorMessage,
-                                    requestFailureTemplate,
-                                    requestErrorPlaceholder,
-                                    unknownErrorMessage,
-                                )
+                                completed.withSharedRequestFailure(result.errorMessage)
                             } else {
                                 completed.withAssistantTextResultFallback(result)
                             }
@@ -2010,13 +1936,6 @@ fun AetherSharedApp(
                                 },
                             )
                         }
-                        val completedAssistant = target.messages.lastOrNull { it.id == assistantId }
-                        shouldAutoCompact = result.errorMessage.isBlank() && completedAssistant != null &&
-                            shouldAutoCompactSharedContext(
-                                usage = completedAssistant.usage,
-                                tokenUsageSource = completedAssistant.tokenUsageSource,
-                                assistantText = completedAssistant.text,
-                            )
                         if (
                             result.errorMessage.isBlank() &&
                             shouldMarkOnboardingCompleted(
@@ -2029,22 +1948,7 @@ fun AetherSharedApp(
                             )
                             appScope.launch { settingsStore?.markOnboardingComplete() }
                         }
-                        if (
-                            shouldRevealFollowUpTourCard(
-                                isAwaitingFollowUpTour = awaitingFollowUpTour,
-                                isSuccessfulAssistantReply = result.errorMessage.isBlank(),
-                            )
-                        ) {
-                            awaitingFollowUpTour = false
-                            appScope.launch {
-                                kotlinx.coroutines.delay(FollowUpTourAutoOpenDelayMillis)
-                                if (route == SharedRoute.Chat) {
-                                    onboardingEntryStage = OnboardingStage.Search
-                                    onboardingReplayMode = false
-                                    route = SharedRoute.Onboarding
-                                }
-                            }
-                        }
+                        awaitingFollowUpTour = false
                     },
                     onFailure = { error ->
                         if (error is CancellationException && error !is TimeoutCancellationException) {
@@ -2060,12 +1964,7 @@ fun AetherSharedApp(
                         )
                         target.messages.updateMessage(assistantId) { current ->
                             current.completeAssistantReasoning(completedAt)
-                                .withSharedRequestFailure(
-                                    sharedFailureMessage(error),
-                                    requestFailureTemplate,
-                                    requestErrorPlaceholder,
-                                    unknownErrorMessage,
-                                ).copy(
+                                .withSharedRequestFailure(sharedFailureMessage(error)).copy(
                                 isError = false,
                                 isStreaming = false,
                                 status = "",
@@ -2086,6 +1985,19 @@ fun AetherSharedApp(
                     target.hasUnviewedCompletion = true
                 }
                 persistSession(target)
+                completedPiTurnResult?.let { result ->
+                    historyStore?.upsertAgentSessionMetadata(
+                        chatSessionId = target.id,
+                        piSessionId = result.piSessionId,
+                        jsonlPath = result.piSessionFile,
+                        runtime = result.piRuntime,
+                    )
+                    historyStore?.upsertAgentMessageRefs(
+                        chatSessionId = target.id,
+                        aetherMessageIds = listOf(userMessage.id, assistantId),
+                        piEntryIds = result.piEntryIds,
+                    )
+                }
                 extensionManagerRef?.dispatchEvent(
                     event = "turn_complete",
                     data = buildJsonObject {
@@ -2098,18 +2010,6 @@ fun AetherSharedApp(
                 if (promotedTurns != target.queuedTurns) {
                     target.queuedTurns.clear()
                     target.queuedTurns.addAll(promotedTurns)
-                }
-                if (shouldAutoCompact) {
-                    compactSession(target, allowRunning = true) {
-                        val queuedIndex = target.queuedTurns.nextSharedQueuedTurnIndex()
-                        if (queuedIndex >= 0) {
-                            val queued = target.queuedTurns.removeAt(queuedIndex)
-                            startChatTurn(queued.text, queued.attachments, target = target)
-                        } else {
-                            appScope.launch { persistSession(target) }
-                        }
-                    }
-                    return@launch
                 }
                 val nextIndex = target.queuedTurns.nextSharedQueuedTurnIndex()
                 target.job = null
@@ -2219,7 +2119,22 @@ fun AetherSharedApp(
             val fileName = state.title.sanitizeSharedExportFileName() + ".json"
             appScope.launch {
                 runSharedAppCatching {
-                    platformServices.exportFile(fileName, "application/json", json.encodeToByteArray())
+                    val pi = bridgeClient.exportSessionJsonl(state.id)
+                    val piPath = pi["exported_path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val piJsonl = piPath.takeIf(String::isNotBlank)
+                        ?.let { path -> runCatching { runtime.fileSystem.read(path).decodeToString() }.getOrNull() }
+                    val exported = Json.parseToJsonElement(json).jsonObject.toMutableMap().apply {
+                        put("piSession", buildJsonObject {
+                            put("sessionId", state.id)
+                            put("jsonlPath", piPath)
+                            put("jsonl", piJsonl.orEmpty())
+                        })
+                    }
+                    platformServices.exportFile(
+                        fileName,
+                        "application/json",
+                        JsonObject(exported).toString().encodeToByteArray(),
+                    )
                 }.fold(
                     onSuccess = { exported ->
                         when (exported) {
@@ -2275,14 +2190,16 @@ fun AetherSharedApp(
                     "app.pauseGeneration" -> withContext(Dispatchers.Main) {
                         val target = args["session_id"]?.jsonPrimitive?.contentOrNull
                             ?.let(sessionStates::get) ?: currentSession
-                        target.job?.cancel()
+                        val runningJob = target.job
                         target.job = null
+                        runningJob?.cancel()
                         target.streamingStatus = ""
                         target.queuedTurns.clear()
                         val completedAt = platformCurrentTimeMillis()
                         target.messages.lastOrNull { !it.fromUser && it.isStreaming }?.let { pending ->
                             val finalized = pending.finalizeSharedInterruptedAssistantWork(
                                 status = chatStoppedStatus,
+                                preserveStatus = true,
                                 completedAtMillis = completedAt,
                             )
                             if (finalized.hasSharedVisibleAssistantWork()) {
@@ -2490,6 +2407,11 @@ fun AetherSharedApp(
                             .toSet(),
                     )
                 },
+                onReloadSessions = {
+                    sessionStates.values
+                        .filterNot(SharedSessionUiState::isDraft)
+                        .forEach { state -> bridgeClient.reloadSession(state.id) }
+                },
                 onProviderSaved = ::upsertProviderConfig,
                 onProviderEnabledChanged = ::setProviderEnabled,
                 onProviderRemoved = ::removeProviderConfig,
@@ -2516,8 +2438,6 @@ fun AetherSharedApp(
                     providerConfig = persisted.activeProviderConfig
                     installedSkills.clear()
                     installedSkills.addAll(restored.installedSkills)
-                    mcpServers.clear()
-                    mcpServers.addAll(restored.mcpServers)
                     sessionStates.clear()
                     sessions.clear()
                     restored.sessions.forEach { persistedSession ->
@@ -2561,7 +2481,7 @@ fun AetherSharedApp(
                 onReplayFollowUpOnboarding = {
                     tabletSettingsVisible = false
                     onboardingReplayMode = true
-                    onboardingEntryStage = OnboardingStage.Search
+                    onboardingEntryStage = OnboardingStage.Runtime
                     route = SharedRoute.Onboarding
                 },
                 onReplayAlpineSetupPreview = {
@@ -2600,9 +2520,6 @@ fun AetherSharedApp(
         } else AnimatedContent(
             targetState = route,
             transitionSpec = {
-                if (reduceMotion) {
-                    return@AnimatedContent fadeIn(tween(80)) togetherWith fadeOut(tween(60))
-                }
                 if (!capabilities.layeredScreenTransitions) {
                     return@AnimatedContent fadeIn(tween(120)) togetherWith
                         fadeOut(tween(80))
@@ -2824,12 +2741,15 @@ fun AetherSharedApp(
                             rawValue = plan.userMessage.text,
                             attachments = plan.userMessage.attachments,
                             retryResponseGroupId = plan.userMessage.id,
+                            piBranchMessageId = plan.userMessage.id,
                         )
                     },
                     onRetryUserMessage = { messageId ->
                         if (currentSession.isWorking) return@SharedChatScreen
                         val original = messages.firstOrNull { it.id == messageId && it.fromUser }
                             ?: return@SharedChatScreen
+                        val originalIndex = messages.indexOfFirst { it.id == messageId }
+                        val piBranchMessageId = messages.take(originalIndex).lastOrNull()?.id
                         val replacement = original.copy(
                             id = platformRandomUuid(),
                             createdAtMillis = platformCurrentTimeMillis(),
@@ -2848,6 +2768,8 @@ fun AetherSharedApp(
                             rawValue = replacement.text,
                             attachments = replacement.attachments,
                             retryResponseGroupId = replacement.id,
+                            piBranchMessageId = piBranchMessageId,
+                            resetPiBranchWhenMissing = true,
                         )
                     },
                     onQueueFollowUp = { attachments ->
@@ -2933,13 +2855,15 @@ fun AetherSharedApp(
                         }
                     },
                     onStop = {
-                        currentSession.job?.cancel()
+                        val runningJob = currentSession.job
                         currentSession.job = null
+                        runningJob?.cancel()
                         currentSession.streamingStatus = ""
                         currentSession.queuedTurns.clear()
                         messages.lastOrNull { !it.fromUser && it.isStreaming }?.let { pending ->
                             val finalized = pending.finalizeSharedInterruptedAssistantWork(
                                 status = chatStoppedStatus,
+                                preserveStatus = true,
                                 completedAtMillis = platformCurrentTimeMillis(),
                             )
                             if (finalized.hasSharedVisibleAssistantWork()) {
@@ -2982,7 +2906,18 @@ fun AetherSharedApp(
                             transientMessage = pauseBeforeDeletingSessionMessage
                             return@SharedChatScreen
                         }
-                        pendingDeleteSessionId = selectedId
+                        sessionStates.remove(selectedId)
+                        sessions.removeAll { it.id == selectedId }
+                        if (sessionId == selectedId) {
+                            createNewSession(useDefaultSkills = false)
+                        }
+                        appScope.launch {
+                            val unreferencedPaths = historyStore
+                                ?.getUnreferencedWorkspaceFilePathsForDeletedSession(selectedId)
+                                .orEmpty()
+                            historyStore?.delete(selectedId)
+                            removeSharedUnreferencedWorkspaceFiles(runtime, unreferencedPaths)
+                        }
                     },
                     onExportSession = ::exportSession,
                     extensionPages = extensionSnapshot.pages,
@@ -3032,45 +2967,6 @@ fun AetherSharedApp(
                 )
             }
         }
-        pendingDeleteSessionId?.let { selectedId ->
-            AlertDialog(
-                onDismissRequest = { pendingDeleteSessionId = null },
-                containerColor = AetherSurface,
-                titleContentColor = AetherOnSurface,
-                textContentColor = AetherOnSurfaceVariant,
-                title = { Text(stringResource(Res.string.chat_delete_session_title)) },
-                text = { Text(stringResource(Res.string.chat_delete_session_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            pendingDeleteSessionId = null
-                            sessionStates.remove(selectedId)
-                            sessions.removeAll { it.id == selectedId }
-                            if (sessionId == selectedId) {
-                                createNewSession(useDefaultSkills = false)
-                            }
-                            appScope.launch {
-                                val unreferencedPaths = historyStore
-                                    ?.getUnreferencedWorkspaceFilePathsForDeletedSession(selectedId)
-                                    .orEmpty()
-                                historyStore?.delete(selectedId)
-                                removeSharedUnreferencedWorkspaceFiles(runtime, unreferencedPaths)
-                            }
-                        },
-                    ) {
-                        Text(
-                            stringResource(Res.string.common_delete),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { pendingDeleteSessionId = null }) {
-                        Text(stringResource(Res.string.common_cancel))
-                    }
-                },
-            )
-        }
         if (!startupResolved) {
             Box(Modifier.fillMaxSize().background(AetherBackground))
         } else if (!sharedAppSettings.privacyPolicyAccepted) {
@@ -3092,7 +2988,6 @@ fun AetherSharedApp(
             RuntimeSetupStep(
                 runtime = runtime,
                 bridgeClient = bridgeClient,
-                replayMode = false,
                 onBack = { alpineSetupPreviewVisible = false },
                 onClose = { alpineSetupPreviewVisible = false },
                 onContinue = { alpineSetupPreviewVisible = false },
@@ -3178,64 +3073,42 @@ private fun SharedTabletSettingsOverlay(
     onDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val reduceMotion = LocalReduceMotion.current
-    val panelEnterTransition = if (reduceMotion) {
-        fadeIn(tween(80))
-    } else {
-        fadeIn(tween(300, easing = SharedConversationMotionEasing)) +
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(140, easing = SharedConversationMotionEasing)) +
             slideInVertically(
-                animationSpec = tween(460, easing = SharedConversationMotionEasing),
-                initialOffsetY = { it },
-            )
-    }
-    val panelExitTransition = if (reduceMotion) {
-        fadeOut(tween(60))
-    } else {
-        fadeOut(tween(420, easing = SharedConversationMotionEasing)) +
+                animationSpec = tween(190, easing = SharedConversationMotionEasing),
+                initialOffsetY = { it / 42 },
+            ),
+        exit = fadeOut(tween(120, easing = SharedConversationMotionEasing)) +
             slideOutVertically(
-                animationSpec = tween(650, easing = SharedConversationMotionEasing),
-                targetOffsetY = { it },
-            )
-    }
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(if (reduceMotion) 80 else 280, easing = SharedConversationMotionEasing)),
-            exit = fadeOut(tween(if (reduceMotion) 60 else 500, easing = SharedConversationMotionEasing)),
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize()
-                    .background(AetherScrim.copy(alpha = 0.38f))
-                    .pointerInput(visible, onDismiss) {
-                        if (visible) detectTapGestures { onDismiss() }
-                    },
-            )
-        }
-        AnimatedVisibility(
-            visible = visible,
-            enter = panelEnterTransition,
-            exit = panelExitTransition,
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize()
-                    .padding(horizontal = 56.dp, vertical = 44.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .widthIn(max = 720.dp).heightIn(max = 860.dp).fillMaxSize()
-                        .pointerInput(Unit) { detectTapGestures {} }
-                        .shadow(
-                            18.dp,
-                            RoundedCornerShape(24.dp),
-                            ambientColor = AetherScrim,
-                            spotColor = AetherScrim,
-                        ),
-                    shape = RoundedCornerShape(24.dp),
-                    color = AetherBackground,
-                ) {
-                    content()
+                animationSpec = tween(150, easing = SharedConversationMotionEasing),
+                targetOffsetY = { it / 48 },
+            ),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize()
+                .background(AetherScrim.copy(alpha = 0.38f))
+                .pointerInput(visible, onDismiss) {
+                    if (visible) detectTapGestures { onDismiss() }
                 }
+                .padding(horizontal = 56.dp, vertical = 44.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 720.dp).heightIn(max = 860.dp).fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures {} }
+                    .shadow(
+                        18.dp,
+                        RoundedCornerShape(24.dp),
+                        ambientColor = AetherScrim,
+                        spotColor = AetherScrim,
+                    ),
+                shape = RoundedCornerShape(24.dp),
+                color = AetherBackground,
+            ) {
+                content()
             }
         }
     }
@@ -3265,7 +3138,7 @@ private fun SharedPrivacyPolicyConsentDialog(
             val annotatedText = buildAnnotatedString {
                 append(messagePrefix)
                 pushStringAnnotation(SharedPrivacyPolicyAnnotationTag, AetherPrivacyPolicyUrl)
-                withStyle(SpanStyle(color = AetherPrimary)) { append(policyText) }
+                withStyle(SpanStyle(color = Color(0xFF3B82F6))) { append(policyText) }
                 pop()
                 append(messageSuffix)
             }
@@ -3548,51 +3421,6 @@ private fun fallbackSharedReasoningSummary(rawText: String): SharedReasoningSumm
     )
 }
 
-internal fun buildSharedCompactConversationInput(messages: List<SharedChatMessage>): String {
-    val compactable = messages.syncSharedUserBranches()
-        .filter { it.displayKind != SharedMessageDisplayKind.CompactStatus }
-    return buildString {
-        appendLine("Conversation to compact:")
-        compactable.forEachIndexed { index, message ->
-            appendLine()
-            appendLine("## ${index + 1}. ${if (message.fromUser) "User" else "Agent"}")
-            appendLine(message.toSharedCompactionText())
-        }
-    }.trim().takeLast(SharedCompactingMaxInputChars)
-}
-
-internal fun SharedChatMessage.toSharedCompactionText(): String = buildString {
-    text.trim().takeIf(String::isNotBlank)?.let(::appendLine)
-    val reasoningSummary = responseBlocks.asSequence()
-        .filterIsInstance<SharedAssistantResponseBlock.Reasoning>()
-        .flatMap { block -> block.trace.chunks.asSequence() }
-        .mapNotNull { chunk -> chunk.detail.ifBlank { chunk.title }.takeIf(String::isNotBlank) }
-        .joinToString("\n")
-    reasoningSummary.takeIf(String::isNotBlank)?.let { reasoning ->
-        if (isNotEmpty()) appendLine()
-        appendLine("Reasoning summary:")
-        appendLine(reasoning)
-    }
-    if (attachments.isNotEmpty()) {
-        if (isNotEmpty()) appendLine()
-        appendLine("Attachments:")
-        attachments.forEach { attachment ->
-            appendLine("- ${attachment.name} (${attachment.mimeType}) ${attachment.workspacePath}".trimEnd())
-        }
-    }
-    if (tools.isNotEmpty()) {
-        if (isNotEmpty()) appendLine()
-        appendLine("Tool activity:")
-        tools.forEach { tool ->
-            appendLine("- ${tool.name}: ${tool.argumentsJson.take(600)}")
-            if (tool.outputJson.isNotBlank()) appendLine("  output: ${tool.outputJson.take(1_200)}")
-        }
-    }
-}.trim().ifBlank { "[Empty message]" }
-
-private fun buildSharedCompactedContextMessage(summary: String): String =
-    "This conversation was compacted. Continue from this retained context:\n\n$summary"
-
 private fun String.sanitizeSharedExportFileName(): String = trim()
     .replace(Regex("[\\\\/:*?\"<>|]+"), "-")
     .trim('.', ' ', '-')
@@ -3732,11 +3560,10 @@ private fun SharedOnboarding(
     initialSearchValue: String,
     onSearchDone: (String) -> Unit,
 ) {
-    val reduceMotion = LocalReduceMotion.current
     var stage by rememberSaveable(replayMode, initialStage) { mutableStateOf(initialStage) }
     val timelinePosition by animateFloatAsState(
         targetValue = stage.ordinal.toFloat(),
-        animationSpec = tween(if (reduceMotion) 0 else 620, easing = SharedScreenTransitionEasing),
+        animationSpec = tween(620, easing = SharedScreenTransitionEasing),
         label = "shared_onboarding_timeline_position",
     )
     val onTimelineStepSelected: (OnboardingTimelineStep) -> Unit = { selected ->
@@ -3744,7 +3571,7 @@ private fun SharedOnboarding(
             OnboardingTimelineStep.Welcome -> OnboardingStage.Landing
             OnboardingTimelineStep.Setup -> OnboardingStage.Runtime
             OnboardingTimelineStep.Provider -> OnboardingStage.Provider
-            OnboardingTimelineStep.Search -> OnboardingStage.Search
+            OnboardingTimelineStep.Search -> OnboardingStage.Provider
         }
     }
     CompositionLocalProvider(LocalOnboardingTimelinePosition provides timelinePosition) {
@@ -3763,7 +3590,6 @@ private fun SharedOnboarding(
             OnboardingStage.Runtime -> RuntimeSetupStep(
                 runtime = runtime,
                 bridgeClient = bridgeClient,
-                replayMode = replayMode,
                 onBack = { stage = OnboardingStage.Landing },
                 onClose = onClose,
                 onContinue = { stage = OnboardingStage.Provider },
@@ -3779,15 +3605,7 @@ private fun SharedOnboarding(
                 onComplete = onComplete,
                 onTimelineStepSelected = onTimelineStepSelected,
             )
-            OnboardingStage.Search -> SharedTavilyFollowUpTour(
-                initialValue = initialSearchValue,
-                onClose = onClose,
-                onDone = onSearchDone,
-                timelineSpec = OnboardingTimelineSpec(
-                    activeStep = OnboardingTimelineStep.Search,
-                    onStepSelected = onTimelineStepSelected,
-                ),
-            )
+            OnboardingStage.Search -> LaunchedEffect(Unit) { onClose() }
     }
     }
 }
@@ -3804,13 +3622,12 @@ private fun SharedProviderSetupStep(
     onTimelineStepSelected: (OnboardingTimelineStep) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val oauthWaitingMessage = stringResource(Res.string.provider_form_oauth_waiting)
-    val credentialsWaitingMessage = stringResource(Res.string.provider_form_credentials_waiting)
-    val oauthConnectedMessage = stringResource(Res.string.provider_form_oauth_connected)
-    val apiKeyConfiguredMessage = stringResource(Res.string.provider_form_api_key_configured)
-    val completeAuthorizationMessage = stringResource(Res.string.provider_form_complete_authorization_browser)
-    val enterDeviceCodeMessage = stringResource(Res.string.provider_form_enter_device_code_browser)
-    val unknownErrorMessage = stringResource(Res.string.common_unknown_error)
+    val oauthWaitingMessage = "Waiting for authorization."
+    val credentialsWaitingMessage = "Waiting for credentials."
+    val oauthConnectedMessage = "Connected with OAuth."
+    val apiKeyConfiguredMessage = "API key configured."
+    val completeAuthorizationMessage = "Complete authorization in your browser."
+    val enterDeviceCodeMessage = "Enter the device code in your browser."
     val fetchErrorPlaceholder = "{fetch_error}"
     val fetchModelsFailedTemplate = stringResource(
         Res.string.message_fetch_models_failed,
@@ -3854,7 +3671,7 @@ private fun SharedProviderSetupStep(
                         onTransientMessage(
                             fetchModelsFailedTemplate.replace(
                                 fetchErrorPlaceholder,
-                                failure.message.orEmpty().ifBlank { unknownErrorMessage },
+                                failure.message.orEmpty().ifBlank { "Unknown error." },
                             )
                         )
                     } finally {
@@ -4014,7 +3831,6 @@ private fun String.toolOutputSummary(): String = runCatching {
 private fun RuntimeSetupStep(
     runtime: MultiplatformLocalRuntime,
     bridgeClient: SharedPiBridgeClient,
-    replayMode: Boolean,
     onBack: () -> Unit,
     onClose: () -> Unit,
     onContinue: () -> Unit,
@@ -4149,20 +3965,19 @@ private fun RuntimeSetupStep(
             OnboardingActionRow(
                 primaryLabel = stringResource(
                     when {
-                        replayMode && alpineReady -> Res.string.common_next
                         ready -> Res.string.continue_label
                         error.isNotBlank() -> Res.string.retry_label
                         retryKey == 0 -> Res.string.settings_initialize
                         else -> Res.string.onboarding_pi_setup_working
                     },
                 ),
-                onPrimary = if (ready || replayMode && alpineReady) onContinue else ({ retryKey += 1 }),
+                onPrimary = if (ready) onContinue else ({ retryKey += 1 }),
                 primaryEnabled = !running,
                 primaryLoading = running,
                 secondaryLabel = stringResource(
-                    if (ready || replayMode && alpineReady) Res.string.common_refresh else Res.string.back_label,
+                    if (ready) Res.string.common_refresh else Res.string.back_label,
                 ),
-                onSecondary = if (ready || replayMode && alpineReady) ({ retryKey += 1 }) else onBack,
+                onSecondary = if (ready) ({ retryKey += 1 }) else onBack,
             )
         }
     }
@@ -4506,6 +4321,48 @@ private fun SharedCompactSuggestionRow(
     }
 }
 
+@Composable
+private fun SharedSlashCommandSuggestionRow(
+    suggestion: SlashCommandSuggestion,
+    detail: String,
+    input: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = when (suggestion.icon) {
+                SlashCommandIcon.Skill -> Icons.Rounded.AutoAwesome
+                SlashCommandIcon.Extension -> Icons.Rounded.Extension
+                SlashCommandIcon.Command -> Icons.Rounded.Compress
+            },
+            contentDescription = null,
+            tint = AetherOnSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = slashHighlightedName(suggestion.command, input),
+            color = AetherOnSurface,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+        )
+        Text(
+            text = detail,
+            color = AetherOnSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
 internal fun sharedCompactContextPercent(messages: List<SharedChatMessage>): Int? {
     val visible = messages.filter {
         it.displayKind != SharedMessageDisplayKind.HiddenContext &&
@@ -4675,7 +4532,7 @@ private fun SharedChatScreen(
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
     val animatedImeBottom by animateDpAsState(
         targetValue = imeBottom,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_conversation_ime_bottom",
     )
     val sessionTotalTokens = messages.mapNotNull { it.usage }
@@ -4902,10 +4759,6 @@ private fun SharedChatScreen(
                         codeLabel = stringResource(Res.string.chat_code_chip),
                         helpWriteLabel = stringResource(Res.string.chat_help_me_write_chip),
                         summarizeFileLabel = stringResource(Res.string.chat_summarize_file_chip),
-                        analyzeImagePrompt = stringResource(Res.string.chat_analyze_image_prompt),
-                        codePrompt = stringResource(Res.string.chat_code_prompt),
-                        helpWritePrompt = stringResource(Res.string.chat_help_write_prompt),
-                        summarizeFilePrompt = stringResource(Res.string.chat_summarize_file_prompt),
                         inputFocused = composerFocused,
                         onStarterPromptSelected = onInputChanged,
                     )
@@ -5742,8 +5595,11 @@ private fun SharedComposer(
     modifier: Modifier,
 ) {
     val value = composerState.input
+    var fieldValue by remember(sessionKey) { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    LaunchedEffect(value) {
+        if (value != fieldValue.text) fieldValue = TextFieldValue(value, TextRange(value.length))
+    }
     val scope = rememberCoroutineScope()
-    val reduceMotion = LocalReduceMotion.current
     val attachments = remember(sessionKey, editingMessage?.id) {
         mutableStateListOf<SharedChatAttachment>().apply {
             addAll(editingMessage?.attachments.orEmpty())
@@ -5770,9 +5626,19 @@ private fun SharedComposer(
             stringResource(Res.string.chat_ask_with_selected_tools)
         else -> stringResource(Res.string.chat_ask_aether)
     }
-    val showCompactSuggestion = compactSuggestionText.isNotBlank() &&
-        attachments.isEmpty() && value.isNotBlank() &&
-        SharedCompactCommand.startsWith(value.trim(), ignoreCase = true)
+    val slashSuggestions = remember(fieldValue.text) {
+        slashCommandSuggestions(fieldValue.text)
+    }
+    fun applySlashSuggestion(command: String) {
+        val typedLength = fieldValue.text.drop(1).takeWhile { !it.isWhitespace() }.length
+        val replaceEnd = (1 + typedLength).coerceAtMost(fieldValue.text.length)
+        val suffix = fieldValue.text.substring(replaceEnd)
+        val needsSpace = suffix.isEmpty() && slashSuggestions.firstOrNull { it.command == command }?.argumentHint?.isNotBlank() == true
+        val replacement = command + if (needsSpace) " " else ""
+        val next = replacement + suffix
+        fieldValue = TextFieldValue(next, TextRange(replacement.length))
+        onValueChange(next)
+    }
     val attachmentFailedMessage = stringResource(Res.string.chat_attach_file_failed)
     val hasDraft = value.isNotBlank() || attachments.isNotEmpty()
     val canSendDraft = attachments.all {
@@ -5806,17 +5672,17 @@ private fun SharedComposer(
             hasComposerActionTray -> 18.dp
             else -> 30.dp
         },
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_composer_horizontal_padding",
     )
     val fieldStartPadding by animateDpAsState(
         targetValue = if (plusSeparated) 50.dp else 0.dp,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_composer_field_start",
     )
     val fieldContentStartPadding by animateDpAsState(
         targetValue = if (plusSeparated) 18.dp else 52.dp,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_composer_field_content_start",
     )
     val fieldMinHeight by animateDpAsState(
@@ -5824,17 +5690,17 @@ private fun SharedComposer(
             if (plusSeparated) 56.dp else 50.dp,
             measuredTextHeight + fieldTopPadding + fieldBottomPadding,
         ),
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_composer_field_min_height",
     )
     val plusShadowElevation by animateDpAsState(
         targetValue = if (plusSeparated) 10.dp else 0.dp,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_composer_plus_shadow",
     )
     val bottomLift by animateDpAsState(
         targetValue = if (imeVisible) 12.dp else 18.dp,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
+        animationSpec = tween(durationMillis = 260, easing = SharedConversationMotionEasing),
         label = "shared_composer_bottom_lift",
     )
     LaunchedEffect(plusSeparated) { onFocusChanged(plusSeparated) }
@@ -5994,17 +5860,33 @@ private fun SharedComposer(
                     )
                 }
                 AnimatedVisibility(
-                    visible = showCompactSuggestion,
+                    visible = attachments.isEmpty() && slashSuggestions.isNotEmpty(),
                     enter = fadeIn(tween(160, easing = SharedConversationMotionEasing)) +
                         slideInVertically(tween(220, easing = SharedConversationMotionEasing)) { it / 3 },
                     exit = fadeOut(tween(120, easing = SharedConversationMotionEasing)) +
                         slideOutVertically(tween(180, easing = SharedConversationMotionEasing)) { it / 3 },
                 ) {
-                    SharedCompactSuggestionRow(
-                        text = compactSuggestionText,
-                        onClick = { onValueChange(SharedCompactCommand) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(AetherSurfaceHigh.copy(alpha = 0.98f))
+                            .padding(vertical = 4.dp),
+                    ) {
+                        items(slashSuggestions, key = { it.command }) { suggestion ->
+                            SharedSlashCommandSuggestionRow(
+                                suggestion = suggestion,
+                                detail = if (suggestion.command == SharedCompactCommand) {
+                                    compactSuggestionText
+                                } else {
+                                    suggestion.description
+                                },
+                                input = fieldValue.text,
+                                onClick = { applySlashSuggestion(suggestion.command) },
+                            )
+                        }
+                    }
                 }
                 if (attachments.isNotEmpty()) {
                     SharedComposerAttachmentTray(
@@ -6079,8 +5961,11 @@ private fun SharedComposer(
                                         )
                                     }
                                     BasicTextField(
-                                        value = value,
-                                        onValueChange = onValueChange,
+                                        value = fieldValue,
+                                        onValueChange = { next ->
+                                            fieldValue = next
+                                            onValueChange(next.text)
+                                        },
                                         modifier = Modifier.fillMaxWidth().onFocusChanged {
                                             textFieldFocused = it.isFocused
                                         },
@@ -6221,10 +6106,8 @@ private fun SharedSurfaceNotice(
 
 @Composable
 private fun SharedComposerPauseButton(onClick: () -> Unit) {
-    val stopDescription = stringResource(Res.string.chat_stop_response)
     Box(
-        modifier = Modifier.size(44.dp).clip(CircleShape).background(ComposerPurple)
-            .semantics { contentDescription = stopDescription }.clickable(onClick = onClick),
+        modifier = Modifier.size(38.dp).clip(CircleShape).background(ComposerPurple).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -6243,7 +6126,7 @@ private fun SharedComposerSubmitButton(
 ) {
     val enabled = hasDraft && canSendDraft
     Box(
-        modifier = Modifier.size(44.dp).clip(CircleShape)
+        modifier = Modifier.size(38.dp).clip(CircleShape)
             .background(if (enabled) ComposerPurple else AetherSurfaceHigher)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -6267,31 +6150,6 @@ private fun SharedFollowUpMenu(
     onSteer: () -> Unit,
     onQueue: () -> Unit,
 ) {
-    val reduceMotion = LocalReduceMotion.current
-    val enterTransition = if (reduceMotion) {
-        fadeIn(tween(80))
-    } else {
-        fadeIn(tween(160, easing = SharedConversationMotionEasing)) + scaleIn(
-            initialScale = 0.92f,
-            transformOrigin = TransformOrigin(1f, 1f),
-            animationSpec = tween(220, easing = SharedConversationMotionEasing),
-        ) + slideInVertically(
-            animationSpec = tween(240, easing = SharedConversationMotionEasing),
-            initialOffsetY = { it / 10 },
-        )
-    }
-    val exitTransition = if (reduceMotion) {
-        fadeOut(tween(60))
-    } else {
-        fadeOut(tween(120, easing = SharedConversationMotionEasing)) + scaleOut(
-            targetScale = 0.96f,
-            transformOrigin = TransformOrigin(1f, 1f),
-            animationSpec = tween(160, easing = SharedConversationMotionEasing),
-        ) + slideOutVertically(
-            animationSpec = tween(180, easing = SharedConversationMotionEasing),
-            targetOffsetY = { it / 12 },
-        )
-    }
     SharedAnimatedPopupHost(visible = visible) { visibility ->
         Popup(
             alignment = Alignment.BottomEnd,
@@ -6301,8 +6159,22 @@ private fun SharedFollowUpMenu(
         ) {
             AnimatedVisibility(
                 visibleState = visibility,
-                enter = enterTransition,
-                exit = exitTransition,
+                enter = fadeIn(tween(160, easing = SharedConversationMotionEasing)) + scaleIn(
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(1f, 1f),
+                    animationSpec = tween(220, easing = SharedConversationMotionEasing),
+                ) + slideInVertically(
+                    animationSpec = tween(240, easing = SharedConversationMotionEasing),
+                    initialOffsetY = { it / 10 },
+                ),
+                exit = fadeOut(tween(120, easing = SharedConversationMotionEasing)) + scaleOut(
+                    targetScale = 0.96f,
+                    transformOrigin = TransformOrigin(1f, 1f),
+                    animationSpec = tween(160, easing = SharedConversationMotionEasing),
+                ) + slideOutVertically(
+                    animationSpec = tween(180, easing = SharedConversationMotionEasing),
+                    targetOffsetY = { it / 12 },
+                ),
             ) {
                 Column(
                     modifier = Modifier.widthIn(min = 252.dp, max = 284.dp)
@@ -6314,15 +6186,15 @@ private fun SharedFollowUpMenu(
                     SharedComposerPlusMenuRow(
                         title = stringResource(Res.string.branch_steer_current_run),
                         icon = Icons.Rounded.AutoAwesome,
-                        iconTint = AetherOnSecondaryContainer,
-                        iconContainerColor = AetherSecondaryContainer,
+                        iconTint = Color(0xFF8D6C2F),
+                        iconContainerColor = Color(0xFFFFF3DE),
                         onClick = onSteer,
                     )
                     SharedComposerPlusMenuRow(
                         title = stringResource(Res.string.branch_queue_next_turn),
                         icon = Icons.Rounded.ArrowUpward,
-                        iconTint = AetherOnPrimaryContainer,
-                        iconContainerColor = AetherPrimaryContainer,
+                        iconTint = Color(0xFF2F6DA3),
+                        iconContainerColor = Color(0xFFEAF2FF),
                         onClick = onQueue,
                     )
                 }
@@ -6348,31 +6220,6 @@ private fun SharedComposerPlusMenu(
     onSkillSelected: (String, Boolean) -> Unit,
     onMcpServerSelected: (String, Boolean) -> Unit,
 ) {
-    val reduceMotion = LocalReduceMotion.current
-    val enterTransition = if (reduceMotion) {
-        fadeIn(tween(80))
-    } else {
-        fadeIn(tween(160, easing = SharedConversationMotionEasing)) + scaleIn(
-            initialScale = 0.92f,
-            transformOrigin = TransformOrigin(0f, 1f),
-            animationSpec = tween(220, easing = SharedConversationMotionEasing),
-        ) + slideInVertically(
-            animationSpec = tween(240, easing = SharedConversationMotionEasing),
-            initialOffsetY = { it / 10 },
-        )
-    }
-    val exitTransition = if (reduceMotion) {
-        fadeOut(tween(60))
-    } else {
-        fadeOut(tween(120, easing = SharedConversationMotionEasing)) + scaleOut(
-            targetScale = 0.96f,
-            transformOrigin = TransformOrigin(0f, 1f),
-            animationSpec = tween(160, easing = SharedConversationMotionEasing),
-        ) + slideOutVertically(
-            animationSpec = tween(180, easing = SharedConversationMotionEasing),
-            targetOffsetY = { it / 12 },
-        )
-    }
     SharedAnimatedPopupHost(visible = visible) { visibility ->
         Popup(
             alignment = Alignment.BottomStart,
@@ -6382,8 +6229,22 @@ private fun SharedComposerPlusMenu(
         ) {
             AnimatedVisibility(
                 visibleState = visibility,
-                enter = enterTransition,
-                exit = exitTransition,
+                enter = fadeIn(tween(160, easing = SharedConversationMotionEasing)) + scaleIn(
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(0f, 1f),
+                    animationSpec = tween(220, easing = SharedConversationMotionEasing),
+                ) + slideInVertically(
+                    animationSpec = tween(240, easing = SharedConversationMotionEasing),
+                    initialOffsetY = { it / 10 },
+                ),
+                exit = fadeOut(tween(120, easing = SharedConversationMotionEasing)) + scaleOut(
+                    targetScale = 0.96f,
+                    transformOrigin = TransformOrigin(0f, 1f),
+                    animationSpec = tween(160, easing = SharedConversationMotionEasing),
+                ) + slideOutVertically(
+                    animationSpec = tween(180, easing = SharedConversationMotionEasing),
+                    targetOffsetY = { it / 12 },
+                ),
             ) {
                 Box(
                     modifier = Modifier.widthIn(min = 284.dp, max = 304.dp)
@@ -6545,16 +6406,16 @@ private fun SharedComposerActionChip(
 ) {
     Row(
         modifier = Modifier.widthIn(max = 220.dp).clip(RoundedCornerShape(18.dp))
-            .background(AetherPrimaryContainer).padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+            .background(Color(0xFFE8F1FF)).padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(icon, null, tint = AetherPrimary, modifier = Modifier.size(16.dp))
+        Icon(icon, null, tint = Color(0xFF4F8CFF), modifier = Modifier.size(16.dp))
         Text(
             label,
             modifier = Modifier.weight(1f, fill = false),
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-            color = AetherOnPrimaryContainer,
+            color = Color(0xFF2E6FD5),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -6565,7 +6426,7 @@ private fun SharedComposerActionChip(
             Icon(
                 Icons.Rounded.Close,
                 contentDescription = stringResource(Res.string.common_remove),
-                tint = AetherPrimary,
+                tint = Color(0xFF4F8CFF),
                 modifier = Modifier.size(14.dp),
             )
         }
@@ -6821,14 +6682,9 @@ internal fun SharedChatMessage.withSharedSteerInstruction(): SharedChatMessage =
     },
 )
 
-internal fun SharedChatMessage.withSharedRequestFailure(
-    message: String,
-    template: String = "Request failed: {request_error}",
-    placeholder: String = "{request_error}",
-    unknownError: String = "Unknown error",
-): SharedChatMessage {
-    val detail = message.trim().ifBlank { unknownError }
-    val failureText = template.replace(placeholder, detail)
+internal fun SharedChatMessage.withSharedRequestFailure(message: String): SharedChatMessage {
+    val detail = message.trim().ifBlank { "Unknown error" }
+    val failureText = "Request failed: $detail"
     val joinsExistingTextBlock = responseBlocks.lastOrNull() is SharedAssistantResponseBlock.Text
     val updated = appendAssistantTextDelta(if (joinsExistingTextBlock) "\n\n$failureText" else failureText)
     return if (!joinsExistingTextBlock && text.isNotBlank()) {
@@ -6845,10 +6701,13 @@ internal fun SharedChatMessage.finalizeSharedInterruptedAssistantWork(
     status: String,
     fallbackText: String = "",
     isErrorWhenBlank: Boolean = false,
+    preserveStatus: Boolean = false,
     completedAtMillis: Long = platformCurrentTimeMillis(),
 ): SharedChatMessage {
     val hadNoText = text.isBlank()
     val completedAtUptimeMillis = platformUptimeMillis()
+    val hasVisibleWorkBeforeStatus = text.isNotBlank() || fallbackText.isNotBlank() ||
+        responseBlocks.isNotEmpty() || tools.isNotEmpty()
     fun SharedChatToolInvocation.finalizeInterrupted(): SharedChatToolInvocation =
         if (isSharedInterruptedToolInvocation()) {
             val interruptedOutput = sharedInterruptedToolOutput(outputJson)
@@ -6867,8 +6726,12 @@ internal fun SharedChatMessage.finalizeSharedInterruptedAssistantWork(
         text = text.ifBlank { fallbackText },
         isError = isError || (isErrorWhenBlank && hadNoText),
         isStreaming = false,
-        status = status,
-        statusDetail = "",
+        status = when {
+            preserveStatus -> completedSharedReconnectStatus(this.status)
+            hasVisibleWorkBeforeStatus -> status
+            else -> ""
+        },
+        statusDetail = if (preserveStatus && this.status.isNotBlank()) this.statusDetail else "",
         completedAtMillis = completedAtMillis,
         thoughtDurationMillis = if (
             thoughtDurationMillis <= 0L &&
@@ -6897,6 +6760,9 @@ internal fun SharedChatMessage.finalizeSharedInterruptedAssistantWork(
     )
 }
 
+internal fun completedSharedReconnectStatus(status: String): String =
+    if (status.startsWith("Reconnecting", ignoreCase = true)) "Reconnected" else status
+
 private fun SharedChatToolInvocation.isSharedInterruptedToolInvocation(): Boolean {
     if (isRunning) return true
     if (!name.equals("bash", ignoreCase = true)) return false
@@ -6906,13 +6772,16 @@ private fun SharedChatToolInvocation.isSharedInterruptedToolInvocation(): Boolea
 }
 
 internal fun SharedChatMessage.hasSharedVisibleAssistantWork(): Boolean =
-    text.isNotBlank() || responseBlocks.any { block ->
+    text.isNotBlank() || status.isNotBlank() || responseBlocks.any { block ->
         when (block) {
             is SharedAssistantResponseBlock.Text -> block.text.isNotBlank()
             is SharedAssistantResponseBlock.Reasoning -> true
             is SharedAssistantResponseBlock.ToolGroup -> block.tools.isNotEmpty()
         }
-    } || tools.isNotEmpty()
+        } || tools.isNotEmpty()
+
+internal fun shouldApplySharedTurnEvent(activeJob: Job?, runningJob: Job?): Boolean =
+    activeJob != null && activeJob === runningJob
 
 internal fun sharedInterruptedToolOutput(rawOutput: String): String {
     val existing = runCatching { Json.parseToJsonElement(rawOutput) as? JsonObject }.getOrNull()
@@ -6931,13 +6800,10 @@ internal fun sharedInterruptedToolOutput(rawOutput: String): String {
     }.toString()
 }
 
-internal fun SharedChatMessage.interruptedByBackgroundExpiration(
-    status: String = "Interrupted",
-    fallbackText: String = "This response was interrupted when iOS background time expired. Retry the message to continue.",
-): SharedChatMessage =
+internal fun SharedChatMessage.interruptedByBackgroundExpiration(status: String = "Interrupted"): SharedChatMessage =
     finalizeSharedInterruptedAssistantWork(
         status = status,
-        fallbackText = fallbackText,
+        fallbackText = "This response was interrupted when iOS background time expired. Retry the message to continue.",
         isErrorWhenBlank = true,
     )
 
@@ -6952,6 +6818,8 @@ private fun SharedChatMessage.toPersistedMessage(): PersistedChatMessage =
         text = text,
         fromUser = fromUser,
         isError = isError,
+        status = status,
+        statusDetail = statusDetail,
         reasoningText = reasoningText,
         tools = tools.map { tool ->
             PersistedChatTool(
@@ -7168,6 +7036,8 @@ internal fun PersistedChatMessage.toSharedChatMessage(): SharedChatMessage {
     text = text,
     fromUser = fromUser,
     isError = isError,
+    status = status,
+    statusDetail = statusDetail,
     reasoningText = reasoningText,
     tools = tools.map(PersistedChatTool::toSharedChatToolInvocation),
     responseBlocks = restoredBlocks,
@@ -7311,6 +7181,7 @@ private fun SharedSettingsScreen(
     installedSkills: List<SharedInstalledSkill>,
     extensionCount: Int,
     onSkillsChanged: (List<SharedInstalledSkill>) -> Unit,
+    onReloadSessions: suspend () -> Unit,
     mcpManager: SharedMcpManager,
     mcpServers: List<SharedMcpServerConfig>,
     activeMcpServerIds: Set<String>,
@@ -7438,6 +7309,7 @@ private fun SharedSettingsScreen(
                 platformServices = platformServices,
                 installedSkills = installedSkills,
                 onSkillsChanged = onSkillsChanged,
+                onReloadSessions = onReloadSessions,
                 onTransientMessage = onTransientMessage,
                 onBack = { destination = null },
             )
@@ -7570,7 +7442,8 @@ private fun SharedSettingsScreen(
     )
     val personalization = SettingsDestination(
         stringResource(Res.string.settings_personalization),
-        stringResource(Res.string.settings_personalization_summary),
+        pendingSettings.systemPrompt.trim().take(60)
+            .ifBlank { stringResource(Res.string.settings_custom_instructions) },
         SharedSettingsKind.Personalization,
     )
     val webTools = SettingsDestination(
@@ -7718,12 +7591,6 @@ private fun SharedSettingsScreen(
                                 ) { destination = personalization }
                                 CardDivider()
                                 SettingsNavRow(
-                                    Icons.Rounded.Link,
-                                    webTools.title,
-                                    webTools.subtitle,
-                                ) { destination = webTools }
-                                CardDivider()
-                                SettingsNavRow(
                                     Icons.Rounded.Refresh,
                                     reliability.title,
                                     reliability.subtitle,
@@ -7743,16 +7610,12 @@ private fun SharedSettingsScreen(
                                     extensions.title,
                                     extensions.subtitle,
                                 ) { destination = extensions }
-                                CardDivider()
-                                SettingsNavRow(Icons.Rounded.Code, mcp.title, mcp.subtitle) {
-                                    destination = mcp
-                                }
                                 if (capabilities.scheduledTasks) {
                                     CardDivider()
                                     SettingsNavRow(
                                         Icons.Rounded.Schedule,
-                                        stringResource(Res.string.settings_scheduled_tasks),
-                                        stringResource(Res.string.settings_scheduled_tasks_description),
+                                        "Scheduled Tasks",
+                                        "Run saved tasks on a schedule",
                                     ) { }
                                 }
                                 CardDivider()
@@ -7763,24 +7626,24 @@ private fun SharedSettingsScreen(
                                     CardDivider()
                                     SettingsNavRow(
                                         Icons.Rounded.Terminal,
-                                        stringResource(Res.string.settings_termux),
-                                        stringResource(Res.string.settings_termux_description),
+                                        "Termux",
+                                        "Android terminal integration",
                                     ) { }
                                 }
                                 if (capabilities.runtimeSelection) {
                                     CardDivider()
                                     SettingsNavRow(
                                         Icons.Rounded.Check,
-                                        stringResource(Res.string.settings_runtime_defaults),
-                                        stringResource(Res.string.settings_runtime_defaults_hint),
+                                        "Runtime defaults",
+                                        "Choose the default runtime",
                                     ) { }
                                 }
                                 if (capabilities.agentMode) {
                                     CardDivider()
                                     SettingsNavRow(
                                         LucideIcons.MousePointer2,
-                                        stringResource(Res.string.settings_agent_mode),
-                                        stringResource(Res.string.settings_agent_mode_subtitle),
+                                        "Agent Mode",
+                                        "Control the Android device",
                                     ) { }
                                 }
                             }
@@ -7897,11 +7760,10 @@ internal fun SettingsTopBar(
     onTrailingAction: () -> Unit = {},
 ) {
     val dismissGuard = LocalSharedSettingsDismissGuard.current
-    val reduceMotion = LocalReduceMotion.current
     val saveShakeOffset = remember { Animatable(0f) }
     val saveShakeRequest = dismissGuard?.saveShakeRequest ?: 0
     LaunchedEffect(saveShakeRequest) {
-        if (saveShakeRequest > 0 && !reduceMotion) {
+        if (saveShakeRequest > 0) {
             saveShakeOffset.snapTo(0f)
             saveShakeOffset.animateTo(
                 targetValue = 0f,

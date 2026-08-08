@@ -218,6 +218,7 @@ class AetherModKernel {
     val services = AetherModServiceRegistry()
     val operations = AetherModOperationRegistry()
     val components = AetherNativeComponentRegistry()
+    val toolTitles = com.zhousl.aether.mod.AetherNativeToolTitleRegistry()
 }
 
 private fun AetherModServiceDescriptor.toJson(): JSONObject = JSONObject().apply {

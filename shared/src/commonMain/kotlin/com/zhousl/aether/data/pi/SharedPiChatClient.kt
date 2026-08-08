@@ -58,6 +58,10 @@ data class SharedPiTurnResult(
     val usageAvailable: Boolean = false,
     val providerPayloadJson: String = "",
     val updatedOauthCredentialJson: String = "",
+    val piSessionId: String = "",
+    val piSessionFile: String = "",
+    val piRuntime: String = "",
+    val piEntryIds: List<String> = emptyList(),
 )
 
 data class SharedPiUsage(
@@ -125,17 +129,22 @@ class SharedPiChatClient(
         messages: List<SharedPiChatMessage>,
         sessionId: String,
         workspaceDirectory: String = "/workspace",
+        skillPaths: List<String> = emptyList(),
+        skillCommand: String = "",
         systemPrompt: String = platformDefaultSystemPrompt(),
         reasoning: String = "off",
         timeoutMillis: Int = 360_000,
         onAssistantTextDelta: suspend (String) -> Unit = {},
         onAssistantReasoningDelta: suspend (String) -> Unit = {},
         onAssistantReasoningSummaryDelta: suspend (String) -> Unit = {},
+        onAssistantRequestStarted: suspend () -> Unit = {},
+        onAssistantResponseReset: suspend () -> Unit = {},
         onHostToolStarted: suspend (SharedPiHostToolCall) -> Unit = {},
         onHostToolFinished: suspend (SharedPiHostToolCall, SharedHostToolResult) -> Unit = { _, _ -> },
         onStreamingStatus: suspend (SharedPiStreamingStatus?) -> Unit = {},
         pollInjectedUserMessages: suspend () -> List<SharedPiChatMessage> = { emptyList() },
     ): SharedPiTurnResult {
+        val appendedPiEntryIds = mutableListOf<String>()
         val extensionLoadOptions = bridge.extensionLoadOptions()
         val resolvedSessionId = sessionId.ifBlank { "aether-session-${platformRandomUuid()}" }
         val hostToolDefinitions = when (val executor = hostToolExecutor) {
@@ -146,8 +155,15 @@ class SharedPiChatClient(
             put("model_config", config.toSharedPiModelConfig(timeoutMillis))
             put("session_id", resolvedSessionId)
             put("system_prompt", systemPrompt.ifBlank { platformDefaultSystemPrompt() })
-            put("messages", messages.toPiMessages())
+            put("messages", messages.withSkillCommand(skillCommand).toPiMessages())
             put("workspace_directory", workspaceDirectory)
+            put("termux_workspace_directory", workspaceDirectory)
+            put("runtime", "alpine")
+            put("platform", "ios")
+            put("chrome_enabled", false)
+            put("skill_paths", buildJsonArray {
+                skillPaths.distinct().forEach { add(JsonPrimitive(it)) }
+            })
             put("reasoning", reasoning)
             extensionLoadOptions.toPayload().forEach { (key, value) -> put(key, value) }
             put("host_tools", hostToolDefinitions)
@@ -168,6 +184,30 @@ class SharedPiChatClient(
                         onAssistantReasoningSummaryDelta(delta)
                     }
                 }
+                "assistant_request_start" -> onAssistantRequestStarted()
+                "assistant_stream_reset" -> onAssistantResponseReset()
+                "session_entry_appended" -> {
+                    val entryId = (eventPayload["entry"] as? JsonObject)?.string("id").orEmpty()
+                    if (entryId.isNotBlank()) appendedPiEntryIds += entryId
+                }
+                "assistant_retry" -> onStreamingStatus(
+                    SharedPiStreamingStatus(
+                        text = "Reconnecting... ${eventPayload.int("attempt")}/${eventPayload.int("max_attempts")}",
+                        detail = buildString {
+                            append(eventPayload.string("error_message"))
+                            val delayMillis = eventPayload.int("delay_ms")
+                            if (delayMillis > 0) {
+                                if (isNotEmpty()) append('\n')
+                                append("Retrying in ")
+                                if (delayMillis % 1_000 == 0) {
+                                    append(delayMillis / 1_000).append('s')
+                                } else {
+                                    append(delayMillis).append("ms")
+                                }
+                            }
+                        },
+                    )
+                )
                 "assistant_error" -> onStreamingStatus(
                     SharedPiStreamingStatus(
                         text = "Agent engine error",
@@ -234,11 +274,12 @@ class SharedPiChatClient(
         } finally {
             onStreamingStatus(null)
         }
-        return response.toSharedPiTurnResult(config)
+        return response.toSharedPiTurnResult(config, appendedPiEntryIds)
     }
 
     private suspend fun JsonObject.toSharedPiTurnResult(
         config: LlmProviderConfig,
+        piEntryIds: List<String> = emptyList(),
     ): SharedPiTurnResult {
         val usage = this["usage"] as? JsonObject ?: JsonObject(emptyMap())
         val updatedOauthCredentialJson = (this["oauth_credential"] as? JsonObject)
@@ -264,6 +305,10 @@ class SharedPiChatClient(
             usageAvailable = usage.isNotEmpty(),
             providerPayloadJson = toSharedProviderPayloadJson(),
             updatedOauthCredentialJson = updatedOauthCredentialJson,
+            piSessionId = string("session_id"),
+            piSessionFile = string("session_file"),
+            piRuntime = string("runtime"),
+            piEntryIds = piEntryIds.distinct(),
         )
     }
 
@@ -300,6 +345,17 @@ class SharedPiChatClient(
             timeoutMillis = 15_000,
             abortOnCancellation = false,
         )
+    }
+}
+
+private fun List<SharedPiChatMessage>.withSkillCommand(name: String): List<SharedPiChatMessage> {
+    val normalized = name.trim()
+    if (normalized.isBlank()) return this
+    val index = indexOfLast { it.role == "user" }
+    if (index < 0) return this
+    val current = get(index)
+    return toMutableList().apply {
+        this[index] = current.copy(text = "/skill:$normalized ${current.text}")
     }
 }
 
@@ -434,6 +490,9 @@ private fun JsonObject.string(name: String): String =
 
 private fun JsonObject.long(name: String): Long =
     get(name)?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0
+
+private fun JsonObject.int(name: String): Int =
+    get(name)?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
 
 internal fun JsonObject.sharedHostToolSessionId(): String =
     get(SharedHostToolSessionIdArgument)?.jsonPrimitive?.contentOrNull.orEmpty()

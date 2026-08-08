@@ -54,9 +54,6 @@ internal fun ChatMessage.summaryText(): String {
         return if (toolInvocations.size == 1) {
             when (toolInvocations.first().toolName.lowercase()) {
                 "bash" -> "Ran bash command"
-                "fetch_bash_output" -> "Fetched bash output"
-                "kill_bash" -> "Stopped bash command"
-                "sleep" -> "Waited"
                 else -> "Used ${toolInvocations.first().toolName}"
             }
         } else {
