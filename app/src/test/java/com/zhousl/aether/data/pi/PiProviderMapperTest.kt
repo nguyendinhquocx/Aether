@@ -59,7 +59,7 @@ class PiProviderMapperTest {
     }
 
     @Test
-    fun customModelDoesNotInventReasoningCapability() {
+    fun customModelEnablesReasoningWhenTheSelectedEffortRequiresIt() {
         val config = AppSettings(
             piProviderId = "openai-compatible",
             providerConfigId = "custom-provider-id",
@@ -68,7 +68,7 @@ class PiProviderMapperTest {
             reasoningEffort = "high",
         ).toPiModelConfig()
 
-        assertFalse(config.reasoning)
+        assertTrue(config.reasoning)
         assertEquals("high", AppSettings(
             piProviderId = "openai-compatible",
             modelId = "custom-model",

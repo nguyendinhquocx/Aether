@@ -96,7 +96,6 @@ const AETHER_MANUAL_OAUTH_CALLBACK_HOST = "203.0.113.1";
 const OAUTH_FETCH_MAX_ATTEMPTS = 3;
 const DEFAULT_AGENT_RETRY_MAX_RETRIES = 5;
 const RUNTIME_OPERATION_CHUNK_BYTES = 64 * 1024;
-const CUSTOM_BASE_URL_BUILTIN_PROVIDER_IDS = new Set(["openai", "anthropic"]);
 
 type JsonObject = Record<string, unknown>;
 
@@ -717,10 +716,6 @@ function createAetherModel(config: ModelConfig): Model<string> {
   };
 }
 
-function normalizedBaseUrl(value: string | undefined): string {
-  return (value ?? "").trim().replace(/\/+$/, "");
-}
-
 function buildModels(config: ModelConfig): {
   models: MutableModels;
   model: Model<string>;
@@ -767,15 +762,9 @@ function buildModels(config: ModelConfig): {
     if (!provider) throw new Error(`Unknown built-in Pi provider: ${config.pi_provider_id}`);
     const providerModels = provider.getModels();
     const builtinModel = providerModels.find((candidate) => candidate.id === config.model_id);
-    const providerBaseUrl = provider.baseUrl ?? providerModels[0]?.baseUrl;
-    const usesCustomBaseUrl =
-      CUSTOM_BASE_URL_BUILTIN_PROVIDER_IDS.has(provider.id) &&
-      normalizedBaseUrl(config.base_url) !== normalizedBaseUrl(providerBaseUrl);
-    const modelTemplate = builtinModel ?? (usesCustomBaseUrl ? providerModels[0] : undefined);
+    const modelTemplate = builtinModel ?? providerModels[0];
     if (!modelTemplate) {
-      throw new Error(
-        `Unknown model ${config.model_id} for built-in Pi provider ${config.pi_provider_id}.`,
-      );
+      throw new Error(`Built-in Pi provider ${config.pi_provider_id} has no protocol template.`);
     }
     const credentialStore = new BridgeCredentialStore(
       provider.id,

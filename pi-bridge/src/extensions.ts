@@ -44,6 +44,7 @@ const INDEX_FILE_NAMES = [
   "index.cjs",
 ];
 const PI_AGENT_DIRECTORY = path.join(os.homedir(), ".pi", "agent");
+const AETHER_JITI_CACHE = path.join(os.homedir(), ".aether", "cache", "jiti");
 
 const virtualModules: Record<string, unknown> = {
   typebox,
@@ -312,10 +313,12 @@ export async function listAetherExtensionPackages(
   cwd: string,
 ): Promise<AetherInstalledExtensionPackage[]> {
   const packageManager = createPackageManager(cwd);
-  const resolved = await packageManager.resolve();
-  return packageManager
+  const configuredPackages = packageManager
     .listConfiguredPackages()
-    .filter((configuredPackage) => configuredPackage.scope === "user")
+    .filter((configuredPackage) => configuredPackage.scope === "user");
+  if (configuredPackages.length === 0) return [];
+  const resolved = await packageManager.resolve();
+  return configuredPackages
     .map((configuredPackage) =>
       installedPackagePayload(
         configuredPackage,
@@ -357,7 +360,7 @@ export async function updateAetherExtensionPackage(
 async function loadFactory(extensionPath: string): Promise<ExtensionFactory> {
   const jiti = createJiti(import.meta.url, {
     moduleCache: false,
-    fsCache: false,
+    fsCache: AETHER_JITI_CACHE,
     tryNative: false,
     virtualModules,
   });

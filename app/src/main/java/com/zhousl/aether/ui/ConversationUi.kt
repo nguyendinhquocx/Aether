@@ -2853,6 +2853,25 @@ private fun ConversationComposerBar(
                                             },
                                         )
                                     }
+                                    extensionUiController?.snapshot?.composerMenuItems.orEmpty().forEach { item ->
+                                        ComposerPlusMenuRow(
+                                            title = item.title,
+                                            icon = Icons.Rounded.Extension,
+                                            selected = item.selected,
+                                            iconTint = AetherPrimary,
+                                            iconContainerColor = AetherSurfaceHigh,
+                                            onClick = {
+                                                runAfterAttachmentMenuDismiss {
+                                                    extensionUiController?.onAction?.invoke(
+                                                        item.extensionId,
+                                                        item.action.ifBlank { item.localId },
+                                                        item.args,
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
+                                    AetherExtensionSlot(AetherExtensionSlotChatComposerPlusMenu)
                                 }
                             }
                         }

@@ -103,10 +103,15 @@ interface AetherExtensionAPI {
     clear(): void;
     snapshot(): object;
   };
+  readonly messages: {
+    append(type: string, payload?: object, text?: string): Promise<object>;
+  };
 
   registerSurface(slot: string, definition: SurfaceDefinition): () => void;
   registerComponent(target: string, definition: ComponentDefinition): () => void;
-  registerPage(definition: PageDefinition): () => void;
+  registerSettings(definition: SettingsDefinition): () => void;
+  registerComposerMenuItem(definition: ComposerMenuItemDefinition): () => void;
+  registerMessageType(definition: MessageTypeDefinition): () => void;
   registerAction(id: string, handler: ActionHandler): () => void;
   on(event: string, handler: EventHandler): () => void;
   intercept(operation: string, handler: EventHandler): () => void;
@@ -315,23 +320,45 @@ ui.web({
 JavaScript, DOM storage, network access, file access, and content access are
 enabled. `Aether.postMessage(string)` invokes a registered extension action.
 
-## Pages
+## Settings pages
 
-Pages are native full-screen destinations and automatically appear in the
-conversation drawer:
+`registerSettings` adds a page to the dedicated Extensions group between
+Reliability and Agent Skills. The host renders the page with the same settings
+scaffold, cards, spacing, typography, and controls as Aether's built-in pages;
+extensions provide data only and cannot override page layout or styling.
 
 ```ts
-aether.registerPage({
-  id: "dashboard",
-  title: "Build dashboard",
-  subtitle: "Extension-owned UI",
-  icon: "code",
-  render: () => ui.column([
-    ui.text("Dashboard", { style: "headline" }),
-    ui.button("Run", "run"),
-  ]),
+aether.registerSettings({
+  id: "preferences",
+  icon: "settings",
+  title: "Preferences",
+  subtitle: "Extension behavior",
+  sections: [{
+    title: "General",
+    description: "Configure extension behavior",
+    settings: [
+      { id: "endpoint", type: "text", label: "Endpoint", default: "https://example.com" },
+      { id: "enabled", type: "toggle", label: "Enabled", default: true },
+      {
+        id: "mode",
+        type: "select",
+        label: "Mode",
+        options: [
+          { value: "fast", label: "Fast" },
+          { value: "quality", label: "Quality" },
+        ],
+        default: "fast",
+      },
+    ],
+  }],
 });
 ```
+
+Supported control types are `text`, `password`, `textarea`, `number`,
+`toggle`, `select`/`dropdown`, `segmented`, `tab`/`tabs`, `slider`, `button`,
+`link`, `label`, `divider`, and `spacer`. Value controls are persisted automatically per
+extension, page, and setting ID. Buttons dispatch their `action` and `args`;
+links open `url`, or dispatch `action` when no URL is supplied.
 
 ## Service Registry
 

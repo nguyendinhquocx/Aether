@@ -15,9 +15,12 @@ import okio.Path.Companion.toPath
 
 @Serializable
 data class SharedThinkingCatalogCache(
+    val source: String = "",
     val levelsByProviderModel: Map<String, List<String>> = emptyMap(),
     val clampsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
 )
+
+const val ModelsDevThinkingCatalogSource = "models.dev"
 
 data class SharedPersistedSettings(
     val providerConfigs: List<LlmProviderConfig> = emptyList(),

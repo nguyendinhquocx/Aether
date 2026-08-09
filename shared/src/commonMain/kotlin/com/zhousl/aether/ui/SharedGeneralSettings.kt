@@ -126,7 +126,7 @@ private fun sharedThemeDisplayName(themeMode: AppThemeMode): String = when (them
     AppThemeMode.Dark -> stringResource(Res.string.theme_dark)
 }
 
-private data class SharedSelectionOption(
+internal data class SharedSelectionOption(
     val title: String,
     val subtitle: String,
     val selected: Boolean,
@@ -134,7 +134,7 @@ private data class SharedSelectionOption(
 )
 
 @Composable
-private fun SharedSelectionDropdownField(
+internal fun SharedSelectionDropdownField(
     label: String,
     supportingText: String,
     selectedLabel: String,
@@ -145,12 +145,14 @@ private fun SharedSelectionDropdownField(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(label, style = MaterialTheme.typography.titleMedium, color = AetherOnSurface)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            supportingText,
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-        )
+        if (supportingText.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = AetherOnSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier
@@ -189,11 +191,13 @@ private fun SharedSelectionDropdownField(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(option.title, color = AetherOnSurface)
-                        Text(
-                            option.subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AetherOnSurfaceVariant,
-                        )
+                        if (option.subtitle.isNotBlank()) {
+                            Text(
+                                option.subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AetherOnSurfaceVariant,
+                            )
+                        }
                     }
                     if (option.selected) {
                         Spacer(Modifier.width(12.dp))

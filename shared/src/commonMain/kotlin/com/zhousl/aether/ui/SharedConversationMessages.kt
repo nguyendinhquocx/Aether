@@ -540,6 +540,23 @@ internal fun SharedConversationMessage(
     sessionTotalTokens: Long? = null,
     metrics: SharedMessageMetrics = SharedMessageMetrics(),
 ) {
+    val customMessage = LocalSharedAetherExtensionUiController.current
+        ?.snapshot
+        ?.customMessages
+        ?.firstOrNull { it.id == message.id }
+    if (customMessage != null) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
+        ) {
+            SharedAetherExtensionTree(
+                value = customMessage.tree,
+                extensionId = customMessage.extensionId,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        return
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start,

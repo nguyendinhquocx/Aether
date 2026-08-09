@@ -945,6 +945,7 @@
     <string name="settings_extension_installed">Installed</string>
     <string name="settings_search_extensions">Search packages</string>
     <string name="settings_loading_extensions">Loading pi.dev packages</string>
+    <string name="settings_loading_installed_extensions">Loading installed extensions</string>
     <string name="settings_no_extensions_found">No matching packages found.</string>
     <string name="settings_no_extensions_installed">No extensions installed</string>
     <string name="settings_install_or_import_extension">Install one from pi.dev or import a JavaScript, TypeScript, or zip package.</string>

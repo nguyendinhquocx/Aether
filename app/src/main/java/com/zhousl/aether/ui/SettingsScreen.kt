@@ -82,6 +82,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -178,6 +179,8 @@ import com.zhousl.aether.data.resolveAutomaticModelKey
 import com.zhousl.aether.data.sortedForAutomaticModelPurpose
 import com.zhousl.aether.mod.AetherNativeModState
 import com.zhousl.aether.runtime.LocalRuntimeIssue
+import org.json.JSONArray
+import org.json.JSONObject
 import com.zhousl.aether.runtime.LocalRuntimeSetupState
 import com.zhousl.aether.runtime.AlpineSetupActivity
 import com.zhousl.aether.runtime.AlpineSetupProgress
@@ -212,6 +215,7 @@ private enum class SettingsPage {
     Personalization,
     WebTools,
     Reliability,
+    ExtensionSettings,
     Skills,
     AddSkill,
     Extensions,
@@ -243,6 +247,7 @@ private fun SettingsPage.depth(): Int = when (this) {
     SettingsPage.Personalization,
     SettingsPage.WebTools,
     SettingsPage.Reliability,
+    SettingsPage.ExtensionSettings,
     SettingsPage.Skills,
     SettingsPage.Extensions,
     SettingsPage.McpServers,
@@ -438,6 +443,7 @@ fun SettingsScreen(
     developerTermuxReadyOverride: Boolean?,
     installedSkills: List<com.zhousl.aether.data.InstalledSkill>,
     installedPiExtensions: List<InstalledPiExtension>,
+    hasLoadedInstalledPiExtensions: Boolean,
     nativeModState: AetherNativeModState,
     piExtensionCatalog: List<PiExtensionCatalogEntry>,
     isLoadingPiExtensions: Boolean,
@@ -707,6 +713,11 @@ fun SettingsScreen(
     val page = SettingsPage.valueOf(currentPage)
     var rootSetupReturnPage by rememberSaveable { mutableStateOf(SettingsPage.Termux.name) }
     var selectedPiPackageSourceValue by rememberSaveable { mutableStateOf("") }
+    var selectedExtensionSettingsId by rememberSaveable { mutableStateOf("") }
+    val extensionSettings = LocalAetherExtensionUiController.current
+        ?.snapshot
+        ?.settings
+        .orEmpty()
 
     fun rootSetupReturnPageValue(): SettingsPage =
         runCatching { SettingsPage.valueOf(rootSetupReturnPage) }
@@ -743,6 +754,7 @@ fun SettingsScreen(
         SettingsPage.AddProvider, SettingsPage.EditProvider -> SettingsPage.Providers
         SettingsPage.AddSkill -> SettingsPage.Skills
         SettingsPage.PackageDetail -> SettingsPage.Extensions
+        SettingsPage.ExtensionSettings -> SettingsPage.Hub
         SettingsPage.AddMcpServer, SettingsPage.EditMcpServer -> SettingsPage.McpServers
         SettingsPage.AddScheduledTask, SettingsPage.EditScheduledTask -> SettingsPage.ScheduledTasks
         SettingsPage.AlpineTerminal,
@@ -817,6 +829,12 @@ fun SettingsScreen(
                 showRuntimeDefaults = termuxSetupState.isReady && alpineSetupState.isReady,
                 skillCount = installedSkills.size,
                 piExtensionCount = installedPiExtensions.size,
+                piExtensionsLoaded = hasLoadedInstalledPiExtensions,
+                extensionSettings = extensionSettings,
+                onOpenExtensionSettings = { id ->
+                    selectedExtensionSettingsId = id
+                    currentPage = SettingsPage.ExtensionSettings.name
+                },
                 mcpServerCount = mcpServers.size,
                 scheduledTaskCount = scheduledTasks.size,
                 statisticsSummary = buildSettingsStatisticsSummary(usageStatisticsSnapshots),
@@ -1001,6 +1019,17 @@ fun SettingsScreen(
                 onNotifyOnTaskCompletionChanged = { notifyOnTaskCompletionValue = it },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
+            SettingsPage.ExtensionSettings -> {
+                val selected = extensionSettings.firstOrNull { it.id == selectedExtensionSettingsId }
+                if (selected == null) {
+                    currentPage = SettingsPage.Hub.name
+                } else {
+                    AetherExtensionSettingsPage(
+                        page = selected,
+                        onBack = { currentPage = SettingsPage.Hub.name },
+                    )
+                }
+            }
 
             SettingsPage.Skills -> SkillsListPage(
                 title = stringResource(R.string.settings_agent_skills),
@@ -1031,6 +1060,7 @@ fun SettingsScreen(
 
             SettingsPage.Extensions -> PiExtensionsPage(
                 installedExtensions = installedPiExtensions,
+                hasLoadedInstalledExtensions = hasLoadedInstalledPiExtensions,
                 nativeModState = nativeModState,
                 catalog = piExtensionCatalog,
                 isLoading = isLoadingPiExtensions,
@@ -1307,6 +1337,9 @@ private fun SettingsHub(
     showRuntimeDefaults: Boolean,
     skillCount: Int,
     piExtensionCount: Int,
+    piExtensionsLoaded: Boolean,
+    extensionSettings: List<com.zhousl.aether.data.AetherAppExtensionSettingsPage>,
+    onOpenExtensionSettings: (String) -> Unit,
     mcpServerCount: Int,
     scheduledTaskCount: Int,
     statisticsSummary: String,
@@ -1387,6 +1420,21 @@ private fun SettingsHub(
                 )
             }
 
+            if (extensionSettings.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                SettingsCardGroup {
+                    extensionSettings.forEachIndexed { index, settingPage ->
+                        if (index > 0) CardDivider()
+                        SettingsNavRow(
+                            icon = extensionIcon(settingPage.icon),
+                            title = settingPage.title,
+                            subtitle = settingPage.subtitle.ifBlank { settingPage.extensionName },
+                            onClick = { onOpenExtensionSettings(settingPage.id) },
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
 
             // Extensions card
@@ -1401,10 +1449,14 @@ private fun SettingsHub(
                 SettingsNavRow(
                     iconPainter = painterResource(R.drawable.pi_logo_on_light),
                     title = stringResource(R.string.settings_pi_extensions),
-                    subtitle = stringResource(
-                        R.string.settings_pi_extensions_count_configured,
-                        piExtensionCount,
-                    ),
+                    subtitle = if (piExtensionsLoaded) {
+                        stringResource(
+                            R.string.settings_pi_extensions_count_configured,
+                            piExtensionCount,
+                        )
+                    } else {
+                        stringResource(R.string.settings_loading_installed_extensions)
+                    },
                     onClick = { onNavigate(SettingsPage.Extensions) },
                 )
                 CardDivider()
@@ -2952,6 +3004,191 @@ private fun ReliabilityPage(
 }
 
 @Composable
+private fun AetherExtensionSettingsPage(
+    page: com.zhousl.aether.data.AetherAppExtensionSettingsPage,
+    onBack: () -> Unit,
+) {
+    val controller = LocalAetherExtensionUiController.current
+    val uriHandler = LocalUriHandler.current
+    fun update(setting: JSONObject, value: Any?) {
+        controller?.onAction?.invoke(
+            page.extensionId,
+            "settings:${page.localId}:${setting.optString("id")}",
+            JSONObject().put("setting", setting.optString("id")).put("value", value),
+        )
+    }
+    SubPageScaffold(title = page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
+        page.sections.forEachIndexed { sectionIndex, section ->
+            val sectionTitle = section.optString("title")
+            val sectionDescription = section.optString("description")
+            if (sectionIndex > 0) Spacer(Modifier.height(16.dp))
+            if (sectionTitle.isNotBlank() || sectionDescription.isNotBlank()) {
+                if (sectionTitle.isNotBlank()) {
+                    Text(
+                        sectionTitle,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = AetherOnSurface,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+                if (sectionDescription.isNotBlank()) {
+                    if (sectionTitle.isNotBlank()) Spacer(Modifier.height(4.dp))
+                    Text(
+                        sectionDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AetherOnSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            SettingsCardGroup {
+                val settings = section.optJSONArray("settings") ?: JSONArray()
+                Column {
+                    for (index in 0 until settings.length()) {
+                        val setting = settings.optJSONObject(index) ?: continue
+                        val id = "${page.id}:${setting.optString("id")}"
+                        val type = setting.optString("type").ifBlank { "text" }
+                        val label = setting.optString("label")
+                        val description = setting.optString("description")
+                        val action = setting.optString("action").ifBlank {
+                            "settings:${page.localId}:${setting.optString("id")}"
+                        }
+                        when (type) {
+                            "toggle" -> {
+                                var checked by remember(id, setting.optBoolean("value")) {
+                                    mutableStateOf(setting.optBoolean("value"))
+                                }
+                                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+                                    SettingsToggleRow(label, description, checked) {
+                                        checked = it
+                                        update(setting, it)
+                                    }
+                                }
+                            }
+                            "select", "dropdown", "segmented", "tab", "tabs" -> {
+                                val options = setting.optJSONArray("options") ?: JSONArray()
+                                var selected by remember(id, setting.optString("value")) {
+                                    mutableStateOf(setting.optString("value"))
+                                }
+                                if (type == "segmented" || type == "tab" || type == "tabs") {
+                                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                        Text(label, style = MaterialTheme.typography.bodyMedium, color = AetherOnSurface)
+                                        if (description.isNotBlank()) Text(description, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+                                        Spacer(Modifier.height(8.dp))
+                                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                            for (optionIndex in 0 until options.length()) {
+                                                val option = options.optJSONObject(optionIndex) ?: continue
+                                                val value = option.optString("value")
+                                                SegmentedButton(
+                                                    selected = selected == value,
+                                                    onClick = { selected = value; update(setting, value) },
+                                                    shape = SegmentedButtonDefaults.itemShape(optionIndex, options.length()),
+                                                ) { Text(option.optString("label").ifBlank { value }) }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val selectedLabel = (0 until options.length())
+                                        .mapNotNull(options::optJSONObject)
+                                        .firstOrNull { it.optString("value") == selected }
+                                        ?.optString("label")
+                                        .orEmpty()
+                                    SelectionDropdownField(
+                                        label = label,
+                                        supportingText = description,
+                                        selectedLabel = selectedLabel.ifBlank { selected },
+                                        options = (0 until options.length()).mapNotNull { optionIndex ->
+                                            val option = options.optJSONObject(optionIndex) ?: return@mapNotNull null
+                                            val value = option.optString("value")
+                                            SelectionOption(
+                                                key = value,
+                                                title = option.optString("label").ifBlank { value },
+                                                subtitle = option.optString("description"),
+                                                selected = selected == value,
+                                                onClick = { selected = value; update(setting, value) },
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                            "slider" -> {
+                                val minimum = setting.optDouble("min", 0.0).toFloat()
+                                val maximum = setting.optDouble("max", 1.0).toFloat().coerceAtLeast(minimum + 0.0001f)
+                                val step = setting.optDouble("step", 0.01).toFloat().takeIf { it > 0f } ?: 0.01f
+                                val discreteSteps = (((maximum - minimum) / step).roundToInt() - 1).coerceAtLeast(0)
+                                var value by remember(id, setting.optDouble("value", minimum.toDouble())) {
+                                    mutableStateOf(setting.optDouble("value", minimum.toDouble()).toFloat().coerceIn(minimum, maximum))
+                                }
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                    Text(label, style = MaterialTheme.typography.bodyMedium, color = AetherOnSurface)
+                                    if (description.isNotBlank()) {
+                                        Text(description, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+                                    }
+                                    Slider(
+                                        value = value,
+                                        onValueChange = { value = it },
+                                        onValueChangeFinished = { update(setting, value) },
+                                        valueRange = minimum..maximum,
+                                        steps = discreteSteps.takeIf { it in 1..20 } ?: 0,
+                                    )
+                                }
+                            }
+                            "button" -> SettingsActionButton(
+                                label = label,
+                                onClick = {
+                                    controller?.onAction?.invoke(
+                                        page.extensionId,
+                                        action,
+                                        setting.optJSONObject("args") ?: JSONObject(),
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                enabled = setting.optBoolean("enabled", true),
+                            )
+                            "link" -> SettingsNavRow(
+                                icon = Icons.Rounded.Link,
+                                title = label,
+                                subtitle = description,
+                                enabled = setting.optBoolean("enabled", true),
+                            ) {
+                                val url = setting.optString("url")
+                                if (url.isNotBlank()) {
+                                    runCatching { uriHandler.openUri(url) }
+                                } else {
+                                    controller?.onAction?.invoke(
+                                        page.extensionId,
+                                        action,
+                                        setting.optJSONObject("args") ?: JSONObject(),
+                                    )
+                                }
+                            }
+                            "divider" -> CardDivider()
+                            "spacer" -> Spacer(Modifier.height(setting.optInt("size", 8).coerceAtLeast(1).dp))
+                            "label" -> Text(label, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            else -> {
+                                var value by remember(id, setting.optString("value")) { mutableStateOf(setting.optString("value")) }
+                                ChatGptTextField(
+                                    label = label,
+                                    value = TextFieldValue(value),
+                                    minLines = if (type == "textarea" || setting.optBoolean("multiline")) 4 else 1,
+                                    isSecret = type == "password" || setting.optBoolean("secret"),
+                                    placeholder = setting.optString("placeholder").ifBlank { label },
+                                    supportingText = description,
+                                    keyboardOptions = if (type == "number") KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+                                    onValueChange = { value = it.text; update(setting, it.text) },
+                                )
+                            }
+                        }
+                        if (index < settings.length() - 1 && type !in setOf("divider", "spacer")) CardDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun WebToolsPage(
     title: String,
     tavilyApiKeyValue: TextFieldValue,
@@ -3475,6 +3712,7 @@ private fun ScriptExtensionStatusCard(
 @Composable
 private fun PiExtensionsPage(
     installedExtensions: List<InstalledPiExtension>,
+    hasLoadedInstalledExtensions: Boolean,
     nativeModState: AetherNativeModState,
     catalog: List<PiExtensionCatalogEntry>,
     isLoading: Boolean,
@@ -3650,7 +3888,24 @@ private fun PiExtensionsPage(
             }
 
             else -> {
-                if (installedExtensions.isEmpty()) {
+                if (!hasLoadedInstalledExtensions) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = AetherPrimary,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            stringResource(R.string.settings_loading_installed_extensions),
+                            color = AetherOnSurfaceVariant,
+                        )
+                    }
+                } else if (installedExtensions.isEmpty()) {
                     SettingsCardGroup {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(24.dp),

@@ -661,7 +661,7 @@ private fun SharedProviderEditPage(
         fetchingModels = true
         scope.launch {
             try {
-                val result = modelCatalogClient.fetchModels(config, bridgeClient::listProviders)
+                val result = modelCatalogClient.fetchModels(config)
                 callback(result.models)
                 result.error?.let { error ->
                     onTransientMessage(

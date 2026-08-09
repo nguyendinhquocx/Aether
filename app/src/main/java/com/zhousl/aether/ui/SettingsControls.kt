@@ -177,6 +177,8 @@ internal fun ChatGptTextField(
     minLines: Int = 1,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     isSecret: Boolean = false,
+    placeholder: String = label,
+    supportingText: String = "",
     onValueChange: (TextFieldValue) -> Unit,
 ) {
     var passwordVisible by rememberSaveable(label) { mutableStateOf(false) }
@@ -213,7 +215,7 @@ internal fun ChatGptTextField(
                     Box(modifier = Modifier.weight(1f)) {
                         if (value.text.isEmpty()) {
                             Text(
-                                text = label,
+                                text = placeholder,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = AetherOnSurfaceVariant.copy(alpha = 0.5f),
                             )
@@ -246,6 +248,14 @@ internal fun ChatGptTextField(
                 }
             },
         )
+        if (supportingText.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = AetherOnSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -270,12 +280,14 @@ internal fun SelectionDropdownField(
             style = MaterialTheme.typography.titleMedium,
             color = AetherOnSurface,
         )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = supportingText,
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-        )
+        if (supportingText.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = AetherOnSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier
@@ -314,11 +326,13 @@ internal fun SelectionDropdownField(
                     ) {
                         Column {
                             Text(option.title, color = AetherOnSurface)
-                            Text(
-                                text = option.subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = AetherOnSurfaceVariant,
-                            )
+                            if (option.subtitle.isNotBlank()) {
+                                Text(
+                                    text = option.subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = AetherOnSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }

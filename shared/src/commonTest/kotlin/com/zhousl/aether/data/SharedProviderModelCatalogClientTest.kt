@@ -8,12 +8,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 
 class SharedProviderModelCatalogClientTest {
     @Test
@@ -31,7 +28,6 @@ class SharedProviderModelCatalogClientTest {
         }
         val result = SharedProviderModelCatalogClient(engine).fetchModels(
             customConfig(),
-            fetchBuiltinCatalog = { error("Built-in catalog should not be used") },
         )
 
         assertEquals(listOf("model-a", "model-b"), result.models)
@@ -39,28 +35,36 @@ class SharedProviderModelCatalogClientTest {
     }
 
     @Test
-    fun builtInProviderUsesPiCatalogWithoutCallingNetwork() = runTest {
-        var networkCalled = false
-        val engine = MockEngine {
-            networkCalled = true
-            respond("{}")
+    fun builtInProviderUsesModelsDevCatalog() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("models.dev", request.url.host)
+            respond(
+                """{"providers":{"anthropic":{"models":{"claude-a":{"id":"claude-a"},"claude-b":{"id":"claude-b"}}}}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
         }
-        val catalog = Json.parseToJsonElement(
-            """{"providers":[{"id":"anthropic","models":[{"id":"claude-a","reasoning":true,"thinking_levels":["off","low","high","unknown"],"thinking_level_clamps":{"max":"high","invalid":"low"}},{"id":"claude-b"}]}]}""",
-        ) as JsonObject
         val result = SharedProviderModelCatalogClient(engine).fetchModels(
             customConfig(
                 piProviderId = "anthropic",
                 baseUrl = "https://api.anthropic.com",
                 authMethod = ProviderAuthMethod.OAuth,
             ),
-            fetchBuiltinCatalog = { catalog },
         )
 
         assertEquals(listOf("claude-a", "claude-b"), result.models)
-        assertEquals(listOf("off", "low", "high"), result.thinkingLevelsByModel["claude-a"])
-        assertEquals(mapOf("max" to "high"), result.thinkingLevelClampsByModel["claude-a"])
-        assertFalse(networkCalled)
+        assertNull(result.error)
+    }
+
+    @Test
+    fun modelsDevProviderAliasesMatchAetherBuiltIns() {
+        assertEquals(
+            listOf("togetherai"),
+            PiProviderCatalog.resolve("together").modelsDevProviderIds(),
+        )
+        assertEquals(
+            listOf("kimi-for-coding"),
+            PiProviderCatalog.resolve("kimi-coding").modelsDevProviderIds(),
+        )
     }
 
     @Test
@@ -100,7 +104,6 @@ class SharedProviderModelCatalogClientTest {
                 baseUrl = "https://api.openai.com/v1",
                 authMethod = ProviderAuthMethod.ApiKey,
             ),
-            fetchBuiltinCatalog = { error("Pi catalog should not be needed") },
         )
 
         assertEquals(listOf("gpt-endpoint", "gpt-catalog"), result.models)
@@ -127,6 +130,29 @@ class SharedProviderModelCatalogClientTest {
         assertEquals(
             listOf("off", "low", "medium", "high"),
             levels[sharedThinkingCatalogKey("openai", "gpt-5")],
+        )
+    }
+
+    @Test
+    fun openAiCompatibleKimiK3UsesMoonshotPublicCatalog() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"providers":{"moonshotai":{"models":{"kimi-k3":{"id":"kimi-k3","reasoning":true,"reasoning_options":[{"type":"toggle"},{"type":"effort","values":["low","high","max"]}]}}}}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val config = customConfig(piProviderId = "openai-compatible").copy(
+            modelId = "kimi-k3",
+            cachedModels = listOf("kimi-k3"),
+            enabledModelIds = listOf("kimi-k3"),
+        )
+        val option = listOf(config).availableModelOptions().single()
+
+        val levels = SharedProviderModelCatalogClient(engine).fetchThinkingLevels(listOf(option))
+
+        assertEquals(
+            listOf("off", "low", "high", "max"),
+            levels[sharedThinkingCatalogKey("openai-compatible", "kimi-k3")],
         )
     }
 

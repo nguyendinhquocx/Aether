@@ -61,6 +61,8 @@ data class PersistedChatMessage(
     val providerId: String = "",
     val modelId: String = "",
     val providerPayloadJson: String = "",
+    val customType: String = "",
+    val customPayloadJson: String = "",
     val thoughtDurationMillis: Long = 0,
     val responseDurationMillis: Long = 0,
     val firstTokenLatencyMillis: Long? = null,
@@ -537,6 +539,8 @@ private fun JsonObject.toPersistedChatMessage(
     providerId = string("providerId"),
     modelId = string("modelId"),
     providerPayloadJson = string("providerPayloadJson"),
+    customType = string("customType"),
+    customPayloadJson = string("customPayloadJson"),
     thoughtDurationMillis = long("thoughtDurationMillis"),
     responseDurationMillis = long("responseDurationMillis"),
     firstTokenLatencyMillis = get("firstTokenLatencyMillis")
@@ -614,6 +618,8 @@ private fun PersistedChatMessage.toJsonObject(): JsonObject = buildJsonObject {
     put("providerId", providerId)
     put("modelId", modelId)
     if (providerPayloadJson.isNotBlank()) put("providerPayloadJson", providerPayloadJson)
+    if (customType.isNotBlank()) put("customType", customType)
+    if (customPayloadJson.isNotBlank()) put("customPayloadJson", customPayloadJson)
     put("thoughtDurationMillis", thoughtDurationMillis)
     put("responseDurationMillis", responseDurationMillis)
     firstTokenLatencyMillis?.let { put("firstTokenLatencyMillis", it) }

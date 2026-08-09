@@ -73,19 +73,6 @@ class AetherAppExtensionsTest {
                       "tree":{"type":"text","text":"First"}
                     }
                   ],
-                  "pages": [
-                    {
-                      "id":"demo:1:dashboard",
-                      "local_id":"dashboard",
-                      "extension_id":"demo:1",
-                      "extension_name":"Demo",
-                      "title":"Dashboard",
-                      "subtitle":"Live",
-                      "icon":"code",
-                      "order":0,
-                      "tree":{"type":"text","text":"Page"}
-                    }
-                  ],
                   "event_names":["before_send"],
                   "errors":[]
                 }
@@ -99,7 +86,6 @@ class AetherAppExtensionsTest {
             listOf("demo:1:first", "demo:1:later"),
             snapshot.surfacesAt("chat.composer.top").map { it.id },
         )
-        assertEquals("Dashboard", snapshot.pages.single().title)
         assertEquals(
             "wrap",
             snapshot.componentsAt("chat.composer.actionTray").single().mode,

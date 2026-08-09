@@ -112,6 +112,17 @@ object PiProviderCatalog {
         find(id) ?: providers.first { it.id == DefaultPiProviderId }
 }
 
+fun PiProviderDefinition.modelsDevProviderIds(): List<String> = when (id) {
+    "openai-codex" -> listOf("openai")
+    "azure-openai-responses" -> listOf("azure")
+    "vercel-ai-gateway" -> listOf("vercel")
+    "together" -> listOf("togetherai")
+    "fireworks" -> listOf("fireworks-ai")
+    "kimi-coding" -> listOf("kimi-for-coding")
+    "zai-coding-cn" -> listOf("zhipuai-coding-plan")
+    else -> listOf(id)
+}
+
 fun inferLegacyPiProviderId(
     legacyProviderStorageValue: String?,
     baseUrl: String,

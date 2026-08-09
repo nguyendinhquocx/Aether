@@ -943,6 +943,7 @@
     <string name="settings_extension_installed">已安装</string>
     <string name="settings_search_extensions">搜索 package</string>
     <string name="settings_loading_extensions">正在加载 pi.dev 软件包</string>
+    <string name="settings_loading_installed_extensions">正在加载已安装的 Extension</string>
     <string name="settings_no_extensions_found">没有找到匹配的 package。</string>
     <string name="settings_no_extensions_installed">尚未安装 Extension</string>
     <string name="settings_install_or_import_extension">可从 pi.dev 安装，或导入 JavaScript、TypeScript、zip 软件包。</string>

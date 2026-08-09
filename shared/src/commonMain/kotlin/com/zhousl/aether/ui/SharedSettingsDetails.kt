@@ -43,6 +43,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,6 +65,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -98,6 +103,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 private fun Throwable.sharedUserFacingMessage(): String =
     message?.trim().takeUnless { it.isNullOrBlank() }
@@ -905,6 +917,170 @@ private fun SharedSettingsDetailScaffold(
 }
 
 @Composable
+internal fun SharedAetherExtensionSettingsDetail(
+    page: com.zhousl.aether.data.SharedAetherExtensionSettingsPage,
+    onBack: () -> Unit,
+) {
+    val controller = LocalSharedAetherExtensionUiController.current
+    val uriHandler = LocalUriHandler.current
+    fun update(setting: JsonObject, value: JsonPrimitive) {
+        controller?.onAction?.invoke(
+            page.extensionId,
+            "settings:${page.localId}:${setting.string("id")}",
+            JsonObject(mapOf("setting" to JsonPrimitive(setting.string("id")), "value" to value)),
+        )
+    }
+    SharedSettingsDetailScaffold(title = page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
+        page.sections.forEachIndexed { sectionIndex, section ->
+            val title = section.string("title")
+            val description = section.string("description")
+            if (sectionIndex > 0) Spacer(Modifier.height(16.dp))
+            if (title.isNotBlank() || description.isNotBlank()) {
+                if (title.isNotBlank()) {
+                    Text(title, style = MaterialTheme.typography.labelLarge, color = AetherOnSurface, modifier = Modifier.padding(horizontal = 4.dp))
+                }
+                if (description.isNotBlank()) {
+                    Text(description, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp, vertical = if (title.isNotBlank()) 4.dp else 0.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            SettingsCardGroup {
+                val settings = section["settings"] as? JsonArray ?: JsonArray(emptyList())
+                Column {
+                    settings.forEachIndexed { index, element ->
+                        val setting = element as? JsonObject ?: return@forEachIndexed
+                        val id = "${page.id}:${setting.string("id")}"
+                        val type = setting.string("type").ifBlank { "text" }
+                        val label = setting.string("label")
+                        val subtitle = setting.string("description")
+                        when (type) {
+                            "toggle" -> {
+                                var checked by remember(id, setting["value"]) { mutableStateOf(setting["value"]?.jsonPrimitive?.booleanOrNull ?: false) }
+                                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+                                    SharedSettingsToggle(label, subtitle, checked) {
+                                        checked = it
+                                        update(setting, JsonPrimitive(it))
+                                    }
+                                }
+                            }
+                            "select", "dropdown", "segmented", "tab", "tabs" -> {
+                                val options = (setting["options"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+                                var selected by remember(id, setting.string("value")) { mutableStateOf(setting.string("value")) }
+                                if (type == "segmented" || type == "tab" || type == "tabs") {
+                                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                        Text(label, style = MaterialTheme.typography.bodyMedium, color = AetherOnSurface)
+                                        if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+                                        Spacer(Modifier.height(8.dp))
+                                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                            options.forEachIndexed { optionIndex, option ->
+                                                val value = option.string("value")
+                                                SegmentedButton(selected == value, { selected = value; update(setting, JsonPrimitive(value)) }, SegmentedButtonDefaults.itemShape(optionIndex, options.size)) {
+                                                    Text(option.string("label").ifBlank { value })
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val selectedLabel = options
+                                        .firstOrNull { it.string("value") == selected }
+                                        ?.string("label")
+                                        .orEmpty()
+                                    SharedSelectionDropdownField(
+                                        label = label,
+                                        supportingText = subtitle,
+                                        selectedLabel = selectedLabel.ifBlank { selected },
+                                        options = options.map { option ->
+                                            val value = option.string("value")
+                                            SharedSelectionOption(
+                                                title = option.string("label").ifBlank { value },
+                                                subtitle = option.string("description"),
+                                                selected = selected == value,
+                                                onClick = { selected = value; update(setting, JsonPrimitive(value)) },
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                            "slider" -> {
+                                val minimum = setting["min"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: 0f
+                                val maximum = (setting["max"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: 1f)
+                                    .coerceAtLeast(minimum + 0.0001f)
+                                val step = setting["step"]?.jsonPrimitive?.doubleOrNull?.toFloat()
+                                    ?.takeIf { it > 0f } ?: 0.01f
+                                val discreteSteps = (((maximum - minimum) / step).roundToInt() - 1).coerceAtLeast(0)
+                                var value by remember(id, setting["value"]) {
+                                    mutableStateOf(
+                                        (setting["value"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: minimum)
+                                            .coerceIn(minimum, maximum)
+                                    )
+                                }
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                    Text(label, style = MaterialTheme.typography.bodyMedium, color = AetherOnSurface)
+                                    if (subtitle.isNotBlank()) {
+                                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+                                    }
+                                    Slider(
+                                        value = value,
+                                        onValueChange = { value = it },
+                                        onValueChangeFinished = { update(setting, JsonPrimitive(value)) },
+                                        valueRange = minimum..maximum,
+                                        steps = discreteSteps.takeIf { it in 1..20 } ?: 0,
+                                    )
+                                }
+                            }
+                            "button" -> SharedSettingsActionButton(
+                                label = label,
+                                onClick = { controller?.onAction?.invoke(page.extensionId, setting.string("action").ifBlank { "settings:${page.localId}:${setting.string("id")}" }, setting["args"] as? JsonObject ?: JsonObject(emptyMap())) },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                enabled = setting["enabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+                            )
+                            "link" -> SettingsNavRow(
+                                icon = Icons.Rounded.Link,
+                                title = label,
+                                subtitle = subtitle,
+                                enabled = setting["enabled"]?.jsonPrimitive?.booleanOrNull ?: true,
+                            ) {
+                                val url = setting.string("url")
+                                if (url.isNotBlank()) {
+                                    runCatching { uriHandler.openUri(url) }
+                                } else {
+                                    controller?.onAction?.invoke(
+                                        page.extensionId,
+                                        setting.string("action").ifBlank {
+                                            "settings:${page.localId}:${setting.string("id")}"
+                                        },
+                                        setting["args"] as? JsonObject ?: JsonObject(emptyMap()),
+                                    )
+                                }
+                            }
+                            "divider" -> CardDivider()
+                            "spacer" -> Spacer(Modifier.height((setting["size"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 8).dp))
+                            "label" -> Text(label, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            else -> {
+                                var value by remember(id, setting.string("value")) { mutableStateOf(setting.string("value")) }
+                                SharedSettingsTextField(
+                                    label = label,
+                                    value = value,
+                                    onValueChange = { value = it; update(setting, JsonPrimitive(it)) },
+                                    secret = type == "password" || setting["secret"]?.jsonPrimitive?.booleanOrNull == true,
+                                    minLines = if (type == "textarea" || setting["multiline"]?.jsonPrimitive?.booleanOrNull == true) 4 else 1,
+                                    keyboardType = if (type == "number") KeyboardType.Number else KeyboardType.Text,
+                                    placeholder = setting.string("placeholder").ifBlank { label },
+                                    supportingText = subtitle,
+                                )
+                            }
+                        }
+                        if (index < settings.size - 1 && type !in setOf("divider", "spacer")) CardDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun JsonObject.string(name: String): String = this[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+@Composable
 private fun SharedSettingsTextField(
     label: String,
     value: String,
@@ -912,6 +1088,8 @@ private fun SharedSettingsTextField(
     keyboardType: KeyboardType = KeyboardType.Text,
     secret: Boolean = false,
     minLines: Int = 1,
+    placeholder: String = label,
+    supportingText: String = "",
 ) {
     var passwordVisible by rememberSaveable(label) { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -935,7 +1113,7 @@ private fun SharedSettingsTextField(
                     Box(Modifier.weight(1f)) {
                         if (value.isEmpty()) {
                             Text(
-                                label,
+                                placeholder,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = AetherOnSurfaceVariant.copy(alpha = 0.5f),
                             )
@@ -964,6 +1142,14 @@ private fun SharedSettingsTextField(
                 }
             },
         )
+        if (supportingText.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = AetherOnSurfaceVariant,
+            )
+        }
     }
 }
 

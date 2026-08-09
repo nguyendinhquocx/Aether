@@ -192,11 +192,12 @@ import com.zhousl.aether.data.SharedInstalledSkill
 import com.zhousl.aether.data.generateSharedQuickActionLabel
 import com.zhousl.aether.data.SharedAetherExtensionManager
 import com.zhousl.aether.data.SharedAetherExtensionSnapshot
-import com.zhousl.aether.data.SharedAetherExtensionPage
+import com.zhousl.aether.data.SharedAetherExtensionSettingsPage
 import com.zhousl.aether.data.SharedExtensionStateStore
 import com.zhousl.aether.data.SharedProviderModelCatalogClient
 import com.zhousl.aether.data.SharedModelCatalogInfo
 import com.zhousl.aether.data.SharedThinkingCatalogCache
+import com.zhousl.aether.data.ModelsDevThinkingCatalogSource
 import com.zhousl.aether.data.PiProviderCatalog
 import com.zhousl.aether.data.ProviderAuthMethod
 import com.zhousl.aether.data.AetherPrivacyPolicyUrl
@@ -208,7 +209,6 @@ import com.zhousl.aether.data.shouldMarkOnboardingCompleted
 import com.zhousl.aether.data.shouldRevealFollowUpTourCard
 import com.zhousl.aether.data.withModelOption
 import com.zhousl.aether.data.toJsonObject
-import com.zhousl.aether.data.providerModelsFromCatalog
 import com.zhousl.aether.data.sharedThinkingCatalogKey
 import com.zhousl.aether.data.platformRandomUuid
 import com.zhousl.aether.data.platformCurrentTimeMillis
@@ -533,6 +533,8 @@ internal data class SharedChatMessage(
     val providerId: String = "",
     val modelId: String = "",
     val providerPayloadJson: String = "",
+    val customType: String = "",
+    val customPayloadJson: String = "",
     val thoughtDurationMillis: Long = 0,
     val responseDurationMillis: Long = 0,
     val firstTokenLatencyMillis: Long? = null,
@@ -707,6 +709,7 @@ private enum class SharedSettingsKind {
     Personalization,
     WebTools,
     Reliability,
+    ExtensionSettings,
     Skills,
     Extensions,
     Mcp,
@@ -721,16 +724,20 @@ private data class SettingsDestination(
     val title: String,
     val subtitle: String,
     val kind: SharedSettingsKind = SharedSettingsKind.Generic,
+    val extensionSettingsId: String = "",
 )
 
 private val SharedSettingsDestinationSaver = Saver<SettingsDestination?, String>(
-    save = { it?.kind?.name.orEmpty() },
-    restore = { savedKind ->
-        savedKind.takeIf(String::isNotBlank)?.let { kindName ->
+    save = { destination ->
+        destination?.let { it.kind.name + "\n" + it.extensionSettingsId }.orEmpty()
+    },
+    restore = { savedDestination ->
+        savedDestination.takeIf(String::isNotBlank)?.let { encoded ->
             SettingsDestination(
                 title = "",
                 subtitle = "",
-                kind = SharedSettingsKind.valueOf(kindName),
+                kind = SharedSettingsKind.valueOf(encoded.substringBefore('\n')),
+                extensionSettingsId = encoded.substringAfter('\n', ""),
             )
         }
     },
@@ -943,7 +950,6 @@ fun AetherSharedApp(
         val activeMcpServerIds = currentSession.activeMcpServerIds
         val backgroundLeases = remember { mutableMapOf<String, BackgroundExecutionLease>() }
         var extensionSnapshot by remember { mutableStateOf(SharedAetherExtensionSnapshot()) }
-        var activeExtensionPageId by rememberSaveable { mutableStateOf("") }
         var transientMessage by remember { mutableStateOf("") }
         var onboardingReplayMode by remember { mutableStateOf(false) }
         var onboardingEntryStage by remember { mutableStateOf(OnboardingStage.Landing) }
@@ -1179,10 +1185,12 @@ fun AetherSharedApp(
                 val persistedThinkingKeys = persistedModelOptions.mapTo(mutableSetOf()) { option ->
                     sharedThinkingCatalogKey(option.piProviderId, option.modelId)
                 }
-                thinkingLevelsByProviderModel = persisted.thinkingCatalogCache.levelsByProviderModel
+                thinkingLevelsByProviderModel = persisted.thinkingCatalogCache
+                    .takeIf { it.source == ModelsDevThinkingCatalogSource }
+                    ?.levelsByProviderModel
+                    .orEmpty()
                     .filterKeys(persistedThinkingKeys::contains)
-                thinkingLevelClampsByProviderModel = persisted.thinkingCatalogCache.clampsByProviderModel
-                    .filterKeys(persistedThinkingKeys::contains)
+                thinkingLevelClampsByProviderModel = emptyMap()
                 if (currentSession.isDraft) {
                     currentSession.selectedModelKey = resolveSharedConversationModelKey(
                         selectedModelKey = currentSession.selectedModelKey,
@@ -1269,8 +1277,8 @@ fun AetherSharedApp(
                 sharedThinkingCatalogKey(option.piProviderId, option.modelId)
             }
             val cache = SharedThinkingCatalogCache(
+                source = ModelsDevThinkingCatalogSource,
                 levelsByProviderModel = thinkingLevelsByProviderModel.filterKeys(validKeys::contains),
-                clampsByProviderModel = thinkingLevelClampsByProviderModel.filterKeys(validKeys::contains),
             )
             withContext(Dispatchers.Default) {
                 settingsStore?.saveThinkingCatalogCache(cache)
@@ -1284,35 +1292,7 @@ fun AetherSharedApp(
                 val publicLevels = modelCatalogClient.fetchThinkingLevels(options)
                 if (publicLevels.isNotEmpty()) {
                     thinkingLevelsByProviderModel = thinkingLevelsByProviderModel + publicLevels
-                    persistThinkingCatalogCache()
-                }
-
-                val providerConfigIds = options.mapTo(mutableSetOf(), ProviderModelOption::providerConfigId)
-                val configs = providerConfigs.filter { it.id in providerConfigIds }
-                val runtimeCatalog = runSharedAppCatching {
-                    bridgeClient.listProviders(startIfNeeded = false)
-                }.getOrNull()
-                if (runtimeCatalog != null && configs.isNotEmpty()) {
-                    val runtimeResult = withContext(Dispatchers.Default) {
-                        val levels = mutableMapOf<String, List<String>>()
-                        val clamps = mutableMapOf<String, Map<String, String>>()
-                        configs.distinctBy(LlmProviderConfig::piProviderId).forEach { config ->
-                            val result = providerModelsFromCatalog(runtimeCatalog, config.piProviderId)
-                            result.thinkingLevelsByModel.forEach { (modelId, supported) ->
-                                levels[sharedThinkingCatalogKey(config.piProviderId, modelId)] = supported
-                            }
-                            result.thinkingLevelClampsByModel.forEach { (modelId, supported) ->
-                                clamps[sharedThinkingCatalogKey(config.piProviderId, modelId)] = supported
-                            }
-                        }
-                        levels to clamps
-                    }
-                    val refreshedKeys = options.mapTo(mutableSetOf()) { option ->
-                        sharedThinkingCatalogKey(option.piProviderId, option.modelId)
-                    }
-                    thinkingLevelsByProviderModel = thinkingLevelsByProviderModel + runtimeResult.first
-                    thinkingLevelClampsByProviderModel =
-                        thinkingLevelClampsByProviderModel.filterKeys { it !in refreshedKeys } + runtimeResult.second
+                    thinkingLevelClampsByProviderModel = emptyMap()
                     persistThinkingCatalogCache()
                 }
                 true
@@ -1333,6 +1313,16 @@ fun AetherSharedApp(
             put("selected_model_key", state.selectedModelKey)
             put("reasoning_effort", sharedAppSettings.reasoningEffort)
             put("message_count", state.messages.size)
+            put("custom_messages", JsonArray(state.messages.filter { it.customType.isNotBlank() }.map { message ->
+                buildJsonObject {
+                    put("id", message.id)
+                    put("type", message.customType)
+                    put("text", message.text)
+                    put("payload", runCatching {
+                        Json.parseToJsonElement(message.customPayloadJson) as? JsonObject
+                    }.getOrNull() ?: JsonObject(emptyMap()))
+                }
+            }))
         }
 
         fun resolveProviderForModel(preferredKey: String, fallbackKey: String = ""): LlmProviderConfig? {
@@ -2177,6 +2167,21 @@ fun AetherSharedApp(
                         }
                         buildJsonObject { put("submitted", true); put("mode", mode.ifBlank { "send" }) }
                     }
+                    "app.appendCustomMessage" -> withContext(Dispatchers.Main) {
+                        val type = args["type"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+                        require(type.isNotBlank()) { "Custom messages require a type." }
+                        val payload = args["payload"] as? JsonObject ?: JsonObject(emptyMap())
+                        val text = args["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        currentSession.messages += SharedChatMessage(
+                            text = text,
+                            fromUser = false,
+                            customType = type,
+                            customPayloadJson = payload.toString(),
+                            assistantActionsHidden = true,
+                        )
+                        persistSession(currentSession)
+                        buildJsonObject { put("appended", true); put("type", type) }
+                    }
                     "app.newChat" -> withContext(Dispatchers.Main) {
                         createNewSession()
                         route = SharedRoute.Chat
@@ -2345,7 +2350,6 @@ fun AetherSharedApp(
                         .onSuccess { extensionSnapshot = it }
                 }
             },
-            onOpenPage = { activeExtensionPageId = it },
         )
         val pauseBeforeDeletingSessionMessage =
             stringResource(Res.string.message_pause_before_deleting_session)
@@ -2511,13 +2515,7 @@ fun AetherSharedApp(
                 dismissRequestToken = tabletSettingsDismissRequest,
             )
         }
-        val activeExtensionPage = extensionSnapshot.pages.firstOrNull { it.id == activeExtensionPageId }
-        if (activeExtensionPage != null) {
-            SharedAetherExtensionPageScreen(
-                page = activeExtensionPage,
-                onBack = { activeExtensionPageId = "" },
-            )
-        } else AnimatedContent(
+        AnimatedContent(
             targetState = route,
             transitionSpec = {
                 if (!capabilities.layeredScreenTransitions) {
@@ -2920,8 +2918,6 @@ fun AetherSharedApp(
                         }
                     },
                     onExportSession = ::exportSession,
-                    extensionPages = extensionSnapshot.pages,
-                    onExtensionPageSelected = { activeExtensionPageId = it },
                     onOpenSettings = {
                         if (useTabletLayout) tabletSettingsVisible = true
                         else route = SharedRoute.Settings
@@ -3659,7 +3655,7 @@ private fun SharedProviderSetupStep(
                 fetchingModels = true
                 scope.launch {
                     try {
-                        val result = modelCatalogClient.fetchModels(config, bridgeClient::listProviders)
+                        val result = modelCatalogClient.fetchModels(config)
                         callback(result.models)
                         result.error?.let { error ->
                             onTransientMessage(fetchModelsFailedTemplate.replace(fetchErrorPlaceholder, error))
@@ -4449,8 +4445,6 @@ private fun SharedChatScreen(
     onRenameSession: (String, String) -> Unit,
     onDeleteSession: (String) -> Unit,
     onExportSession: (String) -> Unit,
-    extensionPages: List<SharedAetherExtensionPage>,
-    onExtensionPageSelected: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onDrawerOpened: () -> Unit,
     drawerOpenedEventRegistered: Boolean,
@@ -4723,17 +4717,6 @@ private fun SharedChatScreen(
                 extraContent = { dismissSearch ->
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawer)
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawerListEnd)
-                    extensionPages.forEach { page ->
-                        SharedAetherExtensionPageLauncher(
-                            page = page,
-                            onClick = {
-                                dismissSearch()
-                                scope.launch { drawerState.close() }
-                                onExtensionPageSelected(page.id)
-                            },
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
-                    }
                 },
             )
         },
@@ -6220,6 +6203,7 @@ private fun SharedComposerPlusMenu(
     onSkillSelected: (String, Boolean) -> Unit,
     onMcpServerSelected: (String, Boolean) -> Unit,
 ) {
+    val extensionUiController = LocalSharedAetherExtensionUiController.current
     SharedAnimatedPopupHost(visible = visible) { visibility ->
         Popup(
             alignment = Alignment.BottomStart,
@@ -6309,6 +6293,35 @@ private fun SharedComposerPlusMenu(
                                     onMcpServerSelected(server.id, !selected)
                                 },
                             )
+                        }
+                        LocalSharedAetherExtensionUiController.current
+                            ?.snapshot
+                            ?.composerMenuItems
+                            .orEmpty()
+                            .forEach { item ->
+                                SharedComposerPlusMenuRow(
+                                    title = item.title,
+                                    icon = Icons.Rounded.Extension,
+                                    iconTint = AetherPrimary,
+                                    selected = item.selected,
+                                    onClick = {
+                                        onDismiss()
+                                        extensionUiController?.onAction?.invoke(
+                                            item.extensionId,
+                                            item.action.ifBlank { item.localId },
+                                            item.args,
+                                        )
+                                    },
+                                )
+                            }
+                        if (extensionUiController
+                                ?.snapshot
+                                ?.surfacesAt(SharedExtensionSlotChatComposerPlusMenu)
+                                .orEmpty()
+                                .isNotEmpty()
+                        ) {
+                            Spacer(Modifier.height(6.dp))
+                            SharedAetherExtensionSlot(SharedExtensionSlotChatComposerPlusMenu)
                         }
                     }
                 }
@@ -6892,6 +6905,8 @@ private fun SharedChatMessage.toPersistedMessage(): PersistedChatMessage =
         providerId = providerId,
         modelId = modelId,
         providerPayloadJson = providerPayloadJson,
+        customType = customType,
+        customPayloadJson = customPayloadJson,
         thoughtDurationMillis = thoughtDurationMillis,
         responseDurationMillis = responseDurationMillis,
         firstTokenLatencyMillis = firstTokenLatencyMillis,
@@ -7088,7 +7103,9 @@ internal fun PersistedChatMessage.toSharedChatMessage(): SharedChatMessage {
     completedAtMillis = completedAtMillis,
     providerId = providerId,
     modelId = modelId,
-    providerPayloadJson = providerPayloadJson,
+        providerPayloadJson = providerPayloadJson,
+        customType = customType,
+        customPayloadJson = customPayloadJson,
     thoughtDurationMillis = thoughtDurationMillis,
     responseDurationMillis = responseDurationMillis,
     firstTokenLatencyMillis = firstTokenLatencyMillis,
@@ -7202,6 +7219,10 @@ private fun SharedSettingsScreen(
     onTransientMessage: (String) -> Unit,
     dismissRequestToken: Int = 0,
 ) {
+    val registeredExtensionSettings = LocalSharedAetherExtensionUiController.current
+        ?.snapshot
+        ?.settings
+        .orEmpty()
     val terminalTitle = stringResource(Res.string.terminal_title)
     val terminalSubtitle = stringResource(Res.string.terminal_subtitle)
     val alpineTitle = stringResource(Res.string.alpine_title)
@@ -7297,12 +7318,18 @@ private fun SharedSettingsScreen(
                 onSave = ::updatePendingSettings,
                 onBack = { destination = null },
             )
-            SharedSettingsKind.Reliability -> SharedReliabilitySettingsDetail(
+    SharedSettingsKind.Reliability -> SharedReliabilitySettingsDetail(
                 settings = pendingSettings,
                 capabilities = capabilities,
                 onSave = ::updatePendingSettings,
                 onBack = { destination = null },
             )
+            SharedSettingsKind.ExtensionSettings -> {
+                val page = registeredExtensionSettings.firstOrNull { it.id == selected.extensionSettingsId }
+                if (page != null) {
+                    SharedAetherExtensionSettingsDetail(page = page, onBack = { destination = null })
+                }
+            }
             SharedSettingsKind.Skills -> SharedSkillsSettingsDetail(
                 skillManager = skillManager,
                 runtime = runtime,
@@ -7595,6 +7622,27 @@ private fun SharedSettingsScreen(
                                     reliability.title,
                                     reliability.subtitle,
                                 ) { destination = reliability }
+                            }
+                        }
+                        if (registeredExtensionSettings.isNotEmpty()) {
+                            item(key = "settings-extension-pages") {
+                                SettingsCardGroup {
+                                    registeredExtensionSettings.forEachIndexed { index, page ->
+                                        if (index > 0) CardDivider()
+                                        SettingsNavRow(
+                                            extensionIcon(page.icon),
+                                            page.title,
+                                            page.subtitle.ifBlank { page.extensionName },
+                                        ) {
+                                            destination = SettingsDestination(
+                                                title = page.title,
+                                                subtitle = page.subtitle,
+                                                kind = SharedSettingsKind.ExtensionSettings,
+                                                extensionSettingsId = page.id,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                         item(key = "settings-tools") {

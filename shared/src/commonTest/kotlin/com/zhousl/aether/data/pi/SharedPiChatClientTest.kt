@@ -26,6 +26,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -64,10 +65,13 @@ class SharedPiChatClientTest {
                 )
             ),
             sessionId = "session-1",
+            reasoning = "high",
         )
 
         val request = process.requests.single()
         val payload = request["payload"]!!.jsonObject
+        assertTrue(payload["model_config"]!!.jsonObject["reasoning"]!!.jsonPrimitive.boolean)
+        assertEquals("high", payload["reasoning"]!!.jsonPrimitive.content)
         val content = payload["messages"]!!.jsonArray.single().jsonObject["content"]!!.jsonArray
         assertEquals("text", content[0].jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals("image/png", content[1].jsonObject["mime_type"]!!.jsonPrimitive.content)

@@ -115,7 +115,7 @@ fun AppSettings.toPiModelConfig(): PiModelConfig {
         },
         customHeaders = customHeaders.toPiHeaderMap() +
             ("User-Agent" to normalizeLlmUserAgent(userAgent)),
-        reasoning = false,
+        reasoning = toPiThinkingLevel() != "off",
         timeoutMillis = llmInactivityReconnectTimeoutSeconds
             .coerceIn(30, 3_600) * 1_000,
         authMethod = effectiveAuthMethod,

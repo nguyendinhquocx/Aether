@@ -25,8 +25,6 @@ import kotlinx.serialization.json.jsonPrimitive
 data class SharedProviderModelsResult(
     val models: List<String>,
     val error: String? = null,
-    val thinkingLevelsByModel: Map<String, List<String>> = emptyMap(),
-    val thinkingLevelClampsByModel: Map<String, Map<String, String>> = emptyMap(),
 )
 
 data class SharedModelCatalogInfo(
@@ -39,7 +37,7 @@ data class SharedModelCatalogInfo(
     val labLogoViewportHeight: Float = 40f,
 )
 
-private val SharedPiThinkingLevels = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
+private val SharedThinkingLevels = listOf("off", "minimal", "low", "medium", "high", "xhigh", "max")
 
 internal fun sharedThinkingCatalogKey(providerId: String, modelId: String): String =
     "${providerId.trim()}/${modelId.substringAfterLast('/').trim()}"
@@ -102,9 +100,11 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
             val fallbackModels = providers.sharedPublicCatalogModelIndex()
             buildMap {
                 options.forEach { option ->
-                    val preferredModels = (providers[option.publicCatalogProviderId()] as? JsonObject)
-                        ?.get("models") as? JsonObject
-                    val model = preferredModels?.findSharedPublicCatalogModel(option)
+                    val model = option.publicCatalogProviderIds()
+                        .firstNotNullOfOrNull { providerId ->
+                            ((providers[providerId] as? JsonObject)?.get("models") as? JsonObject)
+                                ?.findSharedPublicCatalogModel(option)
+                        }
                         ?: option.sharedPublicCatalogModelKeys()
                             .firstNotNullOfOrNull { fallbackModels[it.lowercase()] }
                     val levels = if (model?.get("reasoning")?.jsonPrimitive?.booleanOrNull == true) {
@@ -120,7 +120,7 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
                                 (reasoningOption["values"] as? JsonArray).orEmpty()
                                     .mapNotNull { it.jsonPrimitive.contentOrNull }
                                     .map { if (it == "none") "off" else it }
-                                    .filter { it in SharedPiThinkingLevels }
+                                    .filter { it in SharedThinkingLevels }
                                     .forEach { if (it !in this) add(it) }
                             }
                             if (isEmpty()) addAll(listOf("off", "medium"))
@@ -136,35 +136,37 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
 
     suspend fun fetchModels(
         config: LlmProviderConfig,
-        fetchBuiltinCatalog: suspend () -> JsonObject,
     ): SharedProviderModelsResult {
         val definition = PiProviderCatalog.resolve(config.piProviderId)
         return if (shouldFetchModelsFromEndpoint(config, definition)) {
             val endpoint = fetchOpenAiModels(config)
-            val publicModels = if (definition.isBuiltIn) {
-                fetchPublicProviderModels(definition.id)
+            val publicModels = if (shouldMergeModelsDev(config, definition)) {
+                fetchPublicProviderModels(definition)
             } else {
-                emptyList()
+                SharedProviderModelsResult(emptyList())
             }
-            val merged = (endpoint.models + publicModels).distinctBy(String::lowercase)
-            endpoint.copy(
+            val merged = (endpoint.models + publicModels.models).distinctBy(String::lowercase)
+            SharedProviderModelsResult(
                 models = merged,
-                error = endpoint.error.takeIf { merged.isEmpty() },
+                error = if (merged.isEmpty()) endpoint.error ?: publicModels.error else null,
             )
         } else {
-            providerModelsFromCatalog(fetchBuiltinCatalog(), definition.id)
+            fetchPublicProviderModels(definition)
         }
     }
 
-    private suspend fun fetchPublicProviderModels(providerId: String): List<String> = runCatching {
-        val provider = (fetchPublicCatalog()?.get("providers") as? JsonObject)
-            ?.get(providerId) as? JsonObject
-        val models = provider?.get("models") as? JsonObject
-        models.orEmpty().mapNotNull { (key, value) ->
-            (value as? JsonObject)?.stringValue("id").orEmpty().ifBlank { key }
-                .trim().takeIf(String::isNotBlank)
-        }
-    }.getOrDefault(emptyList())
+    private suspend fun fetchPublicProviderModels(
+        definition: PiProviderDefinition,
+    ): SharedProviderModelsResult = runCatching {
+        val catalog = fetchPublicCatalog()
+            ?: return@runCatching SharedProviderModelsResult(
+                emptyList(),
+                "No provider catalog was returned by models.dev.",
+            )
+        modelsFromPublicProviderCatalog(catalog, definition.modelsDevProviderIds())
+    }.getOrElse { error ->
+        SharedProviderModelsResult(emptyList(), error.message ?: "Unable to fetch models from models.dev.")
+    }
 
     private suspend fun fetchPublicCatalog(): JsonObject? {
         cachedPublicCatalog?.let { return it }
@@ -334,10 +336,19 @@ private fun JsonObject.sharedPublicCatalogModelIndex(): Map<String, JsonObject> 
     }
 }
 
-private fun ProviderModelOption.publicCatalogProviderId(): String = when (piProviderId) {
-    "openai-codex" -> "openai"
-    else -> piProviderId
-}
+private fun ProviderModelOption.publicCatalogProviderIds(): List<String> = buildList {
+    add(
+        when (piProviderId) {
+            "openai-codex" -> "openai"
+            "kimi-coding" -> "moonshotai"
+            else -> piProviderId
+        }
+    )
+    modelId.substringBeforeLast('/', "").trim().takeIf(String::isNotBlank)?.let(::add)
+    if (modelId.substringAfterLast('/').trim().startsWith("kimi-", ignoreCase = true)) {
+        add("moonshotai")
+    }
+}.filter(String::isNotBlank).distinct()
 
 private fun sharedModelCatalogInfo(displayName: String, labId: String): SharedModelCatalogInfo =
     SharedModelCatalogInfo(
@@ -419,6 +430,12 @@ internal fun shouldFetchModelsFromEndpoint(
         normalizedBaseUrl != definition.defaultBaseUrl
 }
 
+private fun shouldMergeModelsDev(
+    config: LlmProviderConfig,
+    definition: PiProviderDefinition,
+): Boolean = definition.isBuiltIn &&
+    config.baseUrl.trim().trimEnd('/') == definition.defaultBaseUrl.trim().trimEnd('/')
+
 internal fun modelsEndpoint(baseUrl: String): String {
     val normalized = baseUrl.trim().trimEnd('/')
     require(normalized.isNotBlank()) { "A base URL is required to fetch models." }
@@ -429,69 +446,26 @@ internal fun modelsEndpoint(baseUrl: String): String {
     }
 }
 
-internal fun modelsFromProviderCatalog(catalog: JsonObject, providerId: String): List<String> {
-    return providerModelsFromCatalog(catalog, providerId).models
-}
-
-internal fun providerModelsFromCatalog(
+internal fun modelsFromPublicProviderCatalog(
     catalog: JsonObject,
-    providerId: String,
+    providerIds: List<String>,
 ): SharedProviderModelsResult {
-    val providers = catalog["providers"] as? JsonArray
-        ?: return SharedProviderModelsResult(emptyList(), "No provider catalog was returned.")
-    val provider = providers
-        .mapNotNull { it as? JsonObject }
-        .firstOrNull { entry -> entry["id"]?.jsonPrimitive?.contentOrNull == providerId }
+    val providers = catalog["providers"] as? JsonObject
         ?: return SharedProviderModelsResult(
-            models = emptyList(),
-            error = "Provider $providerId is unavailable in the Pi model catalog.",
+            emptyList(),
+            "No provider catalog was returned by models.dev.",
         )
-    val models = provider["models"] as? JsonArray
-        ?: return SharedProviderModelsResult(emptyList())
-    val modelIds = mutableListOf<String>()
-    val thinkingLevels = mutableMapOf<String, List<String>>()
-    val thinkingLevelClamps = mutableMapOf<String, Map<String, String>>()
-    models.mapNotNull { it as? JsonObject }.forEach { model ->
-        val modelId = model["id"]
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
+    providerIds.forEach { providerId ->
+        val models = ((providers[providerId] as? JsonObject)?.get("models") as? JsonObject)
             ?: return@forEach
-        modelIds += modelId
-        if (model["reasoning"]?.jsonPrimitive?.booleanOrNull == true) {
-            thinkingLevels[modelId] = supportedSharedThinkingLevels(
-                model["thinking_levels"] as? JsonArray,
-            )
-            val clamps = (model["thinking_level_clamps"] as? JsonObject)
-                ?.let(::sharedThinkingLevelClamps)
-                .orEmpty()
-            if (clamps.isNotEmpty()) thinkingLevelClamps[modelId] = clamps
-        }
+        val modelIds = models.mapNotNull { (key, value) ->
+            (value as? JsonObject)?.stringValue("id").orEmpty().ifBlank { key }
+                .trim().takeIf(String::isNotBlank)
+        }.distinctBy(String::lowercase)
+        if (modelIds.isNotEmpty()) return SharedProviderModelsResult(modelIds)
     }
-    val distinctModels = modelIds.distinct()
     return SharedProviderModelsResult(
-        models = distinctModels,
-        error = if (distinctModels.isEmpty()) {
-            "Provider $providerId is unavailable in the Pi model catalog."
-        } else null,
-        thinkingLevelsByModel = thinkingLevels,
-        thinkingLevelClampsByModel = thinkingLevelClamps,
+        emptyList(),
+        "Provider ${providerIds.joinToString()} is unavailable in models.dev.",
     )
 }
-
-internal fun supportedSharedThinkingLevels(levels: JsonArray?): List<String> =
-    levels.orEmpty()
-        .mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
-        .filter { it in SharedPiThinkingLevels }
-        .distinct()
-
-internal fun sharedThinkingLevelClamps(clamps: JsonObject): Map<String, String> =
-    SharedPiThinkingLevels.mapNotNull { effort ->
-        clamps[effort]
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.trim()
-            ?.takeIf { it in SharedPiThinkingLevels }
-            ?.let { effort to it }
-    }.toMap()

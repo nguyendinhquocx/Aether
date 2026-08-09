@@ -244,12 +244,24 @@ export default defineAetherExtension((aether) => {
       ui.core(),
     ]),
   });
-  aether.registerPage({
-    id: "demo",
-    title: "Demo",
-    icon: "code",
-    render: () => ui.text("Aether page"),
+  aether.registerSettings({
+    id: "preferences",
+    title: "Preferences",
+    sections: [{
+      title: "General",
+      settings: [{ id: "enabled", label: "Enabled", type: "toggle", default: true }],
+    }],
   });
+  aether.registerSettings({
+    id: "secondary",
+    title: "Secondary",
+    order: 1,
+    sections: [{
+      settings: [{ id: "enabled", label: "Enabled", type: "toggle", default: true }],
+    }],
+  });
+  aether.registerComposerMenuItem({ id: "run", title: "Run demo", action: "run" });
+  aether.registerMessageType({ type: "demo", render: ({ message }) => ui.text(String(message.text ?? "")) });
   aether.registerAction("list-skills", async () =>
     aether.services.invoke("skills", "list"));
   aether.on("before_send", ({ text }) => ({ text: "[ext] " + text }));
@@ -273,8 +285,25 @@ export default defineAetherExtension((aether) => {
     assert.equal(loaded.snapshot.components[0].target, "chat.composer.actionTray");
     assert.equal(loaded.snapshot.components[0].mode, "wrap");
     assert.equal(loaded.snapshot.components[0].tree.children[1].type, "core");
-    assert.equal(loaded.snapshot.pages[0].title, "Demo");
+    assert.equal(loaded.snapshot.settings[0].title, "Preferences");
+    assert.equal(loaded.snapshot.settings[0].sections[0].settings[0].id, "enabled");
+    assert.equal(loaded.snapshot.settings[1].title, "Secondary");
+    assert.equal(loaded.snapshot.composer_menu_items[0].title, "Run demo");
+    assert.equal(loaded.snapshot.message_types[0].type, "demo");
     assert.deepEqual(loaded.snapshot.event_names, ["before_send", "operation:chat.new"]);
+
+    const settingsResult = await client.request(
+      "aether-settings-action",
+      "invoke_aether_extension_action",
+      {
+        extension_id: loaded.snapshot.extensions[0].id,
+        action: "settings:preferences:enabled",
+        args: { value: false },
+        context: {},
+      },
+    );
+    assert.equal(settingsResult.snapshot.settings[0].sections[0].settings[0].value, false);
+    assert.equal(settingsResult.snapshot.settings[1].sections[0].settings[0].value, true);
 
     const disabled = await client.request("aether-disabled", "reload_aether_extensions", {
       disabled_extension_paths: [extensionDirectory],
@@ -282,7 +311,6 @@ export default defineAetherExtension((aether) => {
     });
     assert.deepEqual(disabled.snapshot.extensions, []);
     assert.deepEqual(disabled.snapshot.surfaces, []);
-    assert.deepEqual(disabled.snapshot.pages, []);
 
     await client.request("aether-reenabled", "reload_aether_extensions", {
       disabled_extension_paths: [],
@@ -1246,7 +1274,7 @@ test("maps a custom OpenAI-compatible provider through Pi", async (t) => {
   assert.equal(receivedRequest.body.model, "custom-model");
 });
 
-test("uses the OpenAI native protocol for custom base URL models outside the built-in catalog", async (t) => {
+test("accepts arbitrary manual model IDs for a built-in provider", async (t) => {
   let receivedRequest;
   const server = createServer((request, response) => {
     const chunks = [];
@@ -1274,15 +1302,16 @@ test("uses the OpenAI native protocol for custom base URL models outside the bui
       provider_config_id: "custom-openai-native",
       pi_provider_id: "openai",
       pi_api: "builtin",
-      model_id: "third-party-model",
+      model_id: "sfsefehfjksdnf",
       base_url: `http://127.0.0.1:${address.port}/v1`,
       api_key: "secret-key",
       custom_headers: { "X-Aether-Test": "present" },
-      reasoning: false,
+      reasoning: true,
       max_retries: 0,
     },
     system_prompt: "Reply briefly.",
     messages: [userMessage("hello")],
+    reasoning: "high",
     stream: false,
   });
 
@@ -1290,27 +1319,8 @@ test("uses the OpenAI native protocol for custom base URL models outside the bui
   assert.equal(receivedRequest.url, "/v1/responses");
   assert.equal(receivedRequest.authorization, "Bearer secret-key");
   assert.equal(receivedRequest.customHeader, "present");
-  assert.equal(receivedRequest.body.model, "third-party-model");
-});
-
-test("rejects unknown built-in models when the provider uses its default base URL", async () => {
-  const client = new BridgeClient();
-  await assert.rejects(
-    client.request("unknown-default-openai", "complete_once", {
-      model_config: {
-        provider_type: "builtin",
-        provider_config_id: "unknown-default-openai",
-        pi_provider_id: "openai",
-        pi_api: "builtin",
-        model_id: "third-party-model",
-        base_url: "https://api.openai.com/v1",
-        api_key: "secret-key",
-      },
-      messages: [userMessage("hello")],
-      stream: false,
-    }),
-    /Unknown model third-party-model/,
-  );
+  assert.equal(receivedRequest.body.model, "sfsefehfjksdnf");
+  assert.equal(receivedRequest.body.reasoning.effort, "high");
 });
 
 test("lists every built-in Pi provider and its model catalog", async () => {

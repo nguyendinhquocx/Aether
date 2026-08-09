@@ -148,6 +148,8 @@ private fun PersistedChatMessage.toAndroidChatMessageJson(
     if ((fromUser || isLastBlock) && providerPayloadJson.isNotBlank()) {
         put("providerPayloadJson", providerPayloadJson)
     }
+    if (isLastBlock && customType.isNotBlank()) put("customType", customType)
+    if (isLastBlock && customPayloadJson.isNotBlank()) put("customPayloadJson", customPayloadJson)
 
     val blockTools = when (block?.type) {
         PersistedAssistantResponseBlockType.Reasoning ->
@@ -255,6 +257,8 @@ private data class AndroidArchiveMessage(
     val completedAtMillis: Long?,
     val tokenUsageSource: String,
     val providerPayloadJson: String,
+    val customType: String,
+    val customPayloadJson: String,
     val userBranches: List<List<PersistedChatMessage>>,
     val selectedUserBranchIndex: Int,
 )
@@ -315,6 +319,8 @@ private fun AndroidArchiveMessage.toPersistedChatMessage(): PersistedChatMessage
     firstTokenLatencyMillis = firstTokenLatencyMillis(),
     tokenUsageSource = tokenUsageSource,
     providerPayloadJson = providerPayloadJson,
+    customType = customType,
+    customPayloadJson = customPayloadJson,
     assistantActionsHidden = assistantActionsHidden,
     displayKind = displayKind,
     userBranches = userBranches,
@@ -344,6 +350,8 @@ private fun List<AndroidArchiveMessage>.toPersistedAssistantGroup(): PersistedCh
         firstTokenLatencyMillis = metrics.firstTokenLatencyMillis(),
         tokenUsageSource = metrics.tokenUsageSource,
         providerPayloadJson = metrics.providerPayloadJson,
+        customType = metrics.customType,
+        customPayloadJson = metrics.customPayloadJson,
         assistantActionsHidden = any(AndroidArchiveMessage::assistantActionsHidden),
         displayKind = first.displayKind,
     )
@@ -418,6 +426,8 @@ private fun JsonObject.toAndroidArchiveMessage(index: Int): AndroidArchiveMessag
         completedAtMillis = usageObject?.long("completedAtMillis"),
         tokenUsageSource = usageObject?.string("tokenUsageSource").orEmpty().ifBlank { "unavailable" },
         providerPayloadJson = string("providerPayloadJson"),
+        customType = string("customType"),
+        customPayloadJson = string("customPayloadJson"),
         userBranches = rawBranches,
         selectedUserBranchIndex = selectedBranch,
     )

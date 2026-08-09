@@ -188,8 +188,6 @@ fun ConversationDrawer(
     onDeleteSession: (String) -> Unit,
     onSettingsSelected: () -> Unit,
 ) {
-    val extensionController = LocalAetherExtensionUiController.current
-    val extensionPages = extensionController?.snapshot?.pages.orEmpty()
     AetherConversationDrawer(
         sessions = sessions.map { session ->
             SharedConversationSummary(
@@ -222,16 +220,6 @@ fun ConversationDrawer(
         extraContent = { dismissSearch ->
             AetherExtensionSlot(AetherExtensionSlotDrawer)
             AetherExtensionSlot(AetherExtensionSlotDrawerListEnd)
-            extensionPages.forEach { page ->
-                AetherExtensionPageLauncher(
-                    page = page,
-                    onClick = {
-                        dismissSearch()
-                        extensionController?.onOpenPage?.invoke(page.id)
-                    },
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
         },
     )
 }
@@ -249,8 +237,6 @@ private fun LegacyConversationDrawer(
     onDeleteSession: (String) -> Unit,
     onSettingsSelected: () -> Unit,
 ) {
-    val extensionController = LocalAetherExtensionUiController.current
-    val extensionPages = extensionController?.snapshot?.pages.orEmpty()
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var overlayHeightPx by remember { mutableIntStateOf(0) }
@@ -302,16 +288,6 @@ private fun LegacyConversationDrawer(
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
                         )
                         AetherExtensionSlot(AetherExtensionSlotDrawer)
-                        extensionPages.forEach { page ->
-                            AetherExtensionPageLauncher(
-                                page = page,
-                                onClick = {
-                                    searchExpanded = false
-                                    searchQuery = ""
-                                    extensionController?.onOpenPage?.invoke(page.id)
-                                },
-                            )
-                        }
                     }
                 }
             } else {
@@ -348,17 +324,6 @@ private fun LegacyConversationDrawer(
                         AetherExtensionSlot(
                             slot = AetherExtensionSlotDrawer,
                             modifier = Modifier.padding(top = 10.dp),
-                        )
-                    }
-                    items(extensionPages, key = { it.id }) { page ->
-                        AetherExtensionPageLauncher(
-                            page = page,
-                            onClick = {
-                                searchExpanded = false
-                                searchQuery = ""
-                                extensionController?.onOpenPage?.invoke(page.id)
-                            },
-                            modifier = Modifier.padding(top = 6.dp),
                         )
                     }
                 }

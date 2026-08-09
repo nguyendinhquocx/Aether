@@ -264,6 +264,7 @@ data class AetherUiState(
     val rootSetupProgressReturnPage: RootSetupProgressReturnPage? = null,
     val installedSkills: List<InstalledSkill> = emptyList(),
     val installedPiExtensions: List<InstalledPiExtension> = emptyList(),
+    val hasLoadedInstalledPiExtensions: Boolean = false,
     val piExtensionCatalog: List<PiExtensionCatalogEntry> = emptyList(),
     val isLoadingPiExtensions: Boolean = false,
     val piExtensionCatalogError: String = "",

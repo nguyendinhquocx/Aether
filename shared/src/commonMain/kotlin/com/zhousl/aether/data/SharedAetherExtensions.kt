@@ -37,7 +37,7 @@ data class SharedAetherExtensionComponent(
     val tree: JsonElement?,
 )
 
-data class SharedAetherExtensionPage(
+data class SharedAetherExtensionComposerMenuItem(
     val id: String,
     val localId: String,
     val extensionId: String,
@@ -46,6 +46,36 @@ data class SharedAetherExtensionPage(
     val subtitle: String,
     val icon: String,
     val order: Int,
+    val action: String,
+    val args: JsonObject,
+    val selected: Boolean,
+)
+
+data class SharedAetherExtensionSettingsPage(
+    val id: String,
+    val localId: String,
+    val extensionId: String,
+    val extensionName: String,
+    val title: String,
+    val subtitle: String,
+    val icon: String,
+    val order: Int,
+    val sections: List<JsonObject>,
+)
+
+data class SharedAetherExtensionMessageType(
+    val id: String,
+    val type: String,
+    val extensionId: String,
+    val extensionName: String,
+    val title: String,
+    val icon: String,
+)
+
+data class SharedAetherExtensionCustomMessage(
+    val id: String,
+    val type: String,
+    val extensionId: String,
     val tree: JsonElement?,
 )
 
@@ -62,7 +92,10 @@ data class SharedAetherExtensionSnapshot(
     val extensions: List<SharedAetherExtensionInfo> = emptyList(),
     val surfaces: List<SharedAetherExtensionSurface> = emptyList(),
     val components: List<SharedAetherExtensionComponent> = emptyList(),
-    val pages: List<SharedAetherExtensionPage> = emptyList(),
+    val composerMenuItems: List<SharedAetherExtensionComposerMenuItem> = emptyList(),
+    val settings: List<SharedAetherExtensionSettingsPage> = emptyList(),
+    val messageTypes: List<SharedAetherExtensionMessageType> = emptyList(),
+    val customMessages: List<SharedAetherExtensionCustomMessage> = emptyList(),
     val eventNames: Set<String> = emptySet(),
     val errors: List<SharedAetherExtensionError> = emptyList(),
 ) {
@@ -202,16 +235,49 @@ internal fun parseSharedAetherExtensionSnapshot(
                 tree = item["tree"],
             )
         },
-        pages = json.objects("pages").map { item ->
-            SharedAetherExtensionPage(
+        composerMenuItems = json.objects("composer_menu_items").map { item ->
+            SharedAetherExtensionComposerMenuItem(
                 id = item.string("id"),
                 localId = item.string("local_id"),
                 extensionId = item.string("extension_id"),
                 extensionName = item.string("extension_name"),
                 title = item.string("title"),
                 subtitle = item.string("subtitle"),
-                icon = item.string("icon"),
+                icon = item.string("icon").ifBlank { "extension" },
                 order = item.int("order") ?: 0,
+                action = item.string("action"),
+                args = item["args"] as? JsonObject ?: JsonObject(emptyMap()),
+                selected = item.boolean("selected"),
+            )
+        },
+        settings = json.objects("settings").map { item ->
+            SharedAetherExtensionSettingsPage(
+                id = item.string("id"),
+                localId = item.string("local_id"),
+                extensionId = item.string("extension_id"),
+                extensionName = item.string("extension_name"),
+                title = item.string("title"),
+                subtitle = item.string("subtitle"),
+                icon = item.string("icon").ifBlank { "settings" },
+                order = item.int("order") ?: 0,
+                sections = item.objects("sections"),
+            )
+        },
+        messageTypes = json.objects("message_types").map { item ->
+            SharedAetherExtensionMessageType(
+                id = item.string("id"),
+                type = item.string("type"),
+                extensionId = item.string("extension_id"),
+                extensionName = item.string("extension_name"),
+                title = item.string("title"),
+                icon = item.string("icon").ifBlank { "extension" },
+            )
+        },
+        customMessages = json.objects("custom_messages").map { item ->
+            SharedAetherExtensionCustomMessage(
+                id = item.string("id"),
+                type = item.string("type"),
+                extensionId = item.string("extension_id"),
                 tree = item["tree"],
             )
         },
@@ -239,8 +305,10 @@ private fun JsonObject.int(name: String): Int? =
 private fun JsonObject.long(name: String): Long? =
     get(name)?.jsonPrimitive?.longOrNull
 
+private fun JsonObject.boolean(name: String): Boolean =
+    get(name)?.jsonPrimitive?.booleanOrNull ?: false
+
 private fun JsonObject.objectOrNull(name: String): JsonObject? = get(name) as? JsonObject
 
 private fun JsonObject.objects(name: String): List<JsonObject> =
     (get(name) as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
-

@@ -242,10 +242,6 @@ fun AetherApp(
     val nativeModState = appRuntime.nativeModManager.state.collectAsStateWithLifecycle().value
     val nativeComponents =
         appRuntime.modKernel.components.registrations.collectAsStateWithLifecycle().value
-    var selectedExtensionPageId by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedExtensionPage = extensionState.snapshot.pages.firstOrNull {
-        it.id == selectedExtensionPageId
-    }
     val extensionContext = remember(uiState) {
         uiState.toAetherExtensionContext()
     }
@@ -265,9 +261,6 @@ fun AetherApp(
             onHostCall = viewModel::handleAetherExtensionHostCall,
             onAction = { extensionId, action, args ->
                 extensionManager.invokeAction(extensionId, action, args)
-            },
-            onOpenPage = { pageId ->
-                selectedExtensionPageId = pageId
             },
         )
     }
@@ -295,12 +288,6 @@ fun AetherApp(
         extensionManager.setHostHandler(viewModel::handleAetherExtensionHostCall)
         onDispose {
             extensionManager.clearHostHandler()
-        }
-    }
-
-    if (selectedExtensionPage != null) {
-        BackHandler {
-            selectedExtensionPageId = null
         }
     }
 
@@ -340,12 +327,6 @@ fun AetherApp(
                                     context = extensionContext,
                                 )
                             },
-                        )
-                    }
-                    selectedExtensionPage?.let { page ->
-                        AetherExtensionPageScreen(
-                            page = page,
-                            onBack = { selectedExtensionPageId = null },
                         )
                     }
                     AetherExtensionOverlaySlot(Modifier.fillMaxSize())
@@ -1046,6 +1027,7 @@ private fun AetherAppContent(
                     developerTermuxReadyOverride = uiState.developerTermuxReadyOverride,
                     installedSkills = uiState.installedSkills,
                     installedPiExtensions = uiState.installedPiExtensions,
+                    hasLoadedInstalledPiExtensions = uiState.hasLoadedInstalledPiExtensions,
                     nativeModState = nativeModState,
                     piExtensionCatalog = uiState.piExtensionCatalog,
                     isLoadingPiExtensions = uiState.isLoadingPiExtensions,

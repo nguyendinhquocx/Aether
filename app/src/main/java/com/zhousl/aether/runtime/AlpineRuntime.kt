@@ -19,6 +19,7 @@ import java.nio.file.LinkOption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -51,6 +52,7 @@ class AlpineRuntime(
     private val libTallocFile = File(hostLibDir, "libtalloc.so.2")
     private val runs = ConcurrentHashMap<String, AlpineRun>()
     private val nextRunId = AtomicInteger(1)
+    private val packageInstallMutex = Mutex()
     @Volatile
     private var environmentVariables: List<AlpineEnvironmentVariable> = emptyList()
 
@@ -231,14 +233,34 @@ class AlpineRuntime(
         profileId: String,
         onProgress: (AlpineSetupProgress) -> Unit = {},
     ): LocalRuntimeSetupState {
-        val packages = AlpinePackageProfiles[profileId]
-            ?: return LocalRuntimeSetupState(
+        packageInstallMutex.lock()
+        return try {
+            installPackageProfileLocked(profileId, onProgress)
+        } finally {
+            packageInstallMutex.unlock()
+        }
+    }
+
+    private suspend fun installPackageProfileLocked(
+        profileId: String,
+        onProgress: (AlpineSetupProgress) -> Unit,
+    ): LocalRuntimeSetupState {
+        if (profileId !in AlpinePackageProfiles) {
+            return LocalRuntimeSetupState(
                 runtimeId = id,
                 issue = LocalRuntimeIssue.Failed,
                 detail = "Unknown Alpine package profile: $profileId",
             )
+        }
         val setup = inspectSetup()
         if (!setup.isReady) return setup
+        if (verifyPackageProfile(profileId)) {
+            return LocalRuntimeSetupState(
+                runtimeId = id,
+                issue = LocalRuntimeIssue.Ready,
+                detail = "Alpine profile $profileId is already installed.",
+            )
+        }
         val command = packageProfileInstallCommand(profileId)
             ?: return LocalRuntimeSetupState(
                 runtimeId = id,
