@@ -347,7 +347,37 @@ export async function removeAetherExtensionPackage(
   cwd: string,
   source: string,
 ): Promise<boolean> {
-  return createPackageManager(cwd).removeAndPersist(requireNpmPackageSource(source));
+  const normalized = requireNpmPackageSource(source);
+  const settingsManager = SettingsManager.create(cwd, PI_AGENT_DIRECTORY, {
+    projectTrusted: false,
+  });
+  const packageManager = new DefaultPackageManager({
+    cwd,
+    agentDir: PI_AGENT_DIRECTORY,
+    settingsManager,
+  });
+  const configuredPackage = packageManager.listConfiguredPackages().find((entry) =>
+    entry.scope === "user" && entry.source === normalized
+  );
+  if (!configuredPackage) return false;
+
+  const installedPath = configuredPackage.installedPath;
+  if (installedPath) {
+    const managedRoot = path.resolve(PI_AGENT_DIRECTORY, "npm", "node_modules");
+    const resolvedPath = path.resolve(installedPath);
+    const relative = path.relative(managedRoot, resolvedPath);
+    if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error("Refusing to remove an extension package outside the managed npm directory.");
+    }
+    fs.rmSync(resolvedPath, { recursive: true, force: true });
+  }
+
+  const configured = settingsManager.getGlobalSettings().packages ?? [];
+  settingsManager.setPackages(configured.filter((entry) => {
+    const configuredSource = typeof entry === "string" ? entry : entry.source;
+    return configuredSource !== normalized;
+  }));
+  return true;
 }
 
 export async function updateAetherExtensionPackage(

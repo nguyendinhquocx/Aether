@@ -68,7 +68,7 @@ import com.zhousl.aether.data.pi.toPiProviderEnvironmentVariables
 import com.zhousl.aether.runtime.SharedPiBridgeClient
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.*
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
@@ -320,7 +320,7 @@ private fun SharedProviderCard(
 
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(AetherSurfaceHigh).padding(16.dp),
+            .background(AetherSurface).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = config.isEnabled, onCheckedChange = onEnabledChange)
@@ -592,7 +592,7 @@ private fun SharedModelSelectionRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(if (selected) AetherBackground.copy(alpha = 0.9f) else Color.Transparent)
+            .background(if (selected) AetherSettingsBackground.copy(alpha = 0.9f) else Color.Transparent)
             .clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -832,7 +832,7 @@ private fun SharedProviderPageScaffold(
     onTrailingAction: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(

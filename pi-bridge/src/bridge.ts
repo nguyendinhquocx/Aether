@@ -384,7 +384,7 @@ function requestAetherHost(method: string, args: JsonObject): Promise<JsonObject
     ? operationRequestId
     : aetherSubscriberRequestIds.values().next().value;
   if (!requestId) {
-    throw new Error("The Aether Android host is not subscribed.");
+    throw new Error("The Aether app host is not subscribed.");
   }
   const callId = `aether-host-${Date.now()}-${++aetherHostCallCounter}`;
   writeEvent(requestId, "aether_host_call", {
@@ -2601,9 +2601,6 @@ async function removeExtensionPackage(payload: JsonObject): Promise<JsonObject> 
     removed,
     source,
     ...(await installedExtensionPackagesPayload()),
-    reload: removed
-      ? await reloadAllExtensionSessions(payload)
-      : { session_count: 0, sessions: [] },
   };
 }
 

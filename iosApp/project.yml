@@ -32,21 +32,6 @@ targets:
       - path: ../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/fetch-polyfill.js
         group: Resources
         buildPhase: resources
-      - path: ../third_party/ish-arm64/deps/libapps/hterm/dist/js/hterm_all.js
-        group: Resources
-        buildPhase: resources
-      - path: ../third_party/ish-arm64/app/terminal/term.html
-        group: Resources
-        buildPhase: resources
-      - path: ../third_party/ish-arm64/app/terminal/term.js
-        group: Resources
-        buildPhase: resources
-      - path: ../third_party/ish-arm64/app/terminal/term.css
-        group: Resources
-        buildPhase: resources
-      - path: ../app/src/main/assets/fonts/JetBrainsMono-Regular.ttf
-        group: Resources
-        buildPhase: resources
       - path: PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: ../THIRD_PARTY_NOTICES.md
@@ -64,9 +49,13 @@ targets:
     info:
       path: Info.plist
       properties:
+        BGTaskSchedulerPermittedIdentifiers:
+          - $(PRODUCT_BUNDLE_IDENTIFIER).agent.*
         CADisableMinimumFrameDurationOnPhone: true
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: Aether accesses local network services only when you connect a self-hosted AI provider or MCP server.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

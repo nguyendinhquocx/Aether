@@ -41,6 +41,13 @@ class AppSettingsSerializationTest {
     }
 
     @Test
+    fun acceptedPrivacyPolicyCannotBeOverwrittenByStaleSettings() {
+        assertEquals(true, privacyPolicyAccepted(persisted = true, requested = false))
+        assertEquals(true, privacyPolicyAccepted(persisted = false, requested = true))
+        assertEquals(false, privacyPolicyAccepted(persisted = false, requested = false))
+    }
+
+    @Test
     fun thinkingCatalogCacheRoundTripPreservesResolvedEmptyModels() {
         val cache = SharedThinkingCatalogCache(
             source = ModelsDevThinkingCatalogSource,

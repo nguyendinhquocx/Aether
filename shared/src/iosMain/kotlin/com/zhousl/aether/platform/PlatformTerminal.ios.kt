@@ -6,27 +6,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.UIKitView
+import com.zhousl.aether.runtime.IosAlpineRuntime
 import com.zhousl.aether.runtime.MultiplatformLocalRuntime
+import com.zhousl.aether.runtime.NativeTerminalViewListener
 import com.zhousl.aether.runtime.RuntimeProcess
 import com.zhousl.aether.runtime.RuntimeProcessSignal
 import com.zhousl.aether.runtime.RuntimeProcessSpec
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.serialization.json.JsonPrimitive
-import platform.CoreGraphics.CGRectMake
-import platform.Foundation.NSBundle
-import platform.Foundation.NSURL
-import platform.Foundation.NSURLRequest
-import platform.WebKit.WKScriptMessage
-import platform.WebKit.WKScriptMessageHandlerProtocol
-import platform.WebKit.WKUserContentController
-import platform.WebKit.WKWebView
-import platform.WebKit.WKWebViewConfiguration
-import platform.UIKit.UIApplication
-import platform.darwin.NSObject
+import platform.UIKit.UIView
 
 actual val platformNativeTerminalAvailable: Boolean = true
 
@@ -42,24 +34,28 @@ actual fun PlatformTerminalSurface(
     onError: (String) -> Unit,
     modifier: Modifier,
 ) {
-    val bridge = remember(runtime, darkTheme) { IosHtermBridge(onTitleChanged, darkTheme) }
-    LaunchedEffect(runtime, bridge) {
+    val iosRuntime = runtime as IosAlpineRuntime
+    val bridge = remember(iosRuntime) { IosNativeTerminalBridge(iosRuntime, onTitleChanged) }
+
+    LaunchedEffect(iosRuntime, bridge) {
         try {
-            runtime.initialize()
-            val process = runtime.startProcess(
+            iosRuntime.initialize()
+            val process = iosRuntime.startProcess(
                 RuntimeProcessSpec(
                     executable = "/bin/sh",
-                arguments = listOf("-l"),
-                environment = mapOf(
-                    "HOME" to runtime.homeDirectory,
-                    "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                    "AETHER_RUNTIME" to "alpine",
-                    "AETHER_HOST_WORKSPACE" to runtime.workspaceRoot,
-                    "PS1" to "aether-alpine:\\w# ",
-                    "TERM" to "xterm-256color",
-                    "COLORTERM" to "truecolor",
-                ),
-                workingDirectory = runtime.homeDirectory,
+                    arguments = listOf("-l"),
+                    environment = mapOf(
+                        "HOME" to iosRuntime.homeDirectory,
+                        "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                        "LANG" to "C.UTF-8",
+                        "CHARSET" to "UTF-8",
+                        "AETHER_RUNTIME" to "alpine",
+                        "AETHER_HOST_WORKSPACE" to iosRuntime.workspaceRoot,
+                        "PS1" to "aether-alpine:\\w# ",
+                        "TERM" to "xterm-256color",
+                        "COLORTERM" to "truecolor",
+                    ),
+                    workingDirectory = iosRuntime.homeDirectory,
                     interactiveTerminal = true,
                 )
             )
@@ -90,51 +86,55 @@ actual fun PlatformTerminalSurface(
     }
     UIKitView(
         modifier = modifier,
-        factory = { bridge.webView },
-        update = { bridge.focus() },
+        factory = { bridge.view },
+        update = {
+            bridge.setDarkTheme(darkTheme)
+            bridge.focus()
+        },
     )
 }
 
-@OptIn(ExperimentalForeignApi::class)
-private class IosHtermBridge(
-    private val onTitleChanged: (String) -> Unit,
-    private val darkTheme: Boolean,
-) : NSObject(), WKScriptMessageHandlerProtocol {
-    private val scope = kotlinx.coroutines.MainScope()
+private class IosNativeTerminalBridge(
+    private val runtime: IosAlpineRuntime,
+    onTitleChanged: (String) -> Unit,
+) {
+    private val scope = MainScope()
     private var process: RuntimeProcess? = null
-    private var loaded = false
     private val pending = mutableListOf<ByteArray>()
-    private val configuration = WKWebViewConfiguration().apply {
-        listOf("load", "sendInput", "resize", "propUpdate", "focus", "syncFocus", "newScrollHeight", "newScrollTop", "openLink")
-            .forEach { userContentController.addScriptMessageHandler(this@IosHtermBridge, it) }
+    private val listener = object : NativeTerminalViewListener {
+        override fun onInput(bytes: ByteArray) {
+            val target = process ?: return
+            scope.launch { target.writeStdin(bytes) }
+        }
+
+        override fun onResize(columns: Int, rows: Int) {
+            val target = process ?: return
+            scope.launch { target.resize(columns, rows) }
+        }
+
+        override fun onTitleChanged(title: String) = onTitleChanged(title)
     }
-    val webView = WKWebView(
-        frame = CGRectMake(0.0, 0.0, 0.0, 0.0),
-        configuration = configuration,
-    ).apply {
-        opaque = false
-        backgroundColor = platform.UIKit.UIColor.clearColor
-        scrollView.backgroundColor = platform.UIKit.UIColor.clearColor
-        val resource = NSBundle.mainBundle.URLForResource("term", "html")
-        if (resource != null) loadFileURL(resource, allowingReadAccessToURL = resource.URLByDeletingLastPathComponent ?: resource)
-    }
+    private val nativeView = runtime.createTerminalView(listener)
+    val view: UIView = nativeView as UIView
 
     fun attach(process: RuntimeProcess) {
         this.process = process
+        pending.toList().also { pending.clear() }.forEach(::write)
+        focus()
     }
 
     fun write(bytes: ByteArray) {
-        if (!loaded) {
+        if (process == null) {
             pending += bytes.copyOf()
-            return
+        } else {
+            runtime.updateTerminalView(nativeView, bytes)
         }
-        val latin1 = buildString(bytes.size) { bytes.forEach { append((it.toInt() and 0xff).toChar()) } }
-        webView.evaluateJavaScript("exports.write(${JsonPrimitive(latin1)})", null)
     }
 
-    fun focus() {
-        if (loaded) webView.evaluateJavaScript("exports.setFocused(true);term.scrollPort_.screen_.contentEditable=true;term.focus()", null)
-    }
+    fun focus() = runtime.focusTerminalView(nativeView)
+
+    fun setDarkTheme(darkTheme: Boolean) =
+        runtime.setTerminalDarkTheme(nativeView, darkTheme)
 
     suspend fun interrupt() {
         process?.signal(RuntimeProcessSignal.Interrupt)
@@ -145,64 +145,22 @@ private class IosHtermBridge(
     }
 
     fun sendKey(key: PlatformTerminalKey, controlDown: Boolean, altDown: Boolean) {
-        webView.evaluateJavaScript(
-            "exports.sendKey(${JsonPrimitive(key.name)},$controlDown,$altDown)",
-            null,
-        )
+        runtime.sendTerminalKey(nativeView, key.name, controlDown, altDown)
     }
 
     fun close() {
+        runtime.destroyTerminalView(nativeView)
         val running = process
         process = null
-        if (running != null) {
-            scope.launch { running.signal(RuntimeProcessSignal.Terminate) }
-        }
-        scope.cancel()
-        configuration.userContentController.removeAllScriptMessageHandlers()
-    }
-
-    override fun userContentController(userContentController: WKUserContentController, didReceiveScriptMessage: WKScriptMessage) {
-        when (didReceiveScriptMessage.name) {
-            "load" -> {
-                loaded = true
-                val foregroundColor = if (darkTheme) "#ffffff" else "#000000"
-                val backgroundColor = if (darkTheme) "#000000" else "#ffffff"
-                webView.evaluateJavaScript(
-                    "exports.updateStyle({foregroundColor:'$foregroundColor',backgroundColor:'$backgroundColor',fontFamily:'JetBrains Mono, ui-monospace, Menlo, monospace',fontSize:12,colorPaletteOverrides:{},blinkCursor:true,cursorShape:'BLOCK'});term.scrollPort_.screen_.contentEditable=true;term.focus()",
-                    null,
-                )
-                val buffered = pending.toList()
-                pending.clear()
-                buffered.forEach(::write)
-            }
-            "sendInput" -> {
-                val text = didReceiveScriptMessage.body as? String ?: return
-                val target = process ?: return
-                scope.launch { target.writeStdin(text.encodeToByteArray()) }
-            }
-            "propUpdate" -> {
-                val values = didReceiveScriptMessage.body as? List<*> ?: return
-                if (values.getOrNull(0) == "title") {
-                    onTitleChanged(values.getOrNull(1) as? String ?: "")
+        if (running == null) {
+            scope.cancel()
+        } else {
+            scope.launch {
+                try {
+                    running.signal(RuntimeProcessSignal.Terminate)
+                } finally {
+                    scope.cancel()
                 }
-            }
-            "resize" -> {
-                val target = process ?: return
-                webView.evaluateJavaScript("JSON.stringify(exports.getSize())") { value, _ ->
-                    val dimensions = (value as? String)
-                        ?.removePrefix("[")
-                        ?.removeSuffix("]")
-                        ?.split(',')
-                        ?.mapNotNull { it.trim().toIntOrNull() }
-                        .orEmpty()
-                    if (dimensions.size == 2) {
-                        scope.launch { target.resize(dimensions[0], dimensions[1]) }
-                    }
-                }
-            }
-            "openLink" -> {
-                val url = didReceiveScriptMessage.body as? String ?: return
-                NSURL.URLWithString(url)?.let { UIApplication.sharedApplication.openURL(it) }
             }
         }
     }

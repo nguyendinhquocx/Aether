@@ -1,6 +1,7 @@
 package com.zhousl.aether.runtime
 
 import android.content.Context
+import android.content.res.Resources
 import android.net.TrafficStats
 import android.os.Build
 import com.zhousl.aether.data.AetherDiagnosticLogger
@@ -11,6 +12,7 @@ import java.io.File
 import java.io.InputStream
 import java.util.zip.GZIPInputStream
 import java.util.UUID
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -687,7 +689,40 @@ class AlpineRuntime(
         }
         ensureWorkspace()
         ensureGuestNetworkConfig()
+        configureChinaApkMirror(onProgress)
         onProgress(AlpineSetupProgress(output = "Alpine runtime files are ready.\n"))
+    }
+
+    private fun configureChinaApkMirror(
+        onProgress: (AlpineSetupProgress) -> Unit,
+    ) {
+        val systemRegion = runCatching {
+            Resources.getSystem().configuration.locales[0].country
+        }.getOrDefault("")
+        if (
+            !systemRegion.equals("CN", ignoreCase = true) &&
+            !Locale.getDefault().country.equals("CN", ignoreCase = true)
+        ) return
+        val repositories = File(rootfsDir, "etc/apk/repositories")
+        if (!repositories.isFile) return
+        val original = runCatching { repositories.readText() }.getOrNull() ?: return
+        val mirrored = original
+            .replace(
+                "https://dl-cdn.alpinelinux.org/alpine",
+                "https://mirrors.tuna.tsinghua.edu.cn/alpine",
+            )
+            .replace(
+                "http://dl-cdn.alpinelinux.org/alpine",
+                "https://mirrors.tuna.tsinghua.edu.cn/alpine",
+            )
+        if (mirrored != original) {
+            runCatching { repositories.writeText(mirrored) }.getOrNull() ?: return
+            onProgress(
+                AlpineSetupProgress(
+                    output = "Using the Tsinghua Alpine mirror for the China region.\n",
+                )
+            )
+        }
     }
 
     private fun copyAsset(

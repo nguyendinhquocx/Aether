@@ -846,7 +846,7 @@ private fun AetherAppContent(
                             if (uiState.developerAlpineSetupPreviewState != null) {
                                 viewModel.restartDeveloperAlpineSetupPreview()
                             } else {
-                                viewModel.refreshAlpineSetup()
+                                viewModel.refreshAlpineSetup(startPiIfReady = true)
                             }
                         },
                         onRefreshRootSetup = viewModel::refreshRootSetup,

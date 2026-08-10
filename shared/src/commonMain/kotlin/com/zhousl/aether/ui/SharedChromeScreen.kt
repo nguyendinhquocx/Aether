@@ -28,7 +28,7 @@ import com.zhousl.aether.data.pi.SharedChromeManager
 import com.zhousl.aether.platform.PlatformWebView
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.chrome_label
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -52,7 +52,7 @@ internal fun SharedChromeScreen(
             .onFailure { error = it.message.orEmpty() }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         when {
             ready -> PlatformWebView(
                 url = manager.viewerUrl,

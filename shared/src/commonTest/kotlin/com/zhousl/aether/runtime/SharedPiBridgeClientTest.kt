@@ -3,6 +3,7 @@ package com.zhousl.aether.runtime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -174,6 +175,32 @@ class SharedPiBridgeClientTest {
         assertEquals("Pi Bridge exited with code 9.", failure.message)
         client.close()
     }
+
+    @Test
+    fun keepsAetherExtensionSubscriptionOpenWhileDispatchingEvents() = runTest {
+        val process = SubscriptionFakeProcess()
+        val client = SharedPiBridgeClient(
+            transport = FakeBridgeTransport(process),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val invalidatedVersion = CompletableDeferred<Int>()
+
+        val subscription = async {
+            client.subscribeAetherExtensions { event, payload ->
+                if (event == "aether_invalidated") {
+                    invalidatedVersion.complete(payload["version"]!!.jsonPrimitive.content.toInt())
+                }
+            }
+        }
+        runCurrent()
+        process.invalidate(version = 12)
+        runCurrent()
+
+        assertEquals(12, invalidatedVersion.await())
+        assertFalse(subscription.isCompleted)
+        subscription.cancelAndJoin()
+        client.close()
+    }
 }
 
 private class FakeBridgeTransport(
@@ -324,4 +351,34 @@ private class NestedRequestFakeProcess : RuntimeProcess {
             if (event.isNotBlank()) put("event", event)
             put("payload", payload)
         }.toString() + "\n").encodeToByteArray()
+}
+
+private class SubscriptionFakeProcess : RuntimeProcess {
+    private val output = Channel<ByteArray>(Channel.UNLIMITED)
+    private var subscriptionId = ""
+    override val pid: Int = 9
+    override val stdout: Flow<ByteArray> = output.receiveAsFlow()
+    override val stderr: Flow<ByteArray> = Channel<ByteArray>().receiveAsFlow()
+
+    override suspend fun writeStdin(bytes: ByteArray) {
+        val request = Json.parseToJsonElement(bytes.decodeToString().trim()).jsonObject
+        if (request["type"]!!.jsonPrimitive.content == "subscribe_aether_extensions") {
+            subscriptionId = request["id"]!!.jsonPrimitive.content
+        }
+    }
+
+    suspend fun invalidate(version: Int) {
+        output.send(
+            (buildJsonObject {
+                put("type", "event")
+                put("id", subscriptionId)
+                put("event", "aether_invalidated")
+                put("payload", buildJsonObject { put("version", version) })
+            }.toString() + "\n").encodeToByteArray()
+        )
+    }
+
+    override suspend fun closeStdin() = Unit
+    override suspend fun awaitExit(): RuntimeProcessExit = CompletableDeferred<RuntimeProcessExit>().await()
+    override suspend fun signal(signal: RuntimeProcessSignal) = Unit
 }

@@ -561,14 +561,6 @@ fun ConversationScreen(
                 .padding(innerPadding)
         ) {
             if (messages.isEmpty()) {
-                ConversationEmptyState(
-                    modifier = Modifier.padding(
-                        top = topBarBodyHeight + 20.dp,
-                        bottom = composerBodyHeight + animatedImeBottom + 16.dp,
-                    ),
-                    inputFocused = composerFocused,
-                    onStarterPromptSelected = onInputChanged,
-                )
                 AetherExtensionSlot(
                     slot = AetherExtensionSlotChatEmpty,
                     modifier = Modifier
@@ -954,42 +946,51 @@ private fun ConversationModelSelector(
         modifier = modifier,
         contentAlignment = Alignment.CenterStart,
     ) {
-        Row(
-            modifier = Modifier
+        Box(
+            modifier = Modifier.height(38.dp)
                 .onGloballyPositioned { coordinates ->
                     val bounds = coordinates.boundsInWindow()
                     anchorHeightPx = bounds.height.toInt()
-                }
-                .height(38.dp)
-                .shadow(4.dp, RoundedCornerShape(999.dp), ambientColor = ChatGptControlShadow, spotColor = ChatGptControlShadow)
-                .clip(RoundedCornerShape(999.dp))
-                .background(AetherSurface.copy(alpha = 0.96f))
-                .clickable(enabled = options.isNotEmpty()) {
-                    onOpened()
-                    menuSelectedModelKey = selectedModelKey
-                    showingReasoningEffort = false
-                    expanded = true
                 },
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (selectedDisplay != null) {
-                SelectedModelDisplay(
-                    displayName = selectedDisplay,
-                    modifier = Modifier
-                        .widthIn(max = 240.dp)
-                        .padding(horizontal = 17.dp),
-                )
-            } else {
-                Text(
-                    text = fallbackLabel,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Normal),
-                    color = AetherOnSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .widthIn(max = 220.dp)
-                        .padding(horizontal = 17.dp),
-                )
+            Box(
+                modifier = Modifier.matchParentSize()
+                    .offset(y = 4.dp)
+                    .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ChatGptControlShadow),
+            )
+            Row(
+                modifier = Modifier.height(38.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(AetherSurface.copy(alpha = 0.96f))
+                    .clickable(enabled = options.isNotEmpty()) {
+                        onOpened()
+                        menuSelectedModelKey = selectedModelKey
+                        showingReasoningEffort = false
+                        expanded = true
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (selectedDisplay != null) {
+                    SelectedModelDisplay(
+                        displayName = selectedDisplay,
+                        modifier = Modifier
+                            .widthIn(max = 240.dp)
+                            .padding(horizontal = 17.dp),
+                    )
+                } else {
+                    Text(
+                        text = fallbackLabel,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Normal),
+                        color = AetherOnSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .widthIn(max = 220.dp)
+                            .padding(horizontal = 17.dp),
+                    )
+                }
             }
         }
 

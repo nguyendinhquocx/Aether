@@ -18,6 +18,49 @@ final class AetherRuntimeTests: XCTestCase {
         XCTAssertEqual(request.timeoutInterval, 5)
     }
 
+    func testTerminalEmulatorTracksCursorAndWideCharacters() {
+        let terminal = TerminalEmulator(cols: 10, rows: 4)
+
+        terminal.feed(Data("\u{1b}[3;5H界".utf8))
+
+        XCTAssertEqual(terminal.activeBuffer.cursorRow, 2)
+        XCTAssertEqual(terminal.activeBuffer.cursorCol, 6)
+        XCTAssertEqual(terminal.activeBuffer.grid[2][4].character, "界")
+        XCTAssertEqual(terminal.activeBuffer.grid[2][4].width, 2)
+        XCTAssertTrue(terminal.activeBuffer.grid[2][5].isWideTrailer)
+    }
+
+    func testTerminalEmulatorRespondsToCursorPositionReport() {
+        let terminal = TerminalEmulator(cols: 10, rows: 4)
+        var response: Data?
+        terminal.onResponse = { response = $0 }
+
+        terminal.feed(Data("\u{1b}[3;5H\u{1b}[6n".utf8))
+
+        XCTAssertEqual(response, Data("\u{1b}[3;5R".utf8))
+    }
+
+    func testTerminalEmulatorRestoresPrimaryBufferAfterAlternateScreen() {
+        let terminal = TerminalEmulator(cols: 10, rows: 4)
+        terminal.feed(Data("primary".utf8))
+
+        terminal.feed(Data("\u{1b}[?1049halt".utf8))
+        XCTAssertTrue(terminal.isAlternateActive)
+        XCTAssertEqual(terminal.activeBuffer.grid[0][0].character, "a")
+
+        terminal.feed(Data("\u{1b}[?1049l".utf8))
+        XCTAssertFalse(terminal.isAlternateActive)
+        XCTAssertEqual(terminal.activeBuffer.grid[0][0].character, "p")
+        XCTAssertEqual(terminal.activeBuffer.cursorCol, 7)
+    }
+
+    func testTerminalDefaultColorsFollowTheme() {
+        XCTAssertEqual(TerminalPalette.defaultBackground(darkTheme: false), .white)
+        XCTAssertEqual(TerminalPalette.defaultForeground(darkTheme: false), .black)
+        XCTAssertEqual(TerminalPalette.defaultBackground(darkTheme: true), .black)
+        XCTAssertNotEqual(TerminalPalette.defaultForeground(darkTheme: true), .black)
+    }
+
     func testNodeAndNpmAreReadyAfterRuntimeInitialization() throws {
         try initializeRuntime()
 

@@ -1,11 +1,19 @@
 package com.zhousl.aether.data
 
 import com.zhousl.aether.runtime.SharedPiBridgeClient
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -86,6 +94,20 @@ data class SharedAetherExtensionError(
     val message: String,
 )
 
+data class SharedAetherExtensionNotification(
+    val message: String,
+    val level: String,
+)
+
+data class SharedPiExtensionUiRequest(
+    val callId: String,
+    val method: String,
+    val title: String,
+    val message: String = "",
+    val placeholder: String = "",
+    val options: List<String> = emptyList(),
+)
+
 data class SharedAetherExtensionSnapshot(
     val apiVersion: Int = 2,
     val version: Long = 0,
@@ -115,12 +137,19 @@ class SharedAetherExtensionManager(
     private val hostHandler: suspend (String, JsonObject) -> JsonObject,
 ) {
     private val mutex = Mutex()
+    private val uiRequestMutex = Mutex()
+    private val pendingUiRequests = ArrayDeque<SharedPiExtensionUiRequest>()
+    private val _notifications = MutableSharedFlow<SharedAetherExtensionNotification>(
+        extraBufferCapacity = 8,
+    )
+    private val _piUiRequest = MutableStateFlow<SharedPiExtensionUiRequest?>(null)
     var snapshot: SharedAetherExtensionSnapshot = SharedAetherExtensionSnapshot()
         private set
     var error: String = ""
         private set
-    var notification: String = ""
-        private set
+
+    val notifications: SharedFlow<SharedAetherExtensionNotification> = _notifications.asSharedFlow()
+    val piUiRequest: StateFlow<SharedPiExtensionUiRequest?> = _piUiRequest.asStateFlow()
 
     suspend fun refresh(
         context: JsonObject = JsonObject(emptyMap()),
@@ -172,13 +201,80 @@ class SharedAetherExtensionManager(
         }
     }
 
+    suspend fun subscribe(
+        onInvalidated: suspend () -> Unit,
+    ) {
+        bridge.subscribeAetherExtensions { event, payload ->
+            handleEvent(event, payload)
+            if (event == "aether_invalidated") onInvalidated()
+        }
+    }
+
+    suspend fun respondToPiExtensionUiRequest(
+        callId: String,
+        value: JsonElement?,
+    ) {
+        val request = uiRequestMutex.withLock {
+            val current = _piUiRequest.value
+            if (current?.callId != callId) return
+            _piUiRequest.value = pendingUiRequests.removeFirstOrNull()
+            current
+        }
+        bridge.sendAetherHostResult(
+            callId = request.callId,
+            result = JsonObject(mapOf("value" to (value ?: JsonNull))),
+        )
+    }
+
     private suspend fun handleEvent(event: String, payload: JsonObject) {
         when (event) {
-            "aether_notification" -> notification = payload.string("message")
+            "aether_notification" -> _notifications.emit(
+                SharedAetherExtensionNotification(
+                    message = payload.string("message"),
+                    level = payload.string("level").ifBlank { "info" },
+                )
+            )
             "aether_host_call" -> {
                 val callId = payload.string("call_id")
                 val method = payload.string("method")
                 val args = payload.objectOrNull("args") ?: JsonObject(emptyMap())
+                if (method == "pi_extension_notify") {
+                    _notifications.emit(
+                        SharedAetherExtensionNotification(
+                            message = args.string("message"),
+                            level = args.string("type").ifBlank { "info" },
+                        )
+                    )
+                    bridge.sendAetherHostResult(
+                        callId = callId,
+                        result = JsonObject(mapOf("notified" to JsonPrimitive(true))),
+                    )
+                    return
+                }
+                if (method in SharedPiExtensionInteractiveUiMethods) {
+                    val request = SharedPiExtensionUiRequest(
+                        callId = callId,
+                        method = method,
+                        title = args.string("title"),
+                        message = args.string("message"),
+                        placeholder = args.string("placeholder"),
+                        options = (args["options"] as? JsonArray)
+                            .orEmpty()
+                            .mapNotNull { option ->
+                                (option as? JsonPrimitive)
+                                    ?.contentOrNull
+                                    ?.takeIf(String::isNotBlank)
+                            },
+                    )
+                    uiRequestMutex.withLock {
+                        if (_piUiRequest.value == null) {
+                            _piUiRequest.value = request
+                        } else {
+                            pendingUiRequests.addLast(request)
+                        }
+                    }
+                    return
+                }
                 val result = runCatching { hostHandler(method, args) }
                 bridge.sendAetherHostResult(
                     callId = callId,
@@ -199,6 +295,12 @@ class SharedAetherExtensionManager(
         return snapshot
     }
 }
+
+private val SharedPiExtensionInteractiveUiMethods = setOf(
+    "pi_extension_select",
+    "pi_extension_confirm",
+    "pi_extension_input",
+)
 
 internal fun parseSharedAetherExtensionSnapshot(
     json: JsonObject?,

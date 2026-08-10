@@ -82,6 +82,7 @@ import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherBackground
 import com.zhousl.aether.ui.theme.AetherScrim
+import com.zhousl.aether.ui.theme.AetherSidebarBackground
 import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import kotlinx.coroutines.delay
@@ -133,7 +134,7 @@ fun AetherConversationDrawer(
         searchExpanded = false
         searchQuery = ""
     }
-    val drawerBackground = if (permanent) AetherBackground else AetherSurface
+    val drawerBackground = if (permanent) AetherBackground else AetherSidebarBackground
 
     ModalDrawerSheet(
         modifier = Modifier.fillMaxHeight().width(if (permanent) 320.dp else 322.dp),
@@ -223,8 +224,9 @@ fun AetherConversationDrawer(
                     ) {
                         Text(
                             text = "Aether",
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal),
                             color = AetherOnSurface,
+                            modifier = Modifier.padding(start = 6.dp),
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             HeaderCircleButton(
@@ -235,7 +237,8 @@ fun AetherConversationDrawer(
                                     else searchExpanded = true
                                 },
                                 size = 46.dp,
-                                containerColor = AetherSurface.copy(alpha = 0.90f),
+                                containerColor = Color.Transparent,
+                                showHalo = false,
                             )
                             HeaderCircleButton(
                                 icon = LucideIcons.Settings,
@@ -245,7 +248,8 @@ fun AetherConversationDrawer(
                                     onSettingsSelected()
                                 },
                                 size = 46.dp,
-                                containerColor = AetherSurface.copy(alpha = 0.90f),
+                                containerColor = Color.Transparent,
+                                showHalo = false,
                             )
                         }
                     }
@@ -291,7 +295,7 @@ fun AetherConversationDrawer(
                     .padding(end = 18.dp, bottom = 18.dp)
                     .shadow(18.dp, RoundedCornerShape(999.dp), ambientColor = AetherScrim, spotColor = AetherScrim)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Brush.horizontalGradient(listOf(Color(0xFF7A4DFF), Color(0xFF925BFF))))
+                    .background(Color(0xFFAD7BF9))
                     .clickable {
                         dismissSearch()
                         onNewChat()

@@ -71,7 +71,7 @@ import com.zhousl.aether.shared.resources.*
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherSecondary
-import com.zhousl.aether.ui.theme.AetherSurfaceHigh
+import com.zhousl.aether.ui.theme.AetherSurface
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -86,7 +86,7 @@ private val SharedProviderTourTextSecondary: Color
 private val SharedProviderTourTextTertiary: Color
     get() = AetherOnSurfaceVariant.copy(alpha = 0.72f)
 private val SharedProviderTourSurface: Color
-    get() = AetherSurfaceHigh
+    get() = AetherSurface
 private val SharedProviderTourButton: Color
     get() = Color.Black
 private val SharedProviderTourGreen: Color
@@ -99,12 +99,76 @@ private enum class SharedProviderTourStage {
     Model,
 }
 
-/**
- * Provider setup used by the initial shared onboarding flow. Its stages and
- * navigation intentionally mirror Android's ProviderSetupStep.
- */
 @Composable
 fun SharedProviderOnboardingStep(
+    stepIndex: Int,
+    stepCount: Int,
+    replayMode: Boolean,
+    formState: ProviderFormState,
+    isFetchingModels: Boolean,
+    onFetchModels: (LlmProviderConfig, (List<String>) -> Unit) -> Unit,
+    authState: PiProviderAuthState,
+    onStartProviderLogin: (String, String, ProviderAuthMethod, String) -> Unit,
+    onSubmitAuthPrompt: (String, String, Boolean) -> Unit,
+    onClearAuthState: () -> Unit,
+    onExit: () -> Unit,
+    onClose: () -> Unit,
+    onReturnToLanding: () -> Unit,
+    onComplete: () -> Unit,
+    onTimelineStepSelected: (OnboardingTimelineStep) -> Unit = {},
+) {
+    var stageIndex by rememberSaveable(stepIndex, replayMode) { mutableStateOf(0) }
+    var isFinishing by rememberSaveable(stepIndex, replayMode) { mutableStateOf(false) }
+    val message = when (stageIndex) {
+        1 -> stringResource(Res.string.onboarding_provider_pick_message)
+        2 -> stringResource(Res.string.onboarding_provider_credentials_message)
+        3 -> stringResource(Res.string.onboarding_provider_model_message)
+        else -> stringResource(Res.string.onboarding_provider_auth_message)
+    }
+
+    LaunchedEffect(isFinishing) {
+        if (isFinishing) {
+            delay(320)
+            onComplete()
+        }
+    }
+
+    OnboardingConversationStepPage(
+        stepIndex = stepIndex,
+        stepCount = stepCount,
+        message = message,
+        onBack = onReturnToLanding,
+        topRightLabel = if (replayMode) {
+            stringResource(Res.string.common_close)
+        } else {
+            stringResource(Res.string.common_skip)
+        },
+        onTopRight = if (replayMode) onClose else onExit,
+        isExiting = isFinishing,
+        timelineSpec = OnboardingTimelineSpec(
+            activeStep = OnboardingTimelineStep.Provider,
+            providerSubstep = stageIndex,
+            onStepSelected = onTimelineStepSelected,
+        ),
+    ) {
+        AddProviderWizard(
+            state = formState,
+            existingProviderIds = emptySet(),
+            isFetchingModels = isFetchingModels,
+            onFetchModels = onFetchModels,
+            authState = authState,
+            onStartProviderLogin = onStartProviderLogin,
+            onSubmitAuthPrompt = onSubmitAuthPrompt,
+            onClearAuthState = onClearAuthState,
+            onSave = { isFinishing = true },
+            saveLabel = stringResource(Res.string.common_start_chat),
+            onStageChanged = { stageIndex = it },
+        )
+    }
+}
+
+@Composable
+private fun LegacySharedProviderOnboardingStep(
     stepIndex: Int,
     stepCount: Int,
     replayMode: Boolean,

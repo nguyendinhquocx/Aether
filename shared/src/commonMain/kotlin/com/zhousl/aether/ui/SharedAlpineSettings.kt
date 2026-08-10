@@ -42,7 +42,7 @@ import com.zhousl.aether.runtime.RuntimeProcessSignal
 import com.zhousl.aether.runtime.RuntimeProcessSpec
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.*
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
@@ -508,7 +508,7 @@ internal fun SharedAlpineSettingsDetailPage(
 
     LaunchedEffect(Unit) { refresh() }
 
-    Box(Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(top = sharedSettingsContentTopPadding(), start = 20.dp, end = 20.dp)

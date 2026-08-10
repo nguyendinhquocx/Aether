@@ -74,7 +74,7 @@ import com.zhousl.aether.runtime.MultiplatformLocalRuntime
 import com.zhousl.aether.runtime.RuntimeProcessSpec
 import com.zhousl.aether.runtime.SharedPiBridgeClient
 import com.zhousl.aether.shared.resources.*
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnPrimary
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
@@ -101,9 +101,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.compose.resources.stringResource
 
 private const val SharedPiPackagesUrl = "https://pi.dev/packages"
@@ -671,7 +673,8 @@ private suspend fun sharedImportedExtension(
 private suspend fun importSharedExtension(
     runtime: MultiplatformLocalRuntime,
     picked: PlatformPickedFile,
-    reload: suspend () -> Unit,
+    reload: suspend (reloadAgentSessions: Boolean) -> Unit,
+    onDeferredDependencyInstall: (String, JsonObject, Boolean) -> Unit = { _, _, _ -> },
 ): String {
     val suffix = picked.name.substringAfterLast('.', "").lowercase()
     require(suffix == "zip" || suffix in SharedExtensionFileSuffixes) {
@@ -681,7 +684,7 @@ private suspend fun importSharedExtension(
         require(picked.bytes.size <= SharedExtensionImportLimitBytes) {
             "Extension archive is too large."
         }
-        importSharedExtensionZip(runtime, picked, reload)
+        importSharedExtensionZip(runtime, picked, reload, onDeferredDependencyInstall)
     } else {
         require(picked.bytes.size.toLong() <= SharedExtensionSingleEntryLimitBytes) {
             "Extension file is too large."
@@ -693,7 +696,7 @@ private suspend fun importSharedExtension(
 private suspend fun importSharedExtensionFile(
     runtime: MultiplatformLocalRuntime,
     picked: PlatformPickedFile,
-    reload: suspend () -> Unit,
+    reload: suspend (reloadAgentSessions: Boolean) -> Unit,
 ): String {
     val root = sharedExtensionImportRoot(runtime)
     runtime.fileSystem.createDirectories(root)
@@ -702,14 +705,21 @@ private suspend fun importSharedExtensionFile(
     val staging = "$root/.aether-import-${platformRandomUuid()}-$fileName"
     val backup = "$root/.aether-backup-${platformRandomUuid()}-$fileName"
     runtime.fileSystem.write(staging, picked.bytes)
-    replaceSharedImportedPath(runtime, staging, destination, backup, reload)
+    replaceSharedImportedPath(
+        runtime = runtime,
+        staging = staging,
+        destination = destination,
+        backup = backup,
+        reload = { reload(true) },
+    )
     return fileName.substringBeforeLast('.', fileName)
 }
 
 private suspend fun importSharedExtensionZip(
     runtime: MultiplatformLocalRuntime,
     picked: PlatformPickedFile,
-    reload: suspend () -> Unit,
+    reload: suspend (reloadAgentSessions: Boolean) -> Unit,
+    onDeferredDependencyInstall: (String, JsonObject, Boolean) -> Unit,
 ): String {
     val root = sharedExtensionImportRoot(runtime)
     runtime.fileSystem.createDirectories(root)
@@ -718,35 +728,26 @@ private suspend fun importSharedExtensionZip(
     val extractionRoot = "$root/.aether-import-$token"
     runtime.fileSystem.write(archive, picked.bytes)
     runtime.fileSystem.createDirectories(extractionRoot)
+    var extractionRootMoved = false
     return try {
         val listResult = runSharedExtensionShell(
             runtime,
             "command -v unzip >/dev/null 2>&1 || apk add --no-cache unzip >/dev/null; " +
-                "unzip -Z1 ${archive.sharedShellQuote()}",
+                "unzip -l -qq ${archive.sharedShellQuote()}",
         )
         check(listResult.exitCode == 0) {
             listResult.stderr.ifBlank { "Unable to inspect the extension archive." }
         }
-        val entries = listResult.stdout.lines().filter(String::isNotBlank)
+        val archiveEntries = parseSharedUnzipListing(listResult.stdout)
+        val entries = archiveEntries.map { it.path }
         require(entries.size <= SharedExtensionEntryLimit) { "The extension archive contains too many files." }
         require(entries.all(::isSafeSharedArchiveEntry)) {
             "The extension archive contains an unsafe path."
         }
-        val sizeResult = runSharedExtensionShell(runtime, "unzip -l ${archive.sharedShellQuote()}")
-        check(sizeResult.exitCode == 0) {
-            sizeResult.stderr.ifBlank { "Unable to inspect the extension archive." }
-        }
-        val uncompressedSizes = sizeResult.stdout.lines().mapNotNull { line ->
-            Regex("""^\s*(\d+)\s+\d[\d-]+\s+\d{2}:\d{2}\s+""")
-                .find(line)?.groupValues?.getOrNull(1)?.toLongOrNull()
-        }
-        require(uncompressedSizes.isNotEmpty() || entries.isEmpty()) {
-            "Unable to validate the extension archive sizes."
-        }
-        require(uncompressedSizes.all { it <= SharedExtensionSingleEntryLimitBytes }) {
+        require(archiveEntries.all { it.size <= SharedExtensionSingleEntryLimitBytes }) {
             "The extension archive contains a file larger than 16 MB."
         }
-        require(uncompressedSizes.sum() <= SharedExtensionExtractedLimitBytes) {
+        require(archiveEntries.sumOf { it.size } <= SharedExtensionExtractedLimitBytes) {
             "The extension archive expands to more than 128 MB."
         }
         val extractResult = runSharedExtensionShell(
@@ -763,13 +764,32 @@ private suspend fun importSharedExtensionZip(
         val destinationName = sanitizeSharedExtensionDirectoryName(packageName)
         val destination = "$root/$destinationName"
         val backup = "$root/.aether-backup-${platformRandomUuid()}-$destinationName"
-        installSharedExtensionDependencies(runtime, packageRoot, manifest)
-        replaceSharedImportedPath(runtime, packageRoot, destination, backup, reload)
+        val containsPiExtension = sharedManifestExtensionEntryCount(runtime, packageRoot, manifest, "pi") > 0
+        val containsAetherExtension = sharedManifestExtensionEntryCount(runtime, packageRoot, manifest, "aether") > 0
+        val deferDependencyInstall = hasSharedExtensionDependencies(manifest)
+        if (!deferDependencyInstall) {
+            installSharedExtensionDependencies(runtime, packageRoot, manifest)
+        }
+        replaceSharedImportedPath(
+            runtime = runtime,
+            staging = packageRoot,
+            destination = destination,
+            backup = backup,
+            reload = {
+                if (!deferDependencyInstall) reload(containsPiExtension)
+            },
+        )
+        extractionRootMoved = packageRoot == extractionRoot
+        if (deferDependencyInstall) {
+            onDeferredDependencyInstall(destination, requireNotNull(manifest), containsPiExtension)
+        }
         packageName
     } finally {
         withContext(NonCancellable) {
             runCatching { runtime.fileSystem.remove(archive) }
-            runCatching { runtime.fileSystem.remove(extractionRoot, recursive = true) }
+            if (!extractionRootMoved) {
+                runCatching { runtime.fileSystem.remove(extractionRoot, recursive = true) }
+            }
         }
     }
 }
@@ -809,20 +829,27 @@ private suspend fun installSharedExtensionDependencies(
     packageRoot: String,
     manifest: JsonObject?,
 ) {
-    if (manifest == null || runtime.fileSystem.exists("$packageRoot/node_modules")) return
-    val hasDependencies = listOf("dependencies", "optionalDependencies", "peerDependencies")
-        .any { (manifest[it] as? JsonObject)?.isNotEmpty() == true }
-    if (!hasDependencies) return
-    val command = if (runtime.fileSystem.exists("$packageRoot/package-lock.json")) {
-        "npm ci --omit=dev --no-audit --no-fund"
-    } else {
-        "npm install --omit=dev --no-audit --no-fund"
-    }
+    if (manifest == null) return
+    if (!hasSharedExtensionDependencies(manifest)) return
+    val completionMarker = "$packageRoot/node_modules/.aether-install-complete"
+    if (runtime.fileSystem.exists(completionMarker)) return
+    val command = sharedExtensionNpmInstallCommand(
+        hasLockfile = runtime.fileSystem.exists("$packageRoot/package-lock.json"),
+    )
     val result = runSharedExtensionShell(runtime, command, workingDirectory = packageRoot)
     check(result.exitCode == 0) {
         result.stderr.ifBlank { result.stdout }.ifBlank { "Unable to install extension dependencies." }
     }
+    runtime.fileSystem.write(completionMarker, ByteArray(0))
 }
+
+private fun hasSharedExtensionDependencies(manifest: JsonObject?): Boolean =
+    manifest != null && listOf("dependencies", "optionalDependencies", "peerDependencies")
+        .any { (manifest[it] as? JsonObject)?.isNotEmpty() == true }
+
+internal fun sharedExtensionNpmInstallCommand(hasLockfile: Boolean): String =
+    "${if (hasLockfile) "npm ci" else "npm install"} " +
+        "--omit=dev --omit=optional --legacy-peer-deps --no-audit --no-fund --prefer-offline"
 
 private suspend fun replaceSharedImportedPath(
     runtime: MultiplatformLocalRuntime,
@@ -870,41 +897,20 @@ private suspend fun replaceSharedImportedPath(
     }
 }
 
-private suspend fun removeSharedImportedExtension(
+internal suspend fun removeSharedImportedExtension(
     runtime: MultiplatformLocalRuntime,
-    extension: SharedInstalledExtension,
-    reload: suspend () -> Unit,
+    installedPath: String,
 ) {
     val root = sharedExtensionRoots(runtime).map { it.second.trimEnd('/') + "/" }
         .firstOrNull { candidate ->
-            extension.installedPath.startsWith(candidate) &&
-                extension.installedPath.removePrefix(candidate).none { it == '/' }
+            installedPath.startsWith(candidate) &&
+                installedPath.removePrefix(candidate).none { it == '/' }
         }
-    require(extension.kind == SharedExtensionInstallKind.Imported && root != null) {
+    require(root != null) {
         "Refusing to remove an extension outside the managed import directory."
     }
-    val backup = root + ".aether-backup-${platformRandomUuid()}-" + extension.installedPath.substringAfterLast('/')
-    val moveResult = runSharedExtensionShell(
-        runtime,
-        "mv ${extension.installedPath.sharedShellQuote()} ${backup.sharedShellQuote()}",
-    )
-    check(moveResult.exitCode == 0) { moveResult.stderr.ifBlank { "Unable to remove the extension." } }
-    try {
-        reload()
-        runtime.fileSystem.remove(backup, recursive = true)
-    } catch (error: Throwable) {
-        withContext(NonCancellable) {
-            runCatching {
-                val restore = runSharedExtensionShell(
-                    runtime,
-                    "mv ${backup.sharedShellQuote()} ${extension.installedPath.sharedShellQuote()}",
-                )
-                check(restore.exitCode == 0)
-            }
-            runCatching { reload() }
-        }
-        throw error
-    }
+    require(runtime.fileSystem.exists(installedPath)) { "The imported extension no longer exists." }
+    runtime.fileSystem.remove(installedPath, recursive = true)
 }
 
 private fun sharedExtensionImportRoot(runtime: MultiplatformLocalRuntime): String =
@@ -987,6 +993,26 @@ private fun isSafeSharedArchiveEntry(raw: String): Boolean {
     if (normalized.substringBefore('/').contains(':')) return false
     return normalized.split('/').none { it == ".." || it.isEmpty() }
 }
+
+internal data class SharedUnzipEntry(
+    val size: Long,
+    val path: String,
+)
+
+private val SharedUnzipListingLine = Regex("""^\s*(\d+)\s+\d[\d-]+\s+\d{2}:\d{2}\s+(.+?)\s*$""")
+
+internal fun parseSharedUnzipListing(output: String): List<SharedUnzipEntry> =
+    output.lineSequence().filter(String::isNotBlank).map { line ->
+        val match = requireNotNull(SharedUnzipListingLine.find(line)) {
+            "Unable to validate the extension archive listing."
+        }
+        SharedUnzipEntry(
+            size = requireNotNull(match.groupValues[1].toLongOrNull()) {
+                "Unable to validate the extension archive size."
+            },
+            path = match.groupValues[2].trim(),
+        )
+    }.toList()
 
 private data class SharedExtensionShellResult(
     val exitCode: Int,
@@ -1114,7 +1140,7 @@ internal fun SharedExtensionsSettingsDetail(
         }
         val refreshed = if (reload) extensionManager.reload() else extensionManager.refresh()
         publishSnapshot(refreshed)
-        val errors = sessionErrors + extensionManager.error.takeIf(String::isNotBlank).orEmpty()
+        val errors = mergeSharedExtensionErrors(sessionErrors, extensionManager.error)
         check(errors.isEmpty()) { errors.take(3).joinToString("; ") }
     }
 
@@ -1128,6 +1154,7 @@ internal fun SharedExtensionsSettingsDetail(
     fun runOperation(
         key: String,
         successMessage: () -> String,
+        afterRefresh: () -> Unit = {},
         operation: suspend () -> Boolean,
     ) {
         if (operationKey.isNotBlank()) return
@@ -1139,6 +1166,7 @@ internal fun SharedExtensionsSettingsDetail(
                 runSharedExtensionCatching { loadInstalledState() }.onFailure { failure ->
                     onTransientMessage(operationFailedMessage(failure))
                 }
+                afterRefresh()
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
@@ -1174,18 +1202,19 @@ internal fun SharedExtensionsSettingsDetail(
             when (extension.kind) {
                 SharedExtensionInstallKind.Package -> {
                     val response = bridgeClient.removeExtensionPackage(extension.source)
+                    check(response["removed"]?.jsonPrimitive?.booleanOrNull == true) {
+                        "No installed extension matched ${extension.source}."
+                    }
                     extensionStateStore.removePackage(extension.source)
-                    refreshExtensionRuntime(reload = true)
-                    val errors = (response["reload"] as? JsonObject)?.sharedSessionReloadErrors().orEmpty()
-                    check(errors.isEmpty()) { errors.take(3).joinToString("; ") }
+                    refreshExtensionRuntime(reload = false, reloadAgentSessions = true)
                 }
                 SharedExtensionInstallKind.Imported -> {
                     removeSharedImportedExtension(
                         runtime = runtime,
-                        extension = extension,
-                        reload = { refreshExtensionRuntime(reload = true, reloadAgentSessions = true) },
+                        installedPath = extension.installedPath,
                     )
                     extensionStateStore.removeImportedExtension(extension.installedPath)
+                    refreshExtensionRuntime(reload = false, reloadAgentSessions = true)
                 }
             }
             true
@@ -1206,6 +1235,7 @@ internal fun SharedExtensionsSettingsDetail(
     }
 
     fun importExtension() {
+        var deferredDependencyInstall: Triple<String, JsonObject, Boolean>? = null
         runOperation(
             key = "import",
             successMessage = {
@@ -1214,12 +1244,37 @@ internal fun SharedExtensionsSettingsDetail(
                     importedExtensionName,
                 )
             },
+            afterRefresh = {
+                deferredDependencyInstall?.let { (path, manifest, containsPiExtension) ->
+                    scope.launch {
+                        try {
+                            installSharedExtensionDependencies(runtime, path, manifest)
+                            refreshExtensionRuntime(
+                                reload = true,
+                                reloadAgentSessions = containsPiExtension,
+                            )
+                            runSharedExtensionCatching { loadInstalledState() }.onFailure { failure ->
+                                onTransientMessage(operationFailedMessage(failure))
+                            }
+                        } catch (failure: CancellationException) {
+                            throw failure
+                        } catch (failure: Throwable) {
+                            onTransientMessage(operationFailedMessage(failure))
+                        }
+                    }
+                }
+            },
         ) {
             val picked = platformServices.pickFile(imagesOnly = false) ?: return@runOperation false
             importedExtensionName = importSharedExtension(
                 runtime = runtime,
                 picked = picked,
-                reload = { refreshExtensionRuntime(reload = true, reloadAgentSessions = true) },
+                reload = { reloadAgentSessions ->
+                    refreshExtensionRuntime(reload = true, reloadAgentSessions = reloadAgentSessions)
+                },
+                onDeferredDependencyInstall = { path, manifest, containsPiExtension ->
+                    deferredDependencyInstall = Triple(path, manifest, containsPiExtension)
+                },
             )
             true
         }
@@ -1306,7 +1361,7 @@ internal fun SharedExtensionsSettingsDetail(
                 onBack = { selectedCatalogSource = "" },
             )
         } else {
-            Box(Modifier.fillMaxSize().background(AetherBackground)) {
+            Box(Modifier.fillMaxSize().background(AetherSettingsBackground)) {
                 Column(
                     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                         .padding(top = sharedSettingsContentTopPadding(), start = 20.dp, end = 20.dp)
@@ -1353,6 +1408,7 @@ internal fun SharedExtensionsSettingsDetail(
                     onBack = onBack,
                     trailingIcon = Icons.Rounded.FileUpload,
                     trailingEnabled = operationKey.isBlank(),
+                    trailingLoading = operationKey == "import",
                     trailingContentDescription = stringResource(Res.string.settings_import_extension),
                     onTrailingAction = ::importExtension,
                 )
@@ -1372,6 +1428,9 @@ private fun JsonObject.sharedSessionReloadErrors(): List<String> =
         }
     }
 
+internal fun mergeSharedExtensionErrors(sessionErrors: List<String>, runtimeError: String): List<String> =
+    sessionErrors + listOfNotNull(runtimeError.takeIf(String::isNotBlank))
+
 @Composable
 private fun SharedExtensionsTopBar(
     busy: Boolean,
@@ -1381,7 +1440,7 @@ private fun SharedExtensionsTopBar(
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().background(AetherBackground).statusBarsPadding()
+            modifier = Modifier.fillMaxWidth().background(AetherSettingsBackground).statusBarsPadding()
                 .padding(horizontal = 15.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1423,7 +1482,7 @@ private fun SharedExtensionsTopBar(
         }
         Spacer(
             Modifier.fillMaxWidth().height(28.dp).background(
-                Brush.verticalGradient(listOf(AetherBackground, Color.Transparent))
+                Brush.verticalGradient(listOf(AetherSettingsBackground, Color.Transparent))
             )
         )
     }
@@ -1694,6 +1753,7 @@ private fun SharedExtensionInstalledTab(
                     label = stringResource(Res.string.settings_import_extension),
                     onClick = onImport,
                     enabled = operationKey.isBlank(),
+                    isLoading = operationKey == "import",
                 )
             }
         }
@@ -2285,7 +2345,7 @@ private fun SharedExtensionDetailScaffold(
     onBack: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(top = sharedSettingsContentTopPadding(), start = 20.dp, end = 20.dp)

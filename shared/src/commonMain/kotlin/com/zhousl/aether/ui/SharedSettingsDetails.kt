@@ -91,7 +91,7 @@ import com.zhousl.aether.platform.PlatformServices
 import com.zhousl.aether.platform.platformAppVersion
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.*
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
@@ -895,7 +895,7 @@ private fun SharedSettingsDetailScaffold(
     onTrailingAction: () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()

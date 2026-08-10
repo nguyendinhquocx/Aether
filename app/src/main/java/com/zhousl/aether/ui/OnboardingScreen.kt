@@ -457,6 +457,68 @@ private fun ProviderSetupStep(
     onReturnToLanding: () -> Unit,
     onComplete: () -> Unit,
 ) {
+    var stageIndex by rememberSaveable(stepIndex, replayMode) { mutableStateOf(0) }
+    var isFinishing by rememberSaveable(stepIndex, replayMode) { mutableStateOf(false) }
+    val message = when (stageIndex) {
+        1 -> stringResource(R.string.onboarding_provider_pick_message)
+        2 -> stringResource(R.string.onboarding_provider_credentials_message)
+        3 -> stringResource(R.string.onboarding_provider_model_message)
+        else -> stringResource(R.string.onboarding_provider_auth_message)
+    }
+
+    LaunchedEffect(isFinishing) {
+        if (isFinishing) {
+            delay(320)
+            onComplete()
+        }
+    }
+
+    ConversationStepPage(
+        stepIndex = stepIndex,
+        stepCount = stepCount,
+        message = message,
+        onBack = onReturnToLanding,
+        topRightLabel = if (replayMode) {
+            stringResource(R.string.common_close)
+        } else {
+            stringResource(R.string.common_skip)
+        },
+        onTopRight = if (replayMode) onClose else onExit,
+        isExiting = isFinishing,
+    ) {
+        AddProviderWizard(
+            state = formState,
+            existingProviderIds = emptySet(),
+            isFetchingModels = isFetchingModels,
+            onFetchModels = onFetchModels,
+            authState = authState,
+            onStartProviderLogin = onStartProviderLogin,
+            onSubmitAuthPrompt = onSubmitAuthPrompt,
+            onClearAuthState = onClearAuthState,
+            onSave = { isFinishing = true },
+            saveLabel = stringResource(R.string.common_start_chat),
+            onStageChanged = { stageIndex = it },
+        )
+    }
+}
+
+@Composable
+private fun LegacyProviderSetupStep(
+    stepIndex: Int,
+    stepCount: Int,
+    replayMode: Boolean,
+    formState: ProviderFormState,
+    isFetchingModels: Boolean,
+    onFetchModels: (LlmProviderConfig, (List<String>) -> Unit) -> Unit,
+    authState: PiProviderAuthState,
+    onStartProviderLogin: (String, String, ProviderAuthMethod, String) -> Unit,
+    onSubmitAuthPrompt: (String, String, Boolean) -> Unit,
+    onClearAuthState: () -> Unit,
+    onExit: () -> Unit,
+    onClose: () -> Unit,
+    onReturnToLanding: () -> Unit,
+    onComplete: () -> Unit,
+) {
 
     var stage by rememberSaveable(stepIndex, replayMode) {
         mutableStateOf(ProviderTourStage.PickAuthentication)

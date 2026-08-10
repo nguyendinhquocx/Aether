@@ -448,7 +448,7 @@ fun ProviderConfigurationForm(
     onSubmitAuthPrompt: (String, String, Boolean) -> Unit = { _, _, _ -> },
     onClearAuthState: () -> Unit = {},
     modifier: Modifier = Modifier,
-    cardColor: Color = AetherSurfaceHigh,
+    cardColor: Color = AetherSurface,
 ) {
     val selectedDefinition = state.selectedDefinition
     val clipboardManager = LocalClipboardManager.current
@@ -688,7 +688,7 @@ fun ProviderAuthenticationSetup(
     onStartProviderLogin: (String, String, ProviderAuthMethod, String) -> Unit,
     onSubmitAuthPrompt: (String, String, Boolean) -> Unit,
     onClearAuthState: () -> Unit,
-    cardColor: Color = AetherSurfaceHigh,
+    cardColor: Color = AetherSurface,
     modifier: Modifier = Modifier,
 ) {
     val definition = state.selectedDefinition
@@ -973,6 +973,8 @@ fun AddProviderWizard(
     onClearAuthState: () -> Unit,
     onSave: (LlmProviderConfig) -> Unit,
     modifier: Modifier = Modifier,
+    saveLabel: String = stringResource(Res.string.common_save),
+    onStageChanged: (Int) -> Unit = {},
 ) {
     var stageName by rememberSaveable { mutableStateOf(AddProviderStage.Authentication.name) }
     var selectedAuthMethodName by rememberSaveable {
@@ -999,6 +1001,10 @@ fun AddProviderWizard(
         }
     }
     val isLoadingModels = state.isFetchingModelsLocally || isFetchingModels
+
+    LaunchedEffect(stage) {
+        onStageChanged(stage.ordinal)
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -1170,7 +1176,7 @@ fun AddProviderWizard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = AetherOnSurfaceVariant,
                 )
-                ProviderFormCard(cardColor = AetherSurfaceHigh) {
+                ProviderFormCard(cardColor = AetherSurface) {
                     ProviderFormTextField(
                         label = stringResource(Res.string.provider_form_manual_model_ids),
                         value = state.modelId,
@@ -1201,7 +1207,7 @@ fun AddProviderWizard(
                     onClick = { showAdvanced = !showAdvanced },
                 )
                 if (showAdvanced) {
-                    ProviderFormCard(cardColor = AetherSurfaceHigh) {
+                    ProviderFormCard(cardColor = AetherSurface) {
                         ProviderFormTextField(
                             label = stringResource(Res.string.provider_form_provider_name),
                             value = state.name,
@@ -1256,7 +1262,7 @@ fun AddProviderWizard(
                         modifier = Modifier.weight(1f),
                     )
                     ProviderWizardPrimaryButton(
-                        label = stringResource(Res.string.common_save),
+                        label = saveLabel,
                         enabled = state.isValid(existingProviderIds),
                         onClick = { onSave(state.buildConfig()) },
                         modifier = Modifier.weight(1f),
@@ -1359,7 +1365,7 @@ private fun ProviderWizardSearchField(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(AetherSurfaceHigh)
+            .background(AetherSurface)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

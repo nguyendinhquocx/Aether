@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,6 +45,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -104,6 +106,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -113,6 +116,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -127,10 +131,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -193,6 +200,7 @@ import com.zhousl.aether.data.generateSharedQuickActionLabel
 import com.zhousl.aether.data.SharedAetherExtensionManager
 import com.zhousl.aether.data.SharedAetherExtensionSnapshot
 import com.zhousl.aether.data.SharedAetherExtensionSettingsPage
+import com.zhousl.aether.data.SharedPiExtensionUiRequest
 import com.zhousl.aether.data.SharedExtensionStateStore
 import com.zhousl.aether.data.SharedProviderModelCatalogClient
 import com.zhousl.aether.data.SharedModelCatalogInfo
@@ -263,6 +271,7 @@ import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherOutlineSoft
 import com.zhousl.aether.ui.theme.AetherPrimary
 import com.zhousl.aether.ui.theme.AetherScrim
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherSecondary
 import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
@@ -778,6 +787,7 @@ internal fun resolveSharedConversationModelKey(
 
 private val TopFadeHeight = 42.dp
 private val SettingsTopFadeHeight = 40.dp
+private val SettingsBottomFadeHeight = 96.dp
 private const val FollowUpTourAutoOpenDelayMillis = 2_500L
 private const val TransientMessageDurationMillis = 2_000L
 private val ComposerShape = RoundedCornerShape(26.dp)
@@ -919,6 +929,7 @@ fun AetherSharedApp(
         }
         var route by rememberSaveable { mutableStateOf(SharedRoute.Onboarding) }
         var tabletSettingsVisible by rememberSaveable { mutableStateOf(false) }
+        var tabletSettingsFullScreen by remember { mutableStateOf(false) }
         var tabletSettingsDismissRequest by remember { mutableIntStateOf(0) }
         var startupResolved by remember { mutableStateOf(false) }
         val historyStore = remember(chatHistoryDatabase) {
@@ -1308,9 +1319,35 @@ fun AetherSharedApp(
         fun extensionContext(state: SharedSessionUiState = currentSession): JsonObject = buildJsonObject {
             put("screen", route.name.lowercase())
             put("session_id", state.id)
+            put("session_title", state.title)
             put("draft_input", state.input)
             put("is_generating", state.isWorking)
+            put("is_running", state.isWorking)
+            put("is_editing", state.editingMessageId.isNotBlank())
             put("selected_model_key", state.selectedModelKey)
+            put("agent_mode_enabled", false)
+            put("selected_skill_ids", JsonArray(state.selectedSkillIds.map(::JsonPrimitive)))
+            put("selected_mcp_server_ids", JsonArray(state.activeMcpServerIds.map(::JsonPrimitive)))
+            put(
+                "default_skill_ids",
+                JsonArray(sharedAppSettings.defaultSelectedSkillIds.map(::JsonPrimitive)),
+            )
+            put("language", sharedAppSettings.language.storageValue)
+            put("theme", sharedAppSettings.themeMode.storageValue)
+            put("extension_count", extensionSnapshot.extensions.size)
+            put("skill_count", installedSkills.count(SharedInstalledSkill::isEnabled))
+            put("mcp_server_count", mcpServers.count(SharedMcpServerConfig::enabled))
+            put("skills", JsonArray(installedSkills.map { skill ->
+                buildJsonObject {
+                    put("id", skill.id)
+                    put("name", skill.name)
+                    put("description", skill.description)
+                    put("action_label", skill.actionLabel)
+                    put("enabled", skill.isEnabled)
+                    put("selected", skill.id in state.selectedSkillIds)
+                    put("default_selected", skill.id in sharedAppSettings.defaultSelectedSkillIds)
+                }
+            }))
             put("reasoning_effort", sharedAppSettings.reasoningEffort)
             put("message_count", state.messages.size)
             put("custom_messages", JsonArray(state.messages.filter { it.customType.isNotBlank() }.map { message ->
@@ -2142,7 +2179,9 @@ fun AetherSharedApp(
 
         suspend fun handleSharedExtensionHostCall(method: String, args: JsonObject): JsonObject =
             when (method) {
-                    "app.getState", "state.get" -> extensionContext()
+                    "app.getState", "state.get" -> withContext(Dispatchers.Main) {
+                        extensionContext()
+                    }
                     "app.setDraftInput" -> withContext(Dispatchers.Main) {
                         currentSession.input = args["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
                         buildJsonObject { put("updated", true) }
@@ -2239,14 +2278,16 @@ fun AetherSharedApp(
                         transientMessage = args["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
                         buildJsonObject { put("notified", transientMessage.isNotBlank()) }
                     }
-                    "settings.get" -> buildJsonObject {
-                        put("system_prompt", sharedAppSettings.systemPrompt)
-                        put("reasoning_effort", sharedAppSettings.reasoningEffort)
-                        put("theme", sharedAppSettings.themeMode.storageValue)
-                        put("language", sharedAppSettings.language.storageValue)
-                        put("tavily_api_key", sharedAppSettings.tavilyApiKey)
-                        put("tavily_base_url", sharedAppSettings.tavilyBaseUrl)
-                        put("provider_configs", JsonArray(providerConfigs.map { it.toJsonObject() }))
+                    "settings.get" -> withContext(Dispatchers.Main) {
+                        buildJsonObject {
+                            put("system_prompt", sharedAppSettings.systemPrompt)
+                            put("reasoning_effort", sharedAppSettings.reasoningEffort)
+                            put("theme", sharedAppSettings.themeMode.storageValue)
+                            put("language", sharedAppSettings.language.storageValue)
+                            put("tavily_api_key", sharedAppSettings.tavilyApiKey)
+                            put("tavily_base_url", sharedAppSettings.tavilyBaseUrl)
+                            put("provider_configs", JsonArray(providerConfigs.map { it.toJsonObject() }))
+                        }
                     }
                     "settings.patch" -> withContext(Dispatchers.Main) {
                         args["system_prompt"]?.jsonPrimitive?.contentOrNull?.let {
@@ -2303,6 +2344,7 @@ fun AetherSharedApp(
         val extensionManager = remember(bridgeClient) {
             SharedAetherExtensionManager(bridgeClient, ::handleSharedExtensionHostCall)
         }
+        val piExtensionUiRequest by extensionManager.piUiRequest.collectAsState()
         val extensionDraftRefreshJob = remember(extensionManager) { SharedNonSnapshotJobSlot() }
 
         fun scheduleExtensionDraftRefresh() {
@@ -2312,8 +2354,6 @@ fun AetherSharedApp(
                 kotlinx.coroutines.delay(250)
                 runSharedAppCatching { extensionManager.refresh(extensionContext()) }
                     .onSuccess { extensionSnapshot = it }
-                extensionManager.notification.takeIf(String::isNotBlank)
-                    ?.let { transientMessage = it }
             }
         }
 
@@ -2323,6 +2363,42 @@ fun AetherSharedApp(
 
         LaunchedEffect(extensionManager) {
             extensionManagerRef = extensionManager
+        }
+
+        LaunchedEffect(extensionManager, capabilities.scriptExtensions) {
+            if (!capabilities.scriptExtensions) return@LaunchedEffect
+            while (true) {
+                try {
+                    extensionManager.subscribe {
+                        val context = withContext(Dispatchers.Main) { extensionContext() }
+                        val refreshed = extensionManager.refresh(context)
+                        withContext(Dispatchers.Main) { extensionSnapshot = refreshed }
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    SharedDiagnosticLogger.event(
+                        category = "aether_extension",
+                        event = "subscription_failed",
+                        level = "warn",
+                        details = mapOf("error" to failure.message.orEmpty()),
+                    )
+                    kotlinx.coroutines.delay(2_000)
+                }
+            }
+        }
+
+        LaunchedEffect(extensionManager, capabilities.scriptExtensions) {
+            if (capabilities.scriptExtensions) {
+                runSharedAppCatching { extensionManager.reload(extensionContext()) }
+                    .onSuccess { extensionSnapshot = it }
+            }
+        }
+
+        LaunchedEffect(extensionManager) {
+            extensionManager.notifications.collect { notification ->
+                transientMessage = notification.message
+            }
         }
 
         LaunchedEffect(
@@ -2336,7 +2412,6 @@ fun AetherSharedApp(
             if (capabilities.scriptExtensions && route != SharedRoute.Onboarding) {
                 runSharedAppCatching { extensionManager.refresh(extensionContext()) }
                     .onSuccess { extensionSnapshot = it }
-                extensionManager.notification.takeIf(String::isNotBlank)?.let { transientMessage = it }
             }
         }
 
@@ -2355,12 +2430,21 @@ fun AetherSharedApp(
             stringResource(Res.string.message_pause_before_deleting_session)
 
         SharedAetherExtensionUiProvider(extensionController) {
+        Box(Modifier.fillMaxSize()) {
+        SharedAetherExtensionComponentHost(
+            target = SharedExtensionComponentAppContent,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         BoxWithConstraints {
         val useTabletLayout = shouldUseSharedTabletLayout(
             supportsTabletLayout = capabilities.supportsTabletLayout,
             availableWidthDp = maxWidth.value,
         )
         val settingsContent: @Composable () -> Unit = {
+            SharedAetherExtensionComponentHost(
+                target = SharedExtensionComponentSettingsScreen,
+                modifier = Modifier.fillMaxSize(),
+            ) {
             SharedSettingsScreen(
                 capabilities = capabilities,
                 runtime = runtime,
@@ -2513,7 +2597,9 @@ fun AetherSharedApp(
                 },
                 onTransientMessage = { transientMessage = it },
                 dismissRequestToken = tabletSettingsDismissRequest,
+                onFullScreenChange = { tabletSettingsFullScreen = it },
             )
+            }
         }
         AnimatedContent(
             targetState = route,
@@ -2613,7 +2699,11 @@ fun AetherSharedApp(
                         route = returnRoute
                     },
                 )
-                SharedRoute.Chat -> Box(Modifier.fillMaxSize()) {
+                SharedRoute.Chat -> SharedAetherExtensionComponentHost(
+                    target = SharedExtensionComponentChatScreen,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                Box(Modifier.fillMaxSize()) {
                     SharedChatScreen(
                     sessions = sessions.map { summary ->
                         val state = sessionStates[summary.id]
@@ -2938,14 +3028,18 @@ fun AetherSharedApp(
                     if (useTabletLayout) {
                         SharedTabletSettingsOverlay(
                             visible = tabletSettingsVisible,
+                            fullScreen = tabletSettingsFullScreen,
                             onDismiss = { tabletSettingsDismissRequest += 1 },
                         ) {
                             settingsContent()
                         }
                     }
                 }
+                }
                 SharedRoute.Settings -> settingsContent()
             }
+        }
+        }
         }
         SharedAetherExtensionOverlay(Modifier.fillMaxSize())
         if (transientMessage.isNotBlank()) {
@@ -2987,6 +3081,16 @@ fun AetherSharedApp(
                 onBack = { alpineSetupPreviewVisible = false },
                 onClose = { alpineSetupPreviewVisible = false },
                 onContinue = { alpineSetupPreviewVisible = false },
+            )
+        }
+        piExtensionUiRequest?.let { request ->
+            SharedPiExtensionUiDialog(
+                request = request,
+                onResult = { value ->
+                    appScope.launch {
+                        extensionManager.respondToPiExtensionUiRequest(request.callId, value)
+                    }
+                },
             )
         }
         }
@@ -3064,47 +3168,172 @@ internal class SharedDrawerOpenedEventGate {
 }
 
 @Composable
+private fun SharedPiExtensionUiDialog(
+    request: SharedPiExtensionUiRequest,
+    onResult: (JsonPrimitive?) -> Unit,
+) {
+    var input by remember(request.callId) { mutableStateOf("") }
+    val dismissValue = if (request.method == "pi_extension_confirm") JsonPrimitive(false) else null
+    AlertDialog(
+        onDismissRequest = { onResult(dismissValue) },
+        containerColor = AetherSurface,
+        titleContentColor = AetherOnSurface,
+        textContentColor = AetherOnSurfaceVariant,
+        title = { Text(request.title) },
+        text = {
+            when (request.method) {
+                "pi_extension_select" -> Column {
+                    request.options.forEach { option ->
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onResult(JsonPrimitive(option)) },
+                        ) {
+                            Text(option, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+
+                "pi_extension_input" -> OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = request.placeholder.takeIf(String::isNotBlank)?.let { placeholder ->
+                        { Text(placeholder) }
+                    },
+                    singleLine = true,
+                )
+
+                else -> Text(request.message)
+            }
+        },
+        confirmButton = {
+            if (request.method != "pi_extension_select") {
+                TextButton(
+                    onClick = {
+                        onResult(
+                            if (request.method == "pi_extension_confirm") {
+                                JsonPrimitive(true)
+                            } else {
+                                JsonPrimitive(input)
+                            },
+                        )
+                    },
+                ) {
+                    Text(stringResource(Res.string.common_done))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onResult(dismissValue) }) {
+                Text(stringResource(Res.string.common_cancel))
+            }
+        },
+    )
+}
+
+@Composable
 private fun SharedTabletSettingsOverlay(
     visible: Boolean,
+    fullScreen: Boolean,
     onDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(140, easing = SharedConversationMotionEasing)) +
-            slideInVertically(
-                animationSpec = tween(190, easing = SharedConversationMotionEasing),
-                initialOffsetY = { it / 42 },
-            ),
-        exit = fadeOut(tween(120, easing = SharedConversationMotionEasing)) +
-            slideOutVertically(
-                animationSpec = tween(150, easing = SharedConversationMotionEasing),
-                targetOffsetY = { it / 48 },
-            ),
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize()
-                .background(AetherScrim.copy(alpha = 0.38f))
-                .pointerInput(visible, onDismiss) {
-                    if (visible) detectTapGestures { onDismiss() }
-                }
-                .padding(horizontal = 56.dp, vertical = 44.dp),
-            contentAlignment = Alignment.Center,
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(280, easing = SharedConversationMotionEasing)),
+            exit = fadeOut(tween(240, easing = SharedConversationMotionEasing)),
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
-                    .widthIn(max = 720.dp).heightIn(max = 860.dp).fillMaxSize()
-                    .pointerInput(Unit) { detectTapGestures {} }
-                    .shadow(
-                        18.dp,
-                        RoundedCornerShape(24.dp),
-                        ambientColor = AetherScrim,
-                        spotColor = AetherScrim,
+                    .fillMaxSize()
+                    .background(AetherScrim.copy(alpha = 0.38f))
+                    .pointerInput(visible, onDismiss) {
+                        if (visible) detectTapGestures { onDismiss() }
+                    },
+            )
+        }
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(260, easing = SharedConversationMotionEasing)) +
+                slideInVertically(
+                    animationSpec = tween(320, easing = SharedConversationMotionEasing),
+                    initialOffsetY = { it / 42 },
+                ),
+            exit = fadeOut(tween(240, easing = SharedConversationMotionEasing)) +
+                slideOutVertically(
+                    animationSpec = tween(280, easing = SharedConversationMotionEasing),
+                    targetOffsetY = { it / 48 },
+                ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        horizontal = if (fullScreen) 0.dp else 56.dp,
+                        vertical = if (fullScreen) 0.dp else 44.dp,
                     ),
-                shape = RoundedCornerShape(24.dp),
-                color = AetherBackground,
+                contentAlignment = Alignment.Center,
             ) {
-                content()
+                Surface(
+                    modifier = (if (fullScreen) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier.widthIn(max = 720.dp).heightIn(max = 860.dp).fillMaxSize()
+                    })
+                        .pointerInput(Unit) { detectTapGestures {} }
+                        .then(
+                            if (fullScreen) {
+                                Modifier
+                            } else {
+                                Modifier.shadow(
+                                    18.dp,
+                                    RoundedCornerShape(24.dp),
+                                    ambientColor = AetherScrim,
+                                    spotColor = AetherScrim,
+                                )
+                            },
+                        ),
+                    shape = RoundedCornerShape(if (fullScreen) 0.dp else 24.dp),
+                    color = AetherSettingsBackground,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (fullScreen) {
+                                    Modifier
+                                } else {
+                                    Modifier.consumeWindowInsets(WindowInsets.navigationBars)
+                                },
+                            )
+                            .drawWithContent {
+                                drawContent()
+                                if (!fullScreen) {
+                                    val fadeHeight = SettingsBottomFadeHeight.toPx()
+                                    val fadeTop = size.height - fadeHeight
+                                    drawRect(
+                                        brush = Brush.verticalGradient(
+                                            colorStops = arrayOf(
+                                                0.0f to Color.Transparent,
+                                                0.24f to AetherSettingsBackground.copy(alpha = 0.04f),
+                                                0.48f to AetherSettingsBackground.copy(alpha = 0.12f),
+                                                0.70f to AetherSettingsBackground.copy(alpha = 0.28f),
+                                                0.88f to AetherSettingsBackground.copy(alpha = 0.58f),
+                                                1.0f to AetherSettingsBackground,
+                                            ),
+                                            startY = fadeTop,
+                                            endY = size.height,
+                                        ),
+                                        topLeft = Offset(0f, fadeTop),
+                                        size = Size(size.width, fadeHeight),
+                                    )
+                                }
+                            },
+                    ) {
+                        content()
+                    }
+                }
             }
         }
     }
@@ -3867,17 +4096,20 @@ private fun RuntimeSetupStep(
             return@LaunchedEffect
         }
         alpineReady = installed
-        if (retryKey == 0) return@LaunchedEffect
+        if (retryKey == 0 && !installed) return@LaunchedEffect
+        if (installed) running = true
 
         try {
-            progress = RuntimeSetupProgress(
-                phase = RuntimePhaseCheckingAlpine,
-                output = progress.output,
-            )
-            runtime.initialize { update ->
-                progress = update.copy(phase = normalizeRuntimeSetupPhase(update.phase))
+            if (!installed) {
+                progress = RuntimeSetupProgress(
+                    phase = RuntimePhaseCheckingAlpine,
+                    output = progress.output,
+                )
+                runtime.initialize { update ->
+                    progress = update.copy(phase = normalizeRuntimeSetupPhase(update.phase))
+                }
+                alpineReady = true
             }
-            alpineReady = true
             if (runtimeSetupStepIndex(progress.phase) < 2) {
                 progress = progress.copy(phase = RuntimePhaseCheckingNode, detail = "")
             }
@@ -4732,19 +4964,6 @@ private fun SharedChatScreen(
                 ).padding(innerPadding),
             ) {
                 if (visibleMessages.isEmpty()) {
-                    AetherConversationEmptyState(
-                        modifier = Modifier.fillMaxSize().padding(
-                            top = topBarBodyHeight + 20.dp,
-                            bottom = composerBodyHeight + animatedImeBottom + 16.dp,
-                        ),
-                        welcomeLabel = stringResource(Res.string.chat_welcome_help),
-                        analyzeImageLabel = stringResource(Res.string.chat_analyze_image_chip),
-                        codeLabel = stringResource(Res.string.chat_code_chip),
-                        helpWriteLabel = stringResource(Res.string.chat_help_me_write_chip),
-                        summarizeFileLabel = stringResource(Res.string.chat_summarize_file_chip),
-                        inputFocused = composerFocused,
-                        onStarterPromptSelected = onInputChanged,
-                    )
                     SharedAetherExtensionSlot(
                         SharedExtensionSlotChatEmpty,
                         Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(
@@ -5117,37 +5336,49 @@ private fun SharedConversationModelSelector(
         ?: fallbackLabel
 
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
-        Row(
+        Box(
             modifier = Modifier
+                .height(38.dp)
                 .onGloballyPositioned { coordinates ->
                     anchorHeightPx = coordinates.boundsInWindow().height.toInt()
-                }
-                .height(38.dp)
-                .shadow(4.dp, RoundedCornerShape(999.dp), ambientColor = ControlShadow, spotColor = ControlShadow)
-                .clip(RoundedCornerShape(999.dp))
-                .background(AetherSurface.copy(alpha = 0.96f))
-                .clickable(enabled = options.isNotEmpty()) {
-                    onOpened()
-                    menuSelectedModelKey = selectedModelKey
-                    showingReasoningEffort = false
-                    expanded = true
                 },
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (selectedDisplay != null) {
-                SharedSelectedModelDisplay(
-                    displayName = selectedDisplay,
-                    modifier = Modifier.widthIn(max = 240.dp).padding(horizontal = 17.dp),
-                )
-            } else {
-                Text(
-                    text = fallbackLabel,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Normal),
-                    color = AetherOnSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 220.dp).padding(horizontal = 17.dp),
-                )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(y = 4.dp)
+                    .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ControlShadow),
+            )
+            Row(
+                modifier = Modifier
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(AetherSurface.copy(alpha = 0.96f))
+                    .clickable(enabled = options.isNotEmpty()) {
+                        onOpened()
+                        menuSelectedModelKey = selectedModelKey
+                        showingReasoningEffort = false
+                        expanded = true
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (selectedDisplay != null) {
+                    SharedSelectedModelDisplay(
+                        displayName = selectedDisplay,
+                        modifier = Modifier.widthIn(max = 240.dp).padding(horizontal = 17.dp),
+                    )
+                } else {
+                    Text(
+                        text = fallbackLabel,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Normal),
+                        color = AetherOnSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 220.dp).padding(horizontal = 17.dp),
+                    )
+                }
             }
         }
 
@@ -5596,7 +5827,14 @@ private fun SharedComposer(
     val density = LocalDensity.current
     val selectedSkills = availableSkills.filter { it.id in selectedSkillIds }
     val selectedMcpServers = mcpServers.filter { it.id in activeMcpServerIds }
-    val hasComposerActionTray = selectedSkills.isNotEmpty() || selectedMcpServers.isNotEmpty() || chromeEnabled
+    val extensionUiController = LocalSharedAetherExtensionUiController.current
+    val hasExtensionActionTray = extensionUiController
+        ?.snapshot
+        ?.componentsAt(SharedExtensionComponentChatComposerActionTray)
+        .orEmpty()
+        .isNotEmpty()
+    val hasComposerActionTray = selectedSkills.isNotEmpty() || selectedMcpServers.isNotEmpty() ||
+        chromeEnabled || hasExtensionActionTray
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     val composerPlaceholder = when {
         value.isNotBlank() -> ""
@@ -5916,15 +6154,20 @@ private fun SharedComposer(
                                 exit = fadeOut(tween(160, easing = SharedConversationMotionEasing)) +
                                     slideOutVertically(tween(220, easing = SharedConversationMotionEasing)) { -it / 3 },
                             ) {
-                                SharedComposerActionTray(
-                                    skills = selectedSkills,
-                                    mcpServers = selectedMcpServers,
-                                    chromeEnabled = chromeEnabled,
-                                    onRemoveSkill = { onSkillSelected(it, false) },
-                                    onRemoveMcpServer = { onMcpServerSelected(it, false) },
-                                    onRemoveChrome = { onChromeSelected(false) },
+                                SharedAetherExtensionComponentHost(
+                                    target = SharedExtensionComponentChatComposerActionTray,
                                     modifier = Modifier.fillMaxWidth(),
-                                )
+                                ) {
+                                    SharedComposerActionTray(
+                                        skills = selectedSkills,
+                                        mcpServers = selectedMcpServers,
+                                        chromeEnabled = chromeEnabled,
+                                        onRemoveSkill = { onSkillSelected(it, false) },
+                                        onRemoveMcpServer = { onMcpServerSelected(it, false) },
+                                        onRemoveChrome = { onChromeSelected(false) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -6267,18 +6510,23 @@ private fun SharedComposerPlusMenu(
                                 },
                             )
                         }
-                        availableSkills.forEach { skill ->
-                            val selected = skill.id in selectedSkillIds
-                            SharedComposerPlusMenuRow(
-                                title = skill.sharedQuickActionLabel(),
-                                icon = Icons.Rounded.Extension,
-                                iconTint = Color(0xFF9C6B2F),
-                                selected = selected,
-                                onClick = {
-                                    onDismiss()
-                                    onSkillSelected(skill.id, !selected)
-                                },
-                            )
+                        SharedAetherExtensionComponentHost(
+                            target = SharedExtensionComponentChatComposerSkillPicker,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            availableSkills.forEach { skill ->
+                                val selected = skill.id in selectedSkillIds
+                                SharedComposerPlusMenuRow(
+                                    title = skill.sharedQuickActionLabel(),
+                                    icon = Icons.Rounded.Extension,
+                                    iconTint = Color(0xFF9C6B2F),
+                                    selected = selected,
+                                    onClick = {
+                                        onDismiss()
+                                        onSkillSelected(skill.id, !selected)
+                                    },
+                                )
+                            }
                         }
                         mcpServers.forEach { server ->
                             val selected = server.id in activeMcpServerIds
@@ -7218,6 +7466,7 @@ private fun SharedSettingsScreen(
     onExportLogs: suspend () -> String,
     onTransientMessage: (String) -> Unit,
     dismissRequestToken: Int = 0,
+    onFullScreenChange: (Boolean) -> Unit = {},
 ) {
     val registeredExtensionSettings = LocalSharedAetherExtensionUiController.current
         ?.snapshot
@@ -7237,6 +7486,13 @@ private fun SharedSettingsScreen(
         mutableStateOf(appSettings.alpineSetupCompleted)
     }
     var pendingSettings by remember { mutableStateOf(appSettings) }
+
+    LaunchedEffect(destination?.kind) {
+        onFullScreenChange(destination?.kind == SharedSettingsKind.Terminal)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onFullScreenChange(false) }
+    }
 
     fun updatePendingSettings(updated: AppSettings) {
         pendingSettings = updated
@@ -7566,7 +7822,7 @@ private fun SharedSettingsScreen(
         } else {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
-                containerColor = AetherBackground,
+                containerColor = AetherSettingsBackground,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
             ) { innerPadding ->
                 Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -7780,7 +8036,7 @@ private fun SharedAlpineSettingsDetail(
 
 @Composable
 private fun SettingsDetail(selected: SettingsDestination, onBack: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier.fillMaxSize()
                 .padding(top = sharedSettingsContentTopPadding(), start = 20.dp, end = 20.dp)
@@ -7804,6 +8060,7 @@ internal fun SettingsTopBar(
     onBack: () -> Unit,
     trailingIcon: ImageVector? = null,
     trailingEnabled: Boolean = true,
+    trailingLoading: Boolean = false,
     trailingContentDescription: String = "",
     onTrailingAction: () -> Unit = {},
 ) {
@@ -7832,11 +8089,11 @@ internal fun SettingsTopBar(
             modifier = Modifier.fillMaxWidth().background(
                 Brush.verticalGradient(
                     colorStops = arrayOf(
-                        0.0f to AetherBackground.copy(alpha = 0.96f),
-                        0.18f to AetherBackground.copy(alpha = 0.86f),
-                        0.42f to AetherBackground.copy(alpha = 0.48f),
-                        0.72f to AetherBackground.copy(alpha = 0.22f),
-                        1.0f to AetherBackground.copy(alpha = 0.12f),
+                        0.0f to AetherSettingsBackground.copy(alpha = 0.96f),
+                        0.18f to AetherSettingsBackground.copy(alpha = 0.86f),
+                        0.42f to AetherSettingsBackground.copy(alpha = 0.48f),
+                        0.72f to AetherSettingsBackground.copy(alpha = 0.22f),
+                        1.0f to AetherSettingsBackground.copy(alpha = 0.12f),
                     ),
                 ),
             ),
@@ -7857,7 +8114,18 @@ internal fun SettingsTopBar(
                     color = AetherOnSurface,
                     modifier = Modifier.align(Alignment.Center),
                 )
-                if (trailingIcon != null) {
+                if (trailingLoading) {
+                    Box(
+                        modifier = Modifier.align(Alignment.CenterEnd).size(44.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = AetherPrimary,
+                        )
+                    }
+                } else if (trailingIcon != null) {
                     SharedSettingsCircleButton(
                         icon = trailingIcon,
                         contentDescription = trailingContentDescription,
@@ -7876,8 +8144,8 @@ internal fun SettingsTopBar(
             modifier = Modifier.fillMaxWidth().height(SettingsTopFadeHeight).background(
                 Brush.verticalGradient(
                     colorStops = arrayOf(
-                        0.0f to AetherBackground.copy(alpha = 0.12f),
-                        0.42f to AetherBackground.copy(alpha = 0.05f),
+                        0.0f to AetherSettingsBackground.copy(alpha = 0.12f),
+                        0.42f to AetherSettingsBackground.copy(alpha = 0.05f),
                         1.0f to Color.Transparent,
                     ),
                 )

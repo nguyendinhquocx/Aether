@@ -5,6 +5,7 @@ import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSLocale
 import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSUUID
+import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSTimeZone
 import platform.Foundation.currentLocale
 import platform.Foundation.languageCode
@@ -19,7 +20,10 @@ actual fun platformUptimeMillis(): Long =
 
 actual fun platformRandomUuid(): String = NSUUID().UUIDString()
 
-actual fun platformLanguageTag(): String = NSLocale.currentLocale.languageCode
+actual fun platformLanguageTag(): String =
+    (NSUserDefaults.standardUserDefaults.arrayForKey("AppleLanguages")
+        ?.firstOrNull() as? String)
+        ?: NSLocale.currentLocale.languageCode
 
 actual fun platformDefaultSystemPrompt(): String =
     "You are Aether, a local-first agent that can call tools and complete tasks on-device. Use available tools instead of guessing local state."

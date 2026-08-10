@@ -3,7 +3,6 @@ package com.zhousl.aether.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -62,7 +62,7 @@ import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.back_label
 import com.zhousl.aether.shared.resources.common_send
 import com.zhousl.aether.shared.resources.settings_open_terminal
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherSurface
@@ -90,7 +90,7 @@ fun SharedTerminalScreen(
         var title by remember { mutableStateOf("Alpine") }
         var terminalReady by remember(runtime) { mutableStateOf(false) }
         var terminalError by remember(runtime) { mutableStateOf("") }
-        val darkTheme = isSystemInDarkTheme()
+        val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
         fun sendText(text: String) {
             inputSequence += 1
@@ -116,7 +116,7 @@ fun SharedTerminalScreen(
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().background(AetherBackground)
+            modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)
                 .imePadding().navigationBarsPadding(),
         ) {
             NativeTerminalTopBar(title = title, onBack = onBack)
@@ -329,7 +329,7 @@ private fun NativeTerminalTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .background(AetherBackground.copy(alpha = 0.86f))
+            .background(AetherSettingsBackground.copy(alpha = 0.86f))
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

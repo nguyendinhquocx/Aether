@@ -8,6 +8,10 @@ import androidx.compose.ui.graphics.Color
 data class AetherPalette(
     val background: Color,
     val backgroundGradientTop: Color,
+    val settingsBackground: Color,
+    val sidebarBackground: Color,
+    val sidebarControl: Color,
+    val settingsIcon: Color,
     val surface: Color,
     val surfaceHigh: Color,
     val surfaceHigher: Color,
@@ -31,17 +35,21 @@ data class AetherPalette(
 )
 
 val LightAetherPalette = AetherPalette(
-    background = Color(0xFFF7F7F3),
-    backgroundGradientTop = Color(0xFFF3F1EA),
+    background = Color(0xFFFFFFFF),
+    backgroundGradientTop = Color(0xFFFFFFFF),
+    settingsBackground = Color(0xFFF2F2F7),
+    sidebarBackground = Color(0xFFF9F9F9),
+    sidebarControl = Color(0xFFF3F3F2),
+    settingsIcon = Color(0xFF000000),
     surface = Color(0xFFFFFFFF),
-    surfaceHigh = Color(0xFFF5F4EF),
-    surfaceHigher = Color(0xFFEEECE6),
-    surfaceVariant = Color(0xFFE8E4DB),
-    outline = Color(0xFFD9D5CC),
-    outlineSoft = Color(0xFFE7E3DA),
+    surfaceHigh = Color(0xFFF3F3F2),
+    surfaceHigher = Color(0xFFECECEC),
+    surfaceVariant = Color(0xFFE5E5E5),
+    outline = Color(0xFFD9D9D9),
+    outlineSoft = Color(0xFFE7E7E7),
     onSurface = Color(0xFF202123),
-    onSurfaceVariant = Color(0xFF6E6A62),
-    primary = Color(0xFF7250E8),
+    onSurfaceVariant = Color(0xFF6B6B6B),
+    primary = Color(0xFFAD7BF9),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFF1E5FF),
     onPrimaryContainer = Color(0xFF4D2F8E),
@@ -58,6 +66,10 @@ val LightAetherPalette = AetherPalette(
 val DarkAetherPalette = AetherPalette(
     background = Color(0xFF151619),
     backgroundGradientTop = Color(0xFF1B1D22),
+    settingsBackground = Color(0xFF151619),
+    sidebarBackground = Color(0xFF1C1F23),
+    sidebarControl = Color(0xFF24282D),
+    settingsIcon = Color(0xFFF3F1EC),
     surface = Color(0xFF1C1F23),
     surfaceHigh = Color(0xFF24282D),
     surfaceHigher = Color(0xFF2C3036),
@@ -121,6 +133,18 @@ val AetherBackground: Color
 
 val AetherBackgroundGradientTop: Color
     get() = currentPalette.backgroundGradientTop
+
+val AetherSettingsBackground: Color
+    get() = currentPalette.settingsBackground
+
+val AetherSidebarBackground: Color
+    get() = currentPalette.sidebarBackground
+
+val AetherSidebarControl: Color
+    get() = currentPalette.sidebarControl
+
+val AetherSettingsIcon: Color
+    get() = currentPalette.settingsIcon
 
 val AetherSurface: Color
     get() = currentPalette.surface

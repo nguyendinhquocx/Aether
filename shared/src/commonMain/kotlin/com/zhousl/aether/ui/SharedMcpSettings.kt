@@ -94,7 +94,7 @@ import com.zhousl.aether.shared.resources.settings_transport
 import com.zhousl.aether.shared.resources.settings_update_mcp_server_description
 import com.zhousl.aether.shared.resources.settings_working_dir
 import com.zhousl.aether.shared.resources.settings_working_directory
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
@@ -249,7 +249,7 @@ private fun SharedMcpListPage(
     onAdd: () -> Unit,
     onBack: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(top = sharedSettingsContentTopPadding(), start = 20.dp, end = 20.dp)
@@ -472,7 +472,7 @@ private fun SharedMcpEditorPage(
     val isEditing = existing != null
     val tabs = listOf("HTTP", stringResource(Res.string.settings_stdio))
 
-    Box(Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(top = sharedSettingsContentTopPadding(), start = 20.dp, end = 20.dp)

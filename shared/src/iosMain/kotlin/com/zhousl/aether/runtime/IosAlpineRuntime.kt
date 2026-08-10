@@ -16,6 +16,26 @@ class IosAlpineRuntime(
     override val workspaceRoot: String = "/workspace"
     override val fileSystem: RuntimeFileSystem = IosRuntimeFileSystem(host)
 
+    internal fun createTerminalView(listener: NativeTerminalViewListener): Any =
+        host.createTerminalView(listener)
+
+    internal fun updateTerminalView(view: Any, bytes: ByteArray) =
+        host.updateTerminalView(view, bytes)
+
+    internal fun setTerminalDarkTheme(view: Any, darkTheme: Boolean) =
+        host.setTerminalDarkTheme(view, darkTheme)
+
+    internal fun focusTerminalView(view: Any) = host.focusTerminalView(view)
+
+    internal fun sendTerminalKey(
+        view: Any,
+        key: String,
+        controlDown: Boolean,
+        altDown: Boolean,
+    ) = host.sendTerminalKey(view, key, controlDown, altDown)
+
+    internal fun destroyTerminalView(view: Any) = host.destroyTerminalView(view)
+
     override suspend fun isReady(): Boolean = suspendCancellableCoroutine { continuation ->
         host.isRuntimeReady(object : NativeBooleanResultListener {
             override fun onSuccess(value: Boolean) = continuation.resume(value)

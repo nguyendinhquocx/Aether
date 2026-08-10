@@ -35,6 +35,13 @@
 		CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D8ECFC71EF1A7DF279E9E95 /* AetherISHRuntime.m */; };
 		D12A679DA1625C631D2A725D /* term.js in Resources */ = {isa = PBXBuildFile; fileRef = 29B6EB078F2DEC7743342A7D /* term.js */; };
 		D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D7AE7614B5115E8BA325D41F /* libresolv.tbd */; };
+		A10000000000000000000001 /* AetherTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AetherTerminalView.swift */; };
+		A10000000000000000000002 /* ANSIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ANSIParser.swift */; };
+		A10000000000000000000003 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* TerminalBuffer.swift */; };
+		A10000000000000000000004 /* TerminalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* TerminalCanvasView.swift */; };
+		A10000000000000000000005 /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* TerminalEmulator.swift */; };
+		A10000000000000000000006 /* TerminalInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* TerminalInputView.swift */; };
+		A10000000000000000000007 /* TerminalTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* TerminalTypes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -104,6 +111,13 @@
 		EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		EF75C9934FCC6B20C304F550 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		F66BF0C15BAA8020F92F7D0D /* wasm-polyfill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "wasm-polyfill.js"; path = "../../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/wasm-polyfill.js"; sourceTree = "<group>"; };
+		A20000000000000000000001 /* AetherTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherTerminalView.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* ANSIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSIParser.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* TerminalBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBuffer.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* TerminalCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCanvasView.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* TerminalInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputView.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* TerminalTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTypes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -230,9 +244,24 @@
 			path = Tests;
 			sourceTree = "<group>";
 		};
+		A30000000000000000000001 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* AetherTerminalView.swift */,
+				A20000000000000000000002 /* ANSIParser.swift */,
+				A20000000000000000000003 /* TerminalBuffer.swift */,
+				A20000000000000000000004 /* TerminalCanvasView.swift */,
+				A20000000000000000000005 /* TerminalEmulator.swift */,
+				A20000000000000000000006 /* TerminalInputView.swift */,
+				A20000000000000000000007 /* TerminalTypes.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
 		AEE74072359394A69EA78B41 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A30000000000000000000001 /* Terminal */,
 				136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */,
 				E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */,
 				2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */,
@@ -503,6 +532,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000001 /* AetherTerminalView.swift in Sources */,
+				A10000000000000000000002 /* ANSIParser.swift in Sources */,
+				A10000000000000000000003 /* TerminalBuffer.swift in Sources */,
+				A10000000000000000000004 /* TerminalCanvasView.swift in Sources */,
+				A10000000000000000000005 /* TerminalEmulator.swift in Sources */,
+				A10000000000000000000006 /* TerminalInputView.swift in Sources */,
+				A10000000000000000000007 /* TerminalTypes.swift in Sources */,
 				2A8EED7E02AB8DCCD1890366 /* AetherApp.swift in Sources */,
 				CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */,
 				24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */,

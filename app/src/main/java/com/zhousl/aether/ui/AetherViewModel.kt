@@ -211,6 +211,7 @@ class AetherViewModel(
         refreshImportedPiExtensions()
 
         viewModelScope.launch {
+            settingsRepository.initializeLanguageIfNeeded()
             settingsRepository.settings.collect { settings ->
                 if (settings.privacyPolicyAccepted) {
                     runtime.initializePostHog()

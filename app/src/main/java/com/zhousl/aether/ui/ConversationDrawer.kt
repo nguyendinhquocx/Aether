@@ -148,6 +148,7 @@ import com.zhousl.aether.ui.theme.AetherOnPrimary
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
 import com.zhousl.aether.ui.theme.AetherScrim
+import com.zhousl.aether.ui.theme.AetherSidebarBackground
 import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import com.zhousl.aether.ui.theme.AetherSurfaceHigher
@@ -158,20 +159,20 @@ import org.json.JSONObject
 
 private val DrawerOverlayFadeHeight = 18.dp
 
-private fun drawerOverlayBodyGradient(): Brush = Brush.verticalGradient(
+private fun drawerOverlayBodyGradient(background: Color): Brush = Brush.verticalGradient(
     colorStops = arrayOf(
-        0.0f to AetherSurface.copy(alpha = 0.94f),
-        0.20f to AetherSurface.copy(alpha = 0.86f),
-        0.48f to AetherSurface.copy(alpha = 0.54f),
-        0.78f to AetherSurface.copy(alpha = 0.18f),
+        0.0f to background.copy(alpha = 0.94f),
+        0.20f to background.copy(alpha = 0.86f),
+        0.48f to background.copy(alpha = 0.54f),
+        0.78f to background.copy(alpha = 0.18f),
         1.0f to Color.Transparent,
     )
 )
 
-private fun drawerOverlayTailGradient(): Brush = Brush.verticalGradient(
+private fun drawerOverlayTailGradient(background: Color): Brush = Brush.verticalGradient(
     colorStops = arrayOf(
-        0.0f to AetherSurface.copy(alpha = 0.18f),
-        0.46f to AetherSurface.copy(alpha = 0.06f),
+        0.0f to background.copy(alpha = 0.18f),
+        0.46f to background.copy(alpha = 0.06f),
         1.0f to Color.Transparent,
     )
 )
@@ -257,7 +258,7 @@ private fun LegacyConversationDrawer(
         modifier = Modifier
             .fillMaxHeight()
             .widthIn(min = 304.dp, max = 328.dp),
-        drawerContainerColor = AetherSurface,
+        drawerContainerColor = AetherSidebarBackground,
         drawerShape = RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp),
     ) {
         Box(
@@ -333,7 +334,7 @@ private fun LegacyConversationDrawer(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
-                    .background(drawerOverlayBodyGradient())
+                    .background(drawerOverlayBodyGradient(AetherSidebarBackground))
                     .onSizeChanged { overlayHeightPx = it.height }
             ) {
                 Column(
@@ -350,8 +351,9 @@ private fun LegacyConversationDrawer(
                     ) {
                         Text(
                             text = "Aether",
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal),
                             color = AetherOnSurface,
+                            modifier = Modifier.padding(start = 6.dp),
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             HeaderCircleButton(
@@ -366,7 +368,7 @@ private fun LegacyConversationDrawer(
                                     }
                                 },
                                 size = 46.dp,
-                                containerColor = AetherSurface.copy(alpha = 0.90f),
+                                containerColor = Color.Transparent,
                             )
                             HeaderCircleButton(
                                 icon = LucideIcons.Settings,
@@ -377,7 +379,7 @@ private fun LegacyConversationDrawer(
                                     onSettingsSelected()
                                 },
                                 size = 46.dp,
-                                containerColor = AetherSurface.copy(alpha = 0.90f),
+                                containerColor = Color.Transparent,
                             )
                         }
                     }
@@ -399,7 +401,7 @@ private fun LegacyConversationDrawer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(DrawerOverlayFadeHeight)
-                        .background(drawerOverlayTailGradient())
+                        .background(drawerOverlayTailGradient(AetherSidebarBackground))
                 )
             }
 
@@ -695,11 +697,7 @@ private fun DrawerFloatingChatButton(
         modifier = modifier
             .shadow(18.dp, RoundedCornerShape(999.dp), ambientColor = AetherScrim, spotColor = AetherScrim)
             .clip(RoundedCornerShape(999.dp))
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(Color(0xFF7A4DFF), Color(0xFF925BFF)),
-                )
-            )
+            .background(Color(0xFFAD7BF9))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,

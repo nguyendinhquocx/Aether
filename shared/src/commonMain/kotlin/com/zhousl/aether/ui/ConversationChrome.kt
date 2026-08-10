@@ -32,6 +32,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -44,6 +46,7 @@ import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherSurface
 
 private val ConversationControlShadow = Color(0x14000000)
+private val ConversationControlHalo = Color(0x18000000)
 private val ConversationMotionEasing = CubicBezierEasing(0.22f, 0.84f, 0.18f, 1f)
 
 @Composable
@@ -97,28 +100,29 @@ fun AetherSimpleModelSelector(
     label: String,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(38.dp)
-            .shadow(
-                4.dp,
-                RoundedCornerShape(999.dp),
-                ambientColor = ConversationControlShadow,
-                spotColor = ConversationControlShadow,
-            )
-            .clip(RoundedCornerShape(999.dp))
-            .background(AetherSurface.copy(alpha = 0.96f))
-            .padding(horizontal = 17.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Normal),
-            color = AetherOnSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+    Box(modifier = modifier.fillMaxWidth().height(38.dp)) {
+        Box(
+            modifier = Modifier.matchParentSize()
+                .offset(y = 4.dp)
+                .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                .clip(RoundedCornerShape(999.dp))
+                .background(ConversationControlHalo),
         )
+        Row(
+            modifier = Modifier.matchParentSize()
+                .clip(RoundedCornerShape(999.dp))
+                .background(AetherSurface.copy(alpha = 0.96f))
+                .padding(horizontal = 17.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Normal),
+                color = AetherOnSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

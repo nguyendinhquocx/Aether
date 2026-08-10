@@ -36,7 +36,7 @@ import com.zhousl.aether.data.AppSettings
 import com.zhousl.aether.data.AppThemeMode
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.*
-import com.zhousl.aether.ui.theme.AetherBackground
+import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
@@ -49,7 +49,7 @@ internal fun SharedGeneralSettingsDetail(
     onSave: (AppSettings) -> Unit,
     onBack: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize().background(AetherBackground)) {
+    Box(modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -158,7 +158,7 @@ internal fun SharedSelectionDropdownField(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(AetherBackground)
+                .background(AetherSettingsBackground)
                 .clickable { expanded = true }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,

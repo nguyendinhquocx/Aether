@@ -460,7 +460,9 @@ class PiExtensionManager(
                     require(response.optBoolean("removed")) {
                         "No installed Pi extension matched ${extension.source}."
                     }
-                    requireExtensionReloadSucceeded(response.optJSONObject("reload"))
+                    requireExtensionReloadSucceeded(
+                        piKernelBridge.reloadAllExtensions(stateRepository.loadOptions())
+                    )
                 }
 
                 PiExtensionInstallKind.Imported -> {

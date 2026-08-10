@@ -173,7 +173,7 @@ const INDEX_FILE_NAMES = [
 
 const emptyTransport: AetherExtensionTransport = {
   async requestHost() {
-    throw new Error("The Aether Android host is not connected.");
+    throw new Error("The Aether app host is not connected.");
   },
   invalidate() {},
   notify() {},

@@ -30,6 +30,7 @@ class BridgeClient {
     this.eventWaiters = [];
     this.stderr = "";
     createInterface({ input: this.child.stdout }).on("line", (line) => {
+      if (!line.trim()) return;
       let frame;
       try {
         frame = JSON.parse(line);
@@ -146,6 +147,54 @@ test("lists Pi extension packages from an isolated agent directory", async () =>
       }),
       /npm: source/,
     );
+  } finally {
+    await client.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("removes extension packages without reloading their code", async () => {
+  const home = await mkdtemp(join(tmpdir(), "aether-remove-package-"));
+  const agentDirectory = join(home, ".pi", "agent");
+  const packageDirectory = join(
+    agentDirectory,
+    "npm",
+    "node_modules",
+    "aether-remove-test",
+  );
+  await mkdir(packageDirectory, { recursive: true });
+  await writeFile(
+    join(agentDirectory, "settings.json"),
+    JSON.stringify({ packages: ["npm:aether-remove-test"] }),
+    "utf8",
+  );
+  await writeFile(
+    join(packageDirectory, "package.json"),
+    JSON.stringify({
+      name: "aether-remove-test",
+      version: "1.0.0",
+      aether: { extensions: ["./broken.ts"] },
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(packageDirectory, "broken.ts"),
+    "export default (aether) => aether.registerPage({ id: 'old', title: 'Old' });\n",
+    "utf8",
+  );
+
+  const client = new BridgeClient({
+    HOME: home,
+    USERPROFILE: home,
+    PI_OFFLINE: "1",
+  });
+  try {
+    const result = await client.request("package-remove", "remove_extension_package", {
+      source: "npm:aether-remove-test",
+    });
+    assert.equal(result.removed, true);
+    assert.equal(Object.hasOwn(result, "reload"), false);
+    assert.deepEqual(result.packages, []);
   } finally {
     await client.close();
     await rm(home, { recursive: true, force: true });

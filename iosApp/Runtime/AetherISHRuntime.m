@@ -7,9 +7,7 @@
 #include <signal.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/ioctl.h>
 #include <sys/wait.h>
-#include <util.h>
 #include <TargetConditionals.h>
 #include <unistd.h>
 
@@ -24,6 +22,7 @@
 #include "fs/fake.h"
 #include "fs/fd.h"
 #include "fs/path.h"
+#include "fs/tty.h"
 #include "fs/real.h"
 #include "tools/fakefs.h"
 
@@ -35,6 +34,7 @@ static NSString *const AetherISHErrorDomain = @"com.baimoqilin.aether.ish";
 @property(nonatomic) int stdoutRead;
 @property(nonatomic) int stderrRead;
 @property(nonatomic) BOOL pseudoTerminal;
+@property(nonatomic) struct tty *terminal;
 @property(nonatomic, copy) AetherISHOutputBlock stdoutBlock;
 @property(nonatomic, copy) AetherISHOutputBlock stderrBlock;
 @property(nonatomic, copy) AetherISHExitBlock exitBlock;
@@ -42,6 +42,42 @@ static NSString *const AetherISHErrorDomain = @"com.baimoqilin.aether.ish";
 @property(atomic) BOOL exitDelivered;
 @property(nonatomic) dispatch_group_t readerGroup;
 @end
+
+static int AetherISHTTYInitialize(struct tty *tty) {
+    return 0;
+}
+
+static int AetherISHTTYWrite(struct tty *tty, const void *buffer, size_t length, bool blocking) {
+    AetherISHProcess *process = (__bridge AetherISHProcess *)tty->data;
+    if (!process || process.completed || length == 0) return (int)length;
+    NSData *data = [NSData dataWithBytes:buffer length:length];
+    AetherISHOutputBlock output = process.stdoutBlock;
+    dispatch_async(dispatch_get_main_queue(), ^{ output(data); });
+    return (int)length;
+}
+
+static void AetherISHTTYCleanup(struct tty *tty) {
+    if (!tty->data) return;
+    AetherISHProcess *process = CFBridgingRelease(tty->data);
+    tty->data = NULL;
+    process.terminal = NULL;
+}
+
+static void AetherISHReleaseTerminal(struct tty *tty) {
+    if (!tty) return;
+    AetherISHTTYCleanup(tty);
+    lock(&ttys_lock);
+    tty_release(tty);
+    unlock(&ttys_lock);
+}
+
+static struct tty_driver_ops AetherISHTTYOperations = {
+    .init = AetherISHTTYInitialize,
+    .write = AetherISHTTYWrite,
+    .cleanup = AetherISHTTYCleanup,
+};
+
+static struct tty_driver AetherISHPTYDriver = {.ops = &AetherISHTTYOperations};
 
 @implementation AetherISHProcess
 - (instancetype)init {
@@ -274,14 +310,7 @@ static void AetherISHDie(const char *message) {
         int stdinPipe[2] = {-1, -1};
         int stdoutPipe[2] = {-1, -1};
         int stderrPipe[2] = {-1, -1};
-        int terminalMaster = -1;
-        int terminalSlave = -1;
-        if (pseudoTerminal) {
-            struct winsize initialSize = {.ws_row = 24, .ws_col = 80};
-            if (openpty(&terminalMaster, &terminalSlave, NULL, NULL, &initialSize) != 0) {
-                return;
-            }
-        } else if (pipe(stdinPipe) || pipe(stdoutPipe) || pipe(stderrPipe)) {
+        if (!pseudoTerminal && (pipe(stdinPipe) || pipe(stdoutPipe) || pipe(stderrPipe))) {
             [self closePipe:stdinPipe];
             [self closePipe:stdoutPipe];
             [self closePipe:stderrPipe];
@@ -298,12 +327,28 @@ static void AetherISHDie(const char *message) {
             return;
         }
         struct task *task = current;
+        AetherISHProcess *process = [AetherISHProcess new];
+        process.pseudoTerminal = pseudoTerminal;
+        process.stdoutBlock = stdoutBlock;
+        process.stderrBlock = stderrBlock;
+        process.exitBlock = exitBlock;
+        process.readerGroup = dispatch_group_create();
         if (pseudoTerminal) {
-            [self assignHostFd:dup(terminalSlave) toGuestFd:0 task:task];
-            [self assignHostFd:dup(terminalSlave) toGuestFd:1 task:task];
-            [self assignHostFd:dup(terminalSlave) toGuestFd:2 task:task];
-            close(terminalSlave);
-            terminalSlave = -1;
+            struct tty *terminal = pty_open_fake(&AetherISHPTYDriver);
+            if (IS_ERR(terminal)) {
+                current = savedCurrent;
+                return;
+            }
+            process.terminal = terminal;
+            terminal->data = (void *)CFBridgingRetain(process);
+            tty_set_winsize(terminal, (struct winsize_){.row = 24, .col = 80});
+            NSString *terminalPath = [NSString stringWithFormat:@"/dev/pts/%d", terminal->num];
+            error = create_stdio(terminalPath.fileSystemRepresentation, TTY_PSEUDO_SLAVE_MAJOR, terminal->num);
+            if (error < 0) {
+                AetherISHReleaseTerminal(terminal);
+                current = savedCurrent;
+                return;
+            }
         } else if (remoteDebuggingPipe) {
             [self assignHostFd:open("/dev/null", O_RDONLY) toGuestFd:0 task:task];
             [self assignHostFd:open("/dev/null", O_WRONLY) toGuestFd:1 task:task];
@@ -335,6 +380,7 @@ static void AetherISHDie(const char *message) {
         for (NSString *argument in allArguments) {
             NSData *data = [argument dataUsingEncoding:NSUTF8StringEncoding];
             if (argumentPosition + data.length + 2 >= sizeof(argumentBuffer)) {
+                AetherISHReleaseTerminal(process.terminal);
                 current = savedCurrent;
                 [self closePipe:stdinPipe];
                 [self closePipe:stdoutPipe];
@@ -366,6 +412,7 @@ static void AetherISHDie(const char *message) {
         if (workingDirectory.length > 0) {
             error = [self changeGuestDirectory:workingDirectory.UTF8String];
             if (error < 0) {
+                AetherISHReleaseTerminal(process.terminal);
                 current = savedCurrent;
                 [self closePipe:stdinPipe];
                 [self closePipe:stdoutPipe];
@@ -375,6 +422,7 @@ static void AetherISHDie(const char *message) {
         }
         error = do_execve(executable.UTF8String, allArguments.count, argumentBuffer, environmentData.bytes);
         if (error < 0) {
+            AetherISHReleaseTerminal(process.terminal);
             current = savedCurrent;
             [self closePipe:stdinPipe];
             [self closePipe:stdoutPipe];
@@ -382,25 +430,21 @@ static void AetherISHDie(const char *message) {
             return;
         }
 
-        AetherISHProcess *process = [AetherISHProcess new];
         process.processId = task->pid;
-        process.pseudoTerminal = pseudoTerminal;
-        process.stdinWrite = pseudoTerminal ? terminalMaster : stdinPipe[1];
-        process.stdoutRead = pseudoTerminal ? dup(terminalMaster) : stdoutPipe[0];
+        process.stdinWrite = pseudoTerminal ? -1 : stdinPipe[1];
+        process.stdoutRead = pseudoTerminal ? -1 : stdoutPipe[0];
         process.stderrRead = pseudoTerminal ? -1 : stderrPipe[0];
-        process.stdoutBlock = stdoutBlock;
-        process.stderrBlock = stderrBlock;
-        process.exitBlock = exitBlock;
-        process.readerGroup = dispatch_group_create();
-        fcntl(process.stdoutRead, F_SETFL, O_NONBLOCK);
-        fcntl(process.stderrRead, F_SETFL, O_NONBLOCK);
+        if (process.stdoutRead >= 0) fcntl(process.stdoutRead, F_SETFL, O_NONBLOCK);
+        if (process.stderrRead >= 0) fcntl(process.stderrRead, F_SETFL, O_NONBLOCK);
         @synchronized(self.processes) {
             self.processes[@(process.processId)] = process;
         }
         processId = process.processId;
         task_start(task);
         current = savedCurrent;
-        [self readDescriptor:process.stdoutRead process:process block:stdoutBlock];
+        if (process.stdoutRead >= 0) {
+            [self readDescriptor:process.stdoutRead process:process block:stdoutBlock];
+        }
         if (process.stderrRead >= 0) {
             [self readDescriptor:process.stderrRead process:process block:stderrBlock];
         }
@@ -492,6 +536,13 @@ static void AetherISHDie(const char *message) {
         close(process.stdinWrite);
         process.stdinWrite = -1;
     }
+    if (process.terminal) {
+        struct tty *terminal = process.terminal;
+        lock(&terminal->lock);
+        tty_hangup(terminal);
+        unlock(&terminal->lock);
+        AetherISHReleaseTerminal(terminal);
+    }
     void (^deliverExit)(void) = ^{
         @synchronized(process) {
             if (process.exitDelivered) return;
@@ -512,7 +563,11 @@ static void AetherISHDie(const char *message) {
     @synchronized(self.processes) {
         process = self.processes[@(processId)];
     }
-    if (!process || process.stdinWrite < 0) return NO;
+    if (!process) return NO;
+    if (process.terminal) {
+        return tty_input(process.terminal, bytes.bytes, bytes.length, false) >= 0;
+    }
+    if (process.stdinWrite < 0) return NO;
     const uint8_t *cursor = bytes.bytes;
     NSUInteger remaining = bytes.length;
     while (remaining > 0) {
@@ -528,6 +583,11 @@ static void AetherISHDie(const char *message) {
 - (void)closeStdinForProcessId:(int)processId {
     @synchronized(self.processes) {
         AetherISHProcess *process = self.processes[@(processId)];
+        if (process.terminal) {
+            const char endOfFile = 0x04;
+            tty_input(process.terminal, &endOfFile, 1, false);
+            return;
+        }
         if (process.stdinWrite >= 0) {
             close(process.stdinWrite);
             process.stdinWrite = -1;
@@ -547,12 +607,13 @@ static void AetherISHDie(const char *message) {
     @synchronized(self.processes) {
         process = self.processes[@(processId)];
     }
-    if (!process || !process.pseudoTerminal || process.stdinWrite < 0) return;
-    struct winsize size = {
-        .ws_row = (unsigned short)MAX(rows, 1),
-        .ws_col = (unsigned short)MAX(columns, 1),
-    };
-    ioctl(process.stdinWrite, TIOCSWINSZ, &size);
+    if (!process || !process.terminal) return;
+    lock(&process.terminal->lock);
+    tty_set_winsize(process.terminal, (struct winsize_){
+        .row = (unsigned short)MAX(rows, 1),
+        .col = (unsigned short)MAX(columns, 1),
+    });
+    unlock(&process.terminal->lock);
 }
 
 - (BOOL)fileExists:(NSString *)path {

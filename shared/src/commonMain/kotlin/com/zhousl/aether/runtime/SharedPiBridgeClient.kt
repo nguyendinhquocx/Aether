@@ -303,6 +303,17 @@ class SharedPiBridgeClient(
         abortOnCancellation = false,
     )
 
+    suspend fun subscribeAetherExtensions(
+        onEvent: suspend (String, JsonObject) -> Unit,
+    ) {
+        request(
+            type = "subscribe_aether_extensions",
+            timeoutMillis = null,
+            onEvent = onEvent,
+            abortOnCancellation = false,
+        )
+    }
+
     suspend fun sendAetherHostResult(
         callId: String,
         result: JsonObject = JsonObject(emptyMap()),

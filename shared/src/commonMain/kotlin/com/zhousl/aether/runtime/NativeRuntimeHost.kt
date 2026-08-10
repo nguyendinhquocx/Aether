@@ -23,6 +23,12 @@ interface NativeRuntimeHost {
     fun closeStdin(processId: Long)
     fun signal(processId: Long, signal: Int)
     fun resizeTerminal(processId: Long, columns: Int, rows: Int)
+    fun createTerminalView(listener: NativeTerminalViewListener): Any
+    fun updateTerminalView(view: Any, bytes: ByteArray)
+    fun setTerminalDarkTheme(view: Any, darkTheme: Boolean)
+    fun focusTerminalView(view: Any)
+    fun sendTerminalKey(view: Any, key: String, controlDown: Boolean, altDown: Boolean)
+    fun destroyTerminalView(view: Any)
     fun beginBackgroundExecution(name: String, listener: NativeBackgroundExecutionListener): String
     fun updateBackgroundExecution(identifier: String, detail: String)
     fun endBackgroundExecution(identifier: String, success: Boolean)
@@ -64,6 +70,12 @@ interface NativeRuntimeProcessListener {
     fun onStdout(bytes: ByteArray)
     fun onStderr(bytes: ByteArray)
     fun onExit(exitCode: Int, signal: Int)
+}
+
+interface NativeTerminalViewListener {
+    fun onInput(bytes: ByteArray)
+    fun onResize(columns: Int, rows: Int)
+    fun onTitleChanged(title: String)
 }
 
 interface NativeBackgroundExecutionListener {
