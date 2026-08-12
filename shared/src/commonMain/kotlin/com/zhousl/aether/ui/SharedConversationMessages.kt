@@ -14,6 +14,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -26,16 +27,20 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -87,12 +92,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -113,6 +120,11 @@ import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import com.zhousl.aether.data.pi.SharedPiUsage
+import com.zhousl.aether.data.pi.BrowserToolName
+import com.zhousl.aether.data.pi.LegacyChromeToolName
+import com.zhousl.aether.data.pi.SharedBrowserDisplayState
+import com.zhousl.aether.data.pi.SharedChromeManager
+import com.zhousl.aether.platform.PlatformBrowserView
 import com.zhousl.aether.data.platformCurrentTimeMillis
 import com.zhousl.aether.data.platformUptimeMillis
 import com.zhousl.aether.runtime.MultiplatformLocalRuntime
@@ -146,6 +158,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.io.encoding.Base64
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private val SharedStatisticsPopupEasing = CubicBezierEasing(0.22f, 0.84f, 0.18f, 1f)
@@ -177,6 +190,431 @@ internal data class SharedChatToolInvocation(
     val startedAtMillis: Long = 0L,
     val completedAtMillis: Long? = null,
     val timelineOrder: Long = 0L,
+)
+
+private fun isSharedBrowserTool(tool: SharedChatToolInvocation): Boolean =
+    tool.name.trim().equals(BrowserToolName, ignoreCase = true) ||
+        tool.name.trim().equals(LegacyChromeToolName, ignoreCase = true)
+
+internal fun SharedChatMessage.sharedBrowserTools(): List<SharedChatToolInvocation> = buildList {
+    addAll(tools.filter(::isSharedBrowserTool))
+    responseBlocks.forEach { block ->
+        when (block) {
+            is SharedAssistantResponseBlock.ToolGroup -> addAll(block.tools.filter(::isSharedBrowserTool))
+            is SharedAssistantResponseBlock.Reasoning -> addAll(block.trace.toolInvocations.filter(::isSharedBrowserTool))
+            is SharedAssistantResponseBlock.Text -> Unit
+        }
+    }
+}.distinctBy(SharedChatToolInvocation::id)
+
+internal fun SharedChatMessage.withoutSharedBrowserTools(): SharedChatMessage {
+    val firstBrowserBlock = responseBlocks.indexOfFirst { block ->
+        when (block) {
+            is SharedAssistantResponseBlock.ToolGroup -> block.tools.any(::isSharedBrowserTool)
+            is SharedAssistantResponseBlock.Reasoning -> block.trace.toolInvocations.any(::isSharedBrowserTool)
+            is SharedAssistantResponseBlock.Text -> false
+        }
+    }
+    return copy(
+        tools = tools.filterNot(::isSharedBrowserTool),
+        reasoningText = if (firstBrowserBlock >= 0 || sharedBrowserTools().isNotEmpty()) "" else reasoningText,
+        responseBlocks = responseBlocks.mapIndexedNotNull { index, block ->
+            when (block) {
+                is SharedAssistantResponseBlock.Text -> block
+                is SharedAssistantResponseBlock.ToolGroup -> block.copy(
+                    tools = block.tools.filterNot(::isSharedBrowserTool),
+                ).takeIf { it.tools.isNotEmpty() }
+                is SharedAssistantResponseBlock.Reasoning -> {
+                    val retainedTools = block.trace.toolInvocations.filterNot(::isSharedBrowserTool)
+                    block.copy(
+                        trace = block.trace.copy(toolInvocations = retainedTools),
+                    ).takeUnless {
+                        firstBrowserBlock >= 0 && index >= firstBrowserBlock && retainedTools.isEmpty()
+                    }
+                }
+            }
+        },
+    )
+}
+
+internal fun SharedChatMessage.sharedBrowserOverlayText(): String {
+    val firstBrowserBlock = responseBlocks.indexOfFirst { block ->
+        when (block) {
+            is SharedAssistantResponseBlock.ToolGroup -> block.tools.any(::isSharedBrowserTool)
+            is SharedAssistantResponseBlock.Reasoning -> block.trace.toolInvocations.any(::isSharedBrowserTool)
+            is SharedAssistantResponseBlock.Text -> false
+        }
+    }
+    if (firstBrowserBlock < 0) return reasoningText.takeIf { sharedBrowserTools().isNotEmpty() }.orEmpty()
+    return responseBlocks.drop(firstBrowserBlock).asReversed().firstNotNullOfOrNull { block ->
+        val trace = (block as? SharedAssistantResponseBlock.Reasoning)?.trace ?: return@firstNotNullOfOrNull null
+        trace.latestStatusText.ifBlank {
+            trace.chunks.lastOrNull { it.detail.isNotBlank() || it.title.isNotBlank() }
+                ?.let { it.detail.ifBlank(it::title) }
+                .orEmpty()
+        }.takeIf(String::isNotBlank)
+    }.orEmpty().ifBlank { reasoningText }
+}
+
+internal fun SharedChatToolInvocation.sharedStoredBrowserDisplayState(): SharedBrowserDisplayState {
+    val output = runCatching { Json.parseToJsonElement(outputJson).jsonObject }.getOrNull()
+        ?: return SharedBrowserDisplayState(status = outputJson.ifBlank { summary })
+    return SharedBrowserDisplayState(
+        isActive = output["started"]?.jsonPrimitive?.booleanOrNull == true || isRunning,
+        width = output["width"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(1) ?: 390,
+        height = output["height"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(1) ?: 844,
+        screenshotBase64 = output["screenshot_base64"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        screenshotMimeType = output["screenshot_mime_type"]?.jsonPrimitive?.contentOrNull
+            .orEmpty().ifBlank { "image/png" },
+        previewPath = output["preview_path"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        url = output["url"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        title = output["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        cursorX = output["cursor_x"]?.jsonPrimitive?.intOrNull,
+        cursorY = output["cursor_y"]?.jsonPrimitive?.intOrNull,
+        cursorAnimationDurationMillis = output["cursor_animation_duration_ms"]
+            ?.jsonPrimitive?.intOrNull?.coerceIn(80, 1_200) ?: 220,
+        status = output["stdout"]?.jsonPrimitive?.contentOrNull
+            .orEmpty().ifBlank { output["error"]?.jsonPrimitive?.contentOrNull.orEmpty() }
+            .ifBlank { summary },
+    )
+}
+
+internal data class SharedBrowserReplayFrame(
+    val tool: SharedChatToolInvocation,
+    val displayState: SharedBrowserDisplayState,
+)
+
+internal fun SharedChatMessage.sharedBrowserReplayFrames(): List<SharedBrowserReplayFrame> =
+    sharedBrowserTools().mapNotNull { tool ->
+        val state = tool.sharedStoredBrowserDisplayState()
+        if (state.previewPath.isBlank() && state.screenshotBase64.isBlank()) return@mapNotNull null
+        SharedBrowserReplayFrame(tool = tool, displayState = state.copy(isActive = false))
+    }
+
+@Composable
+internal fun SharedBrowserPreviewCard(
+    displayState: SharedBrowserDisplayState,
+    tool: SharedChatToolInvocation,
+    runtime: MultiplatformLocalRuntime,
+    manager: SharedChromeManager? = null,
+    isLive: Boolean = false,
+    replayFrames: List<SharedBrowserReplayFrame> = emptyList(),
+    overlayText: String = "",
+    onOpenLink: (String) -> Unit = {},
+) {
+    var selectedFrameIndex by rememberSaveable(tool.id) {
+        mutableStateOf((replayFrames.size - 1).coerceAtLeast(0))
+    }
+    if (selectedFrameIndex !in replayFrames.indices) {
+        selectedFrameIndex = (replayFrames.size - 1).coerceAtLeast(0)
+    }
+    val selectedFrame = replayFrames.getOrNull(selectedFrameIndex)
+    val presentedState = if (isLive) displayState else selectedFrame?.displayState ?: displayState
+    val presentedTool = if (isLive) tool else selectedFrame?.tool ?: tool
+    val presentedOverlayText = if (
+        isLive || selectedFrameIndex == replayFrames.lastIndex
+    ) {
+        overlayText
+    } else {
+        ""
+    }
+    val previewBitmap by produceState<ImageBitmap?>(
+        initialValue = null,
+        key1 = presentedState.previewPath,
+        key2 = presentedState.lastUpdatedMillis,
+    ) {
+        value = runCatching {
+            when {
+                presentedState.screenshotBase64.isNotBlank() ->
+                    Base64.decode(presentedState.screenshotBase64).decodeToImageBitmap()
+                presentedState.previewPath.isNotBlank() ->
+                    runtime.fileSystem.read(presentedState.previewPath).decodeToImageBitmap()
+                else -> null
+            }
+        }.getOrNull()
+    }
+    val arguments = runCatching { Json.parseToJsonElement(presentedTool.argumentsJson).jsonObject }.getOrNull()
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .shadow(12.dp, RoundedCornerShape(24.dp), ambientColor = AetherScrim, spotColor = AetherScrim)
+            .clip(RoundedCornerShape(24.dp))
+            .background(AetherSurface)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SharedBrowserToolStatus(tool = presentedTool, arguments = arguments)
+        Box(
+            modifier = Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(18.dp))
+                .background(sharedBrowserPreviewBackdropBrush()),
+            contentAlignment = Alignment.Center,
+        ) {
+            var previewSize by remember { mutableStateOf(IntSize.Zero) }
+            val density = LocalDensity.current
+            val imagePaddingPx = with(density) { 10.dp.toPx() }
+            val cursorOffset = remember(
+                previewSize,
+                presentedState.width,
+                presentedState.height,
+                presentedState.cursorX,
+                presentedState.cursorY,
+            ) {
+                resolveSharedBrowserCursorOffset(
+                    previewSize = previewSize,
+                    imagePaddingPx = imagePaddingPx,
+                    displayWidth = presentedState.width,
+                    displayHeight = presentedState.height,
+                    cursorX = presentedState.cursorX,
+                    cursorY = presentedState.cursorY,
+                )
+            }
+            val animationDuration = presentedState.cursorAnimationDurationMillis.coerceIn(80, 1_200)
+            val animatedCursorOffset by animateIntOffsetAsState(
+                targetValue = cursorOffset,
+                animationSpec = tween(animationDuration, easing = SharedStatisticsPopupEasing),
+                label = "shared_browser_cursor_offset",
+            )
+            if (isLive && manager != null) {
+                PlatformBrowserView(
+                    manager = manager,
+                    modifier = Modifier.fillMaxHeight().padding(10.dp).aspectRatio(
+                        presentedState.width.coerceAtLeast(1).toFloat() /
+                            presentedState.height.coerceAtLeast(1).toFloat(),
+                        matchHeightConstraintsFirst = true,
+                    ).clip(RoundedCornerShape(14.dp)),
+                )
+            } else if (previewBitmap != null) {
+                Image(
+                    bitmap = requireNotNull(previewBitmap),
+                    contentDescription = "Browser preview",
+                    modifier = Modifier.fillMaxSize().padding(10.dp).clip(RoundedCornerShape(14.dp)),
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                Text(
+                    text = if (presentedTool.isRunning) {
+                        stringResource(Res.string.chat_browser_preview_waiting)
+                    } else presentedState.status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AetherOnSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().onSizeChanged { previewSize = it },
+            ) {
+                Icon(
+                    imageVector = LucideIcons.MousePointer2WhiteFill,
+                    contentDescription = null,
+                    tint = Color.Unspecified,
+                    modifier = Modifier.offset {
+                        val tipInsetPx = with(density) { 5.dp.roundToPx() }
+                        IntOffset(animatedCursorOffset.x - tipInsetPx, animatedCursorOffset.y - tipInsetPx)
+                    }.size(30.dp),
+                )
+                if (presentedOverlayText.isNotBlank()) {
+                    val bubbleOffset = remember(cursorOffset, previewSize, density) {
+                        resolveSharedBrowserBubbleOffset(cursorOffset, previewSize, density)
+                    }
+                    val animatedBubbleOffset by animateIntOffsetAsState(
+                        targetValue = bubbleOffset,
+                        animationSpec = tween(animationDuration, easing = SharedStatisticsPopupEasing),
+                        label = "shared_browser_bubble_offset",
+                    )
+                    SharedBrowserCursorTextBubble(
+                        text = presentedOverlayText,
+                        runtime = runtime,
+                        onOpenLink = onOpenLink,
+                        modifier = Modifier.offset { animatedBubbleOffset },
+                    )
+                }
+            }
+        }
+        if (!isLive && replayFrames.size > 1) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SharedBranchStepButton(
+                    enabled = selectedFrameIndex > 0,
+                    icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                    onClick = { selectedFrameIndex = (selectedFrameIndex - 1).coerceAtLeast(0) },
+                )
+                Text(
+                    text = "${selectedFrameIndex + 1} / ${replayFrames.size}",
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = AetherOnSurfaceVariant,
+                )
+                SharedBranchStepButton(
+                    enabled = selectedFrameIndex < replayFrames.lastIndex,
+                    icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    onClick = {
+                        selectedFrameIndex = (selectedFrameIndex + 1).coerceAtMost(replayFrames.lastIndex)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SharedBrowserToolStatus(
+    tool: SharedChatToolInvocation,
+    arguments: JsonObject?,
+) {
+    val label = sharedBrowserToolTitle(tool, arguments)
+    Row(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AetherSurfaceHigh)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(Icons.Rounded.Language, contentDescription = null, tint = Color(0xFF5D7CFF), modifier = Modifier.size(16.dp))
+            if (tool.isRunning) {
+                SharedReasoningShimmerText(label, modifier = Modifier.weight(1f), travelDurationMillis = 2_600)
+            } else {
+                Text(
+                    text = label,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = AetherOnSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+}
+
+@Composable
+private fun sharedBrowserToolTitle(
+    tool: SharedChatToolInvocation,
+    arguments: JsonObject?,
+): String {
+    val action = arguments?.get("action")?.jsonPrimitive?.contentOrNull.orEmpty().lowercase()
+    val running = tool.isRunning
+    return when (action) {
+        "start" -> stringResource(if (running) Res.string.tool_title_starting_chrome else Res.string.tool_title_started_chrome)
+        "status" -> stringResource(if (running) Res.string.tool_title_checking_chrome else Res.string.tool_title_checked_chrome)
+        "navigate", "open" -> {
+            val url = arguments?.get("url")?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+            if (url.isBlank()) {
+                stringResource(if (running) Res.string.tool_title_navigating_chrome else Res.string.tool_title_navigated_chrome)
+            } else {
+                stringResource(
+                    if (running) Res.string.tool_title_navigating_chrome_url else Res.string.tool_title_navigated_chrome_url,
+                    url.take(72) + if (url.length > 72) "..." else "",
+                )
+            }
+        }
+        "click", "tap" -> stringResource(if (running) Res.string.tool_title_tapping_chrome else Res.string.tool_title_tapped_chrome)
+        "scroll", "swipe" -> stringResource(if (running) Res.string.tool_title_scrolling_chrome else Res.string.tool_title_scrolled_chrome)
+        "type", "text" -> stringResource(if (running) Res.string.tool_title_typing_chrome else Res.string.tool_title_typed_chrome)
+        "key" -> {
+            val key = arguments?.get("key")?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+            if (key.isBlank()) {
+                stringResource(if (running) Res.string.tool_title_pressing_chrome else Res.string.tool_title_pressed_chrome)
+            } else {
+                stringResource(
+                    if (running) Res.string.tool_title_pressing_chrome_key else Res.string.tool_title_pressed_chrome_key,
+                    key.take(32),
+                )
+            }
+        }
+        "back" -> stringResource(if (running) Res.string.tool_title_going_back_chrome else Res.string.tool_title_went_back_chrome)
+        "forward" -> stringResource(if (running) Res.string.tool_title_going_forward_chrome else Res.string.tool_title_went_forward_chrome)
+        "reload" -> stringResource(if (running) Res.string.tool_title_reloading_chrome else Res.string.tool_title_reloaded_chrome)
+        "screenshot" -> stringResource(if (running) Res.string.tool_title_capturing_chrome else Res.string.tool_title_captured_chrome)
+        "stop" -> stringResource(if (running) Res.string.tool_title_stopping_chrome else Res.string.tool_title_stopped_chrome)
+        else -> stringResource(if (running) Res.string.tool_title_using_chrome else Res.string.tool_title_used_chrome)
+    }
+}
+
+@Composable
+private fun SharedBrowserCursorTextBubble(
+    text: String,
+    runtime: MultiplatformLocalRuntime,
+    onOpenLink: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scrollState = rememberScrollState()
+    LaunchedEffect(text, scrollState.maxValue) {
+        if (scrollState.maxValue > 0) scrollState.scrollTo(scrollState.maxValue)
+    }
+    Box(
+        modifier = modifier
+            .widthIn(max = 320.dp)
+            .shadow(18.dp, RoundedCornerShape(12.dp), ambientColor = AetherScrim, spotColor = AetherScrim)
+            .clip(RoundedCornerShape(12.dp))
+            .background(AetherSurface)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Box(modifier = Modifier.heightIn(max = 104.dp).verticalScroll(scrollState)) {
+            SharedStreamingMarkdownContent(content = text, runtime = runtime, onOpenLink = onOpenLink)
+        }
+    }
+}
+
+private fun resolveSharedBrowserCursorOffset(
+    previewSize: IntSize,
+    imagePaddingPx: Float,
+    displayWidth: Int,
+    displayHeight: Int,
+    cursorX: Int?,
+    cursorY: Int?,
+): IntOffset {
+    if (previewSize.width <= 0 || previewSize.height <= 0) return IntOffset.Zero
+    val contentWidth = (previewSize.width - imagePaddingPx * 2f).coerceAtLeast(1f)
+    val contentHeight = (previewSize.height - imagePaddingPx * 2f).coerceAtLeast(1f)
+    val sourceWidth = displayWidth.coerceAtLeast(1)
+    val sourceHeight = displayHeight.coerceAtLeast(1)
+    val scale = minOf(contentWidth / sourceWidth, contentHeight / sourceHeight)
+    val renderedWidth = sourceWidth * scale
+    val renderedHeight = sourceHeight * scale
+    val renderedLeft = imagePaddingPx + (contentWidth - renderedWidth) / 2f
+    val renderedTop = imagePaddingPx + (contentHeight - renderedHeight) / 2f
+    val fractionX = cursorX?.toFloat()?.div(sourceWidth) ?: 0.58f
+    val fractionY = cursorY?.toFloat()?.div(sourceHeight) ?: 0.56f
+    return IntOffset(
+        (renderedLeft + renderedWidth * fractionX.coerceIn(0f, 1f)).roundToInt(),
+        (renderedTop + renderedHeight * fractionY.coerceIn(0f, 1f)).roundToInt(),
+    )
+}
+
+private fun resolveSharedBrowserBubbleOffset(
+    cursorOffset: IntOffset,
+    previewSize: IntSize,
+    density: androidx.compose.ui.unit.Density,
+): IntOffset {
+    val bubbleMaxWidthPx = with(density) { 320.dp.roundToPx() }
+    val bubbleMaxHeightPx = with(density) { 128.dp.roundToPx() }
+    val gapPx = with(density) { 34.dp.roundToPx() }
+    val edgePaddingPx = with(density) { 8.dp.roundToPx() }
+    val targetY = if (cursorOffset.y < previewSize.height / 2) {
+        cursorOffset.y + gapPx
+    } else {
+        cursorOffset.y - gapPx - bubbleMaxHeightPx
+    }
+    return IntOffset(
+        (cursorOffset.x + gapPx).coerceIn(
+            edgePaddingPx,
+            (previewSize.width - bubbleMaxWidthPx - edgePaddingPx).coerceAtLeast(edgePaddingPx),
+        ),
+        targetY.coerceIn(edgePaddingPx, (previewSize.height - edgePaddingPx).coerceAtLeast(edgePaddingPx)),
+    )
+}
+
+private fun sharedBrowserPreviewBackdropBrush(): Brush = Brush.linearGradient(
+    colorStops = arrayOf(
+        0.00f to Color(0xFFBEEBFF),
+        0.22f to Color(0xFF75C7FF),
+        0.44f to Color(0xFFD5E9FF),
+        0.68f to Color(0xFF83B5FF),
+        1.00f to Color(0xFF4E86F7),
+    ),
+    start = Offset.Zero,
+    end = Offset(900f, 620f),
 )
 
 internal data class SharedReasoningSummaryChunk(
@@ -569,7 +1007,8 @@ internal fun SharedConversationMessage(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box {
+                BoxWithConstraints {
+                    val userBubbleMaxWidth = (maxWidth * 0.72f).coerceIn(300.dp, 520.dp)
                     Column(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -581,7 +1020,7 @@ internal fun SharedConversationMessage(
                             Text(
                                 text = message.text,
                                 modifier = Modifier
-                                    .widthIn(max = 300.dp)
+                                    .widthIn(max = userBubbleMaxWidth)
                                     .shadow(
                                         10.dp,
                                         RoundedCornerShape(24.dp),
@@ -806,14 +1245,14 @@ internal fun SharedConversationMessage(
                         )
                     }
                 }
-                if (message.status.isNotBlank()) {
+                if (shouldShowSharedGenerationStatus(message)) {
                     SharedGenerationStatusCard(
                         text = message.status,
                         detail = message.statusDetail,
                         isRunning = message.isStreaming,
                         modifier = Modifier.padding(top = 6.dp),
                     )
-                } else if (message.isStreaming && message.responseBlocks.isEmpty()) {
+                } else if (shouldShowSharedThinkingFallback(message)) {
                     SharedThinkingIndicator()
                 }
                 if (
@@ -835,6 +1274,17 @@ internal fun SharedConversationMessage(
         }
     }
 }
+
+internal fun shouldShowSharedThinkingFallback(message: SharedChatMessage): Boolean =
+    message.isStreaming &&
+        message.responseBlocks.isEmpty() &&
+        message.reasoningText.isBlank() &&
+        message.tools.isEmpty()
+
+internal fun shouldShowSharedGenerationStatus(message: SharedChatMessage): Boolean =
+    message.status.isNotBlank() &&
+        (!message.status.equals("Thinking", ignoreCase = true) ||
+            !message.responseBlocks.hasVisibleSharedPendingWork())
 
 internal fun shouldFoldSharedAssistantWork(
     isStreaming: Boolean,
@@ -2900,6 +3350,9 @@ private fun toolTitle(tool: SharedChatToolInvocation): String {
         "aether_config_get",
         "aether_config_set",
         "aether_skill_manage",
+        "aether_mcp_manage",
+        "aether_termux_manage",
+        "aether_agent_mode_manage",
         "aether_developer_manage" -> return formatSharedAetherToolTitle(
             toolName = tool.name,
             isRunning = isRunning,
@@ -3029,6 +3482,42 @@ private fun formatSharedAetherToolTitle(
             )
             else -> stringResource(
                 if (isRunning) Res.string.tool_title_reading_mcp_servers else Res.string.tool_title_read_mcp_servers,
+            )
+        }
+        "aether_termux_manage" -> when (action) {
+            "configure_root_access" -> stringResource(
+                if (isRunning) Res.string.tool_title_configuring_termux_root
+                else Res.string.tool_title_configured_termux_root,
+            )
+            "inspect_root_setup" -> stringResource(
+                if (isRunning) Res.string.tool_title_checking_root_setup
+                else Res.string.tool_title_checked_root_setup,
+            )
+            else -> stringResource(
+                if (isRunning) Res.string.tool_title_checking_termux_setup
+                else Res.string.tool_title_checked_termux_setup,
+            )
+        }
+        "aether_agent_mode_manage" -> when (action) {
+            "set_authorization" -> stringResource(
+                if (isRunning) Res.string.tool_title_updating_agent_mode_authorization
+                else Res.string.tool_title_updated_agent_mode_authorization,
+            )
+            "request_shizuku_permission" -> stringResource(
+                if (isRunning) Res.string.tool_title_requesting_shizuku_permission
+                else Res.string.tool_title_requested_shizuku_permission,
+            )
+            "stop_display" -> stringResource(
+                if (isRunning) Res.string.tool_title_stopping_agent_mode_display
+                else Res.string.tool_title_stopped_agent_mode_display,
+            )
+            "refresh_displays" -> stringResource(
+                if (isRunning) Res.string.tool_title_refreshing_agent_mode_displays
+                else Res.string.tool_title_refreshed_agent_mode_displays,
+            )
+            else -> stringResource(
+                if (isRunning) Res.string.tool_title_checking_agent_mode_authorization
+                else Res.string.tool_title_checked_agent_mode_authorization,
             )
         }
         "aether_developer_manage" -> stringResource(

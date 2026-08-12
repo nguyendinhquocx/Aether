@@ -2,11 +2,13 @@ package com.zhousl.aether.data
 
 import com.zhousl.aether.data.pi.RuntimeHostToolExecutor
 import com.zhousl.aether.runtime.MultiplatformLocalRuntime
+import com.zhousl.aether.runtime.SharedPiBridgeClient
 import kotlin.io.encoding.Base64
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -82,6 +84,7 @@ data class SharedSkillBundleSource(
 
 class SharedSkillManager(
     private val runtime: MultiplatformLocalRuntime,
+    private val bridgeClient: SharedPiBridgeClient? = null,
 ) {
     private val executor = RuntimeHostToolExecutor(runtime)
     private val storageRoot = "${runtime.workspaceRoot.trimEnd('/')}/.aether"
@@ -89,9 +92,17 @@ class SharedSkillManager(
     private val skillsRoot = "$storageRoot/skills"
     private val statePath = "$storageRoot/skills-state.json"
     private val sourcesPath = "$storageRoot/skills-sources.json"
+    private val discoveredSourcesPath = "$storageRoot/skills-discovered-sources.json"
+    private val ignoredDiscoveredSourcesPath = "$storageRoot/skills-discovered-ignored.json"
     private val storageMigrationMutex = Mutex()
+    private val discoveryMutex = Mutex()
 
     suspend fun list(): List<SharedInstalledSkill> {
+        runCatching { syncDiscoveredSkills() }
+        return listManagedSkills()
+    }
+
+    private suspend fun listManagedSkills(): List<SharedInstalledSkill> {
         ensureStorageReady()
         runtime.fileSystem.createDirectories(skillsRoot)
         val enabledState = readEnabledState()
@@ -125,6 +136,70 @@ class SharedSkillManager(
                 if (skill != null) add(skill)
             }
         }.sortedBy { it.name.lowercase() }
+    }
+
+    suspend fun syncDiscoveredSkills() {
+        val bridge = bridgeClient ?: return
+        discoveryMutex.withLock {
+            ensureStorageReady()
+            runtime.fileSystem.createDirectories(skillsRoot)
+            val response = bridge.listDiscoveredSkills(runtime.workspaceRoot)
+            val ignored = readStringState(ignoredDiscoveredSourcesPath)
+            val existingSources = readStringState(discoveredSourcesPath)
+            val discovered = response["skills"]?.jsonArray.orEmpty()
+                .mapNotNull { entry ->
+                    val item = runCatching { entry.jsonObject }.getOrNull() ?: return@mapNotNull null
+                    val filePath = item["file_path"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+                    val baseDir = item["base_dir"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+                    if (filePath.isBlank() || baseDir.isBlank()) return@mapNotNull null
+                    SharedDiscoveredSkillSource(filePath = filePath, baseDir = baseDir)
+                }
+                .distinctBy(SharedDiscoveredSkillSource::filePath)
+            val desiredSources = discovered.associateBy({ sharedDiscoveredSkillId(it.filePath) }, { it.filePath })
+
+            discovered.forEach { source ->
+                if (source.filePath in ignored) return@forEach
+                val id = sharedDiscoveredSkillId(source.filePath)
+                val staging = "$storageRoot/skill-discovery-${platformRandomUuid()}"
+                try {
+                    runtime.fileSystem.createDirectories(staging)
+                    val copy = if (source.filePath.substringAfterLast('/').equals("SKILL.md", true)) {
+                        bash("cp -R ${quote("${source.baseDir.trimEnd('/')}/.")} ${quote(staging)}")
+                    } else {
+                        bash("cp ${quote(source.filePath)} ${quote("$staging/SKILL.md")}")
+                    }
+                    check(!copy.isError) { copy.errorText().ifBlank { "Unable to import discovered Skill." } }
+                    val symlinks = bash("find ${quote(staging)} -type l -print -quit")
+                    check(!symlinks.isError && symlinks.stdout().isBlank()) {
+                        "Discovered Skill contains unsupported symbolic links."
+                    }
+                    validateSharedSkillTree(staging)
+                    validateSharedSkillDocument(runtime.fileSystem.read("$staging/SKILL.md").decodeToString())
+                    val destination = "$skillsRoot/$id"
+                    val replace = bash(
+                        "if [ -d ${quote(destination)} ] && diff -qr ${quote(staging)} ${quote(destination)} >/dev/null 2>&1; " +
+                            "then rm -rf ${quote(staging)}; else rm -rf ${quote(destination)} && mv ${quote(staging)} ${quote(destination)}; fi",
+                    )
+                    check(!replace.isError) { replace.errorText().ifBlank { "Unable to synchronize discovered Skill." } }
+                } catch (_: Throwable) {
+                    runCatching { runtime.fileSystem.remove(staging, recursive = true) }
+                }
+            }
+
+            val staleIds = existingSources.keys - desiredSources.keys
+            staleIds.forEach { id -> runtime.fileSystem.remove("$skillsRoot/$id", recursive = true) }
+            if (staleIds.isNotEmpty()) {
+                writeEnabledState(readEnabledState() - staleIds)
+                writeStringState(sourcesPath, readStringState(sourcesPath) - staleIds)
+            }
+            val synchronized = desiredSources.filter { (id, source) ->
+                source !in ignored && runtime.fileSystem.exists("$skillsRoot/$id/SKILL.md")
+            }
+            writeStringState(discoveredSourcesPath, synchronized)
+            val labels = readStringState(sourcesPath).toMutableMap()
+            synchronized.forEach { (id, source) -> labels[id] = source }
+            writeStringState(sourcesPath, labels)
+        }
     }
 
     suspend fun exportBundles(): List<SharedSkillBundle> = list()
@@ -359,6 +434,14 @@ class SharedSkillManager(
     suspend fun remove(skillId: String) {
         ensureStorageReady()
         require(skillId.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid Skill ID." }
+        val discoveredSources = readStringState(discoveredSourcesPath)
+        discoveredSources[skillId]?.let { source ->
+            writeStringState(
+                ignoredDiscoveredSourcesPath,
+                readStringState(ignoredDiscoveredSourcesPath) + (source to "ignored"),
+            )
+            writeStringState(discoveredSourcesPath, discoveredSources - skillId)
+        }
         runtime.fileSystem.remove("$skillsRoot/$skillId", recursive = true)
         val updated = readEnabledState().toMutableMap().apply { remove(skillId) }
         writeEnabledState(updated)
@@ -521,6 +604,23 @@ class SharedSkillManager(
             JsonObject(state.mapValues { JsonPrimitive(it.value) }).toString().encodeToByteArray(),
         )
     }
+}
+
+private data class SharedDiscoveredSkillSource(
+    val filePath: String,
+    val baseDir: String,
+)
+
+internal fun sharedDiscoveredSkillId(sourcePath: String): String {
+    fun hash(seed: UInt): UInt {
+        var value = seed
+        sourcePath.trim().encodeToByteArray().forEach { byte ->
+            value = (value xor byte.toUByte().toUInt()) * 16777619u
+        }
+        return value
+    }
+    return "pi-discovered-${hash(2166136261u).toString(16).padStart(8, '0')}" +
+        hash(3339675911u).toString(16).padStart(8, '0')
 }
 
 data class SharedTurnSkillSelection(

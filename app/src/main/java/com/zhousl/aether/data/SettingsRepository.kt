@@ -19,6 +19,15 @@ private val Context.dataStore by preferencesDataStore(name = "aether_settings")
 class SettingsRepository(
     private val context: Context,
 ) {
+    suspend fun loadModelCatalogCache(): Map<String, ModelCatalogInfo> = context.dataStore.data.first()
+        .let { preferences -> parseModelCatalogCache(preferences[MODEL_CATALOG_CACHE_JSON].orEmpty()) }
+
+    suspend fun saveModelCatalogCache(cache: Map<String, ModelCatalogInfo>) {
+        context.dataStore.edit { preferences ->
+            val merged = parseModelCatalogCache(preferences[MODEL_CATALOG_CACHE_JSON].orEmpty()) + cache
+            preferences[MODEL_CATALOG_CACHE_JSON] = serializeModelCatalogCache(merged)
+        }
+    }
     suspend fun initializeLanguageIfNeeded() {
         val preferences = context.dataStore.data.first()
         if (preferences[LANGUAGE] == null) {
@@ -542,6 +551,7 @@ class SettingsRepository(
         val DEFAULT_TITLE_MODEL_KEY = stringPreferencesKey("default_title_model_key")
         val DEFAULT_NAMING_MODEL_KEY = stringPreferencesKey("default_naming_model_key")
         val DEFAULT_COMPACTING_MODEL_KEY = stringPreferencesKey("default_compacting_model_key")
+        val MODEL_CATALOG_CACHE_JSON = stringPreferencesKey("model_catalog_cache_json")
         val DEFAULT_SELECTED_SKILL_IDS = stringPreferencesKey("default_selected_skill_ids")
         val UNSUPPORTED_PARALLEL_TOOL_CALL_PROVIDER_KEYS =
             stringPreferencesKey("unsupported_parallel_tool_call_provider_keys")
@@ -824,3 +834,38 @@ private fun isAnyPackageInstalled(
         }.isSuccess
     }
 }
+
+private fun serializeModelCatalogCache(cache: Map<String, ModelCatalogInfo>): String = JSONArray().apply {
+    cache.forEach { (key, info) ->
+        put(JSONObject().apply {
+            put("key", key)
+            put("displayName", info.displayName)
+            put("labId", info.labId)
+            put("labName", info.labName)
+            put("labLogoUrl", info.labLogoUrl)
+            put("labLogoPathData", JSONArray(info.labLogoPathData))
+            put("labLogoViewportWidth", info.labLogoViewportWidth)
+            put("labLogoViewportHeight", info.labLogoViewportHeight)
+        })
+    }
+}.toString()
+
+private fun parseModelCatalogCache(raw: String): Map<String, ModelCatalogInfo> = runCatching {
+    val array = JSONArray(raw)
+    buildMap {
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val key = item.optString("key").takeIf(String::isNotBlank) ?: continue
+            val paths = item.optJSONArray("labLogoPathData")?.let { values ->
+                buildList { for (i in 0 until values.length()) add(values.optString(i)) }
+            }.orEmpty()
+            put(key, ModelCatalogInfo(
+                displayName = item.optString("displayName"), labId = item.optString("labId"),
+                labName = item.optString("labName"), labLogoUrl = item.optString("labLogoUrl"),
+                labLogoPathData = paths,
+                labLogoViewportWidth = item.optDouble("labLogoViewportWidth", 40.0).toFloat(),
+                labLogoViewportHeight = item.optDouble("labLogoViewportHeight", 40.0).toFloat(),
+            ))
+        }
+    }
+}.getOrDefault(emptyMap())

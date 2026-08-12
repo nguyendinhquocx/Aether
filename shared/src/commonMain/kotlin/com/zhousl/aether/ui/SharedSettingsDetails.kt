@@ -135,7 +135,7 @@ internal fun SharedPersonalizationSettingsDetail(
     onSave: (AppSettings) -> Unit,
     onBack: () -> Unit,
 ) {
-    var systemPrompt by remember(settings.systemPrompt) { mutableStateOf(settings.systemPrompt) }
+    var systemPrompt by rememberSaveable(settings.systemPrompt) { mutableStateOf(settings.systemPrompt) }
     ReportSharedSettingsUnsavedChanges(systemPrompt != settings.systemPrompt)
     fun persistAndBack() {
         val updated = settings.copy(systemPrompt = systemPrompt)
@@ -152,7 +152,10 @@ internal fun SharedPersonalizationSettingsDetail(
             SharedSettingsTextField(
                 label = stringResource(Res.string.settings_custom_instructions),
                 value = systemPrompt,
-                onValueChange = { systemPrompt = it },
+                onValueChange = {
+                    systemPrompt = it
+                    onSave(settings.copy(systemPrompt = it))
+                },
                 minLines = 8,
             )
         }
@@ -172,8 +175,8 @@ internal fun SharedWebToolsSettingsDetail(
     onSave: (AppSettings) -> Unit,
     onBack: () -> Unit,
 ) {
-    var apiKey by remember(settings.tavilyApiKey) { mutableStateOf(settings.tavilyApiKey) }
-    var baseUrl by remember(settings.tavilyBaseUrl) { mutableStateOf(settings.tavilyBaseUrl) }
+    var apiKey by rememberSaveable(settings.tavilyApiKey) { mutableStateOf(settings.tavilyApiKey) }
+    var baseUrl by rememberSaveable(settings.tavilyBaseUrl) { mutableStateOf(settings.tavilyBaseUrl) }
     ReportSharedSettingsUnsavedChanges(
         apiKey != settings.tavilyApiKey || normalizeTavilyBaseUrl(baseUrl) != settings.tavilyBaseUrl,
     )
@@ -195,7 +198,10 @@ internal fun SharedWebToolsSettingsDetail(
             SharedSettingsTextField(
                 label = stringResource(Res.string.settings_tavily_api_key),
                 value = apiKey,
-                onValueChange = { apiKey = it },
+                onValueChange = {
+                    apiKey = it
+                    onSave(settings.copy(tavilyApiKey = it, tavilyBaseUrl = normalizeTavilyBaseUrl(baseUrl)))
+                },
                 keyboardType = KeyboardType.Password,
                 secret = true,
             )
@@ -203,7 +209,10 @@ internal fun SharedWebToolsSettingsDetail(
             SharedSettingsTextField(
                 label = stringResource(Res.string.settings_tavily_base_url),
                 value = baseUrl,
-                onValueChange = { baseUrl = it },
+                onValueChange = {
+                    baseUrl = it
+                    onSave(settings.copy(tavilyApiKey = apiKey, tavilyBaseUrl = normalizeTavilyBaseUrl(it)))
+                },
                 keyboardType = KeyboardType.Uri,
             )
         }
@@ -224,13 +233,13 @@ internal fun SharedReliabilitySettingsDetail(
     onSave: (AppSettings) -> Unit,
     onBack: () -> Unit,
 ) {
-    var reconnectSeconds by remember(settings.llmInactivityReconnectTimeoutSeconds) {
+    var reconnectSeconds by rememberSaveable(settings.llmInactivityReconnectTimeoutSeconds) {
         mutableStateOf(settings.llmInactivityReconnectTimeoutSeconds.toString())
     }
-    var keepBackground by remember(settings.keepTasksRunningInBackground) {
+    var keepBackground by rememberSaveable(settings.keepTasksRunningInBackground) {
         mutableStateOf(settings.keepTasksRunningInBackground)
     }
-    var notify by remember(settings.notifyOnTaskCompletion) {
+    var notify by rememberSaveable(settings.notifyOnTaskCompletion) {
         mutableStateOf(settings.notifyOnTaskCompletion)
     }
     fun currentSettings(): AppSettings = settings.copy(
@@ -273,12 +282,14 @@ internal fun SharedReliabilitySettingsDetail(
                         onCheckedChange = { keepBackground = it },
                     )
                     Spacer(Modifier.height(4.dp))
-                    SharedSettingsToggle(
-                        title = stringResource(Res.string.settings_notify_background_tasks_finish),
-                        subtitle = stringResource(Res.string.settings_notify_background_tasks_finish_subtitle),
-                        checked = notify,
-                        onCheckedChange = { notify = it },
-                    )
+                    if (capabilities.localNotifications) {
+                        SharedSettingsToggle(
+                            title = stringResource(Res.string.settings_notify_background_tasks_finish),
+                            subtitle = stringResource(Res.string.settings_notify_background_tasks_finish_subtitle),
+                            checked = notify,
+                            onCheckedChange = { notify = it },
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -468,10 +479,10 @@ internal fun SharedDeveloperSettingsDetail(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var autoClean by remember(settings.autoCleanOldCommandHistory) {
+    var autoClean by rememberSaveable(settings.autoCleanOldCommandHistory) {
         mutableStateOf(settings.autoCleanOldCommandHistory)
     }
-    var retention by remember(settings.oldCommandHistoryRetentionHours) {
+    var retention by rememberSaveable(settings.oldCommandHistoryRetentionHours) {
         mutableStateOf(settings.oldCommandHistoryRetentionHours.toString())
     }
     var showExportWarning by remember { mutableStateOf(false) }

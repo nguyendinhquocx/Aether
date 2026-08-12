@@ -21,12 +21,14 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.Serializable
 
 data class SharedProviderModelsResult(
     val models: List<String>,
     val error: String? = null,
 )
 
+@Serializable
 data class SharedModelCatalogInfo(
     val displayName: String,
     val labId: String,

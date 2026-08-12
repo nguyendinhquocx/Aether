@@ -37,7 +37,7 @@ internal fun buildPiAgentInstructions(
     }
     if (chromeEnabled) {
         append(
-            "\n\nThe chat has enabled its Android Chrome Extension tool. Use it only when browser UI operation is required."
+            "\n\nThe chat has enabled the browser tool (Chrome Extension tool). Prefer selectors and DOM-reading actions, and use coordinates only as a fallback."
         )
     }
 }

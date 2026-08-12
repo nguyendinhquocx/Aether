@@ -545,10 +545,28 @@ fun buildModelOptionKey(
 ): String = "$providerConfigId::$modelId"
 
 fun LlmProviderConfig.availableModels(): List<String> = normalizeStringList(cachedModels + manualModelIds)
+    .sortedByPreferredModelName()
 
 fun LlmProviderConfig.enabledModels(): List<String> {
     val availableModels = availableModels().toHashSet()
     return normalizeStringList(enabledModelIds.filter(availableModels::contains))
+        .sortedByPreferredModelName()
+}
+
+fun List<String>.sortedByPreferredModelName(): List<String> = sortedWith(
+    compareBy<String> { modelNamePriority(it) }
+        .thenBy { it.lowercase() }
+        .thenBy { it },
+)
+
+private fun modelNamePriority(modelId: String): Int {
+    val name = modelId.substringAfterLast('/').trim().lowercase()
+    return when {
+        name.startsWith("gpt-") -> 0
+        name.startsWith("claude-") -> 1
+        name.startsWith("gemini-") -> 2
+        else -> 3
+    }
 }
 
 data class ProviderModelOption(
@@ -621,14 +639,12 @@ fun List<LlmProviderConfig>.availableModelOptions(
             )
         }
     }.sortedWith(
-        compareBy<ProviderModelOption> { it.modelProviderPrefixSortKey() }
-            .thenBy { it.providerId }
+        compareBy<ProviderModelOption> { modelNamePriority(it.modelId) }
+            .thenBy { it.modelId.lowercase() }
+            .thenBy { it.providerId.lowercase() }
             .thenBy { it.modelId }
     )
 }
-
-private fun ProviderModelOption.modelProviderPrefixSortKey(): String =
-    modelId.substringBefore('/').trim().ifBlank { modelId }
 
 fun AppSettings.withModelOption(option: ProviderModelOption): AppSettings = copy(
     piProviderId = option.piProviderId,

@@ -5,9 +5,54 @@ import UniformTypeIdentifiers
 import QuickLook
 import Darwin
 import BackgroundTasks
+import AuthenticationServices
 import AetherShared
 
-final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDelegate, PHPickerViewControllerDelegate, QLPreviewControllerDataSource {
+private let alpineNetworkTraceURL = URL(string: "https://www.cloudflare.com/cdn-cgi/trace")!
+private let alpineOfficialRepository = "https://dl-cdn.alpinelinux.org/alpine"
+private let alpineChinaRepository = "https://mirrors.tuna.tsinghua.edu.cn/alpine"
+
+private enum AlpineNetworkEnvironment {
+    case china
+    case international
+    case unknown
+}
+
+private func cloudflareCountryCode(_ trace: String) -> String? {
+    trace.split(separator: "\n").first { line in
+        line.lowercased().hasPrefix("loc=")
+    }.map { String($0.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+}
+
+private func alpineRepositories(
+    _ contents: String,
+    environment: AlpineNetworkEnvironment
+) -> String {
+    contents.split(separator: "\n", omittingEmptySubsequences: false).flatMap { line -> [String] in
+        let originalLine = String(line)
+        let official = originalLine
+            .replacingOccurrences(of: "https://dl-cdn.alpinelinux.org/alpine", with: alpineOfficialRepository)
+            .replacingOccurrences(of: "http://dl-cdn.alpinelinux.org/alpine", with: alpineOfficialRepository)
+            .replacingOccurrences(of: "https://mirrors.tuna.tsinghua.edu.cn/alpine", with: alpineOfficialRepository)
+            .replacingOccurrences(of: "http://mirrors.tuna.tsinghua.edu.cn/alpine", with: alpineOfficialRepository)
+        let isAlpineRepository = originalLine.contains("dl-cdn.alpinelinux.org/alpine") ||
+            originalLine.contains("mirrors.tuna.tsinghua.edu.cn/alpine")
+        guard isAlpineRepository else { return [originalLine] }
+        let china = official.replacingOccurrences(of: alpineOfficialRepository, with: alpineChinaRepository)
+        switch environment {
+        case .china:
+            return [china, official]
+        case .international:
+            return [official]
+        case .unknown:
+            return [official, china]
+        }
+    }.reduce(into: [String]()) { lines, line in
+        if !lines.contains(line) { lines.append(line) }
+    }.joined(separator: "\n")
+}
+
+final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDelegate, PHPickerViewControllerDelegate, QLPreviewControllerDataSource, ASWebAuthenticationPresentationContextProviding {
     static let shared = AetherRuntimeHost()
 
     private let runtime = AetherISHRuntime.shared()
@@ -19,11 +64,45 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     private var fileExportListener: NativeFileExportListener?
     private var fileExportURL: URL?
     private var previewURL: URL?
+    private var authenticationSession: ASWebAuthenticationSession?
     private let backgroundExecution = AetherBackgroundExecutionCoordinator.shared
+    private var startupNetworkEnvironment: AlpineNetworkEnvironment?
 
     private let maximumPickedDirectoryEntries = 4_096
     private let maximumPickedDirectoryEntryBytes = 16 * 1024 * 1024
     private let maximumPickedDirectoryBytes = 128 * 1024 * 1024
+
+    func refreshApkRepositoriesForCurrentNetwork() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 4
+        configuration.timeoutIntervalForResource = 4
+        let session = URLSession(configuration: configuration)
+        var request = URLRequest(
+            url: alpineNetworkTraceURL,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 4
+        )
+        request.setValue("text/plain", forHTTPHeaderField: "Accept")
+        request.setValue("Aether-Alpine-Network-Check", forHTTPHeaderField: "User-Agent")
+        session.dataTask(with: request) { [weak self] data, response, _ in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let countryCode = data.flatMap { String(data: $0, encoding: .utf8) }.flatMap(cloudflareCountryCode)
+            let environment: AlpineNetworkEnvironment
+            if (200...299).contains(statusCode), let countryCode {
+                environment = countryCode.caseInsensitiveCompare("CN") == .orderedSame ? .china : .international
+            } else {
+                environment = .unknown
+            }
+            self?.operations.async {
+                guard let self else { return }
+                self.startupNetworkEnvironment = environment
+                if self.initialized {
+                    try? self.configureApkRepositories(environment: environment)
+                }
+            }
+            session.finishTasksAndInvalidate()
+        }.resume()
+    }
 
     func isRuntimeReady(listener: NativeBooleanResultListener) {
         operations.async { [self] in
@@ -36,10 +115,22 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
                 let hasDatabase = FileManager.default.fileExists(
                     atPath: root.appendingPathComponent("meta.db", isDirectory: false).path
                 )
-                let hasSetupMarker = FileManager.default.fileExists(
-                    atPath: try alpineSetupCompleteMarkerURL().path
-                )
-                onMain { listener.onSuccess(value: hasData && hasDatabase && hasSetupMarker) }
+                guard hasData && hasDatabase else {
+                    onMain { listener.onSuccess(value: false) }
+                    return
+                }
+                if initialized {
+                    onMain { listener.onSuccess(value: true) }
+                    return
+                }
+
+                // The iSH kernel state is process-local. After an app relaunch the
+                // rootfs can be complete while the in-memory runtime is not booted;
+                // recover it before reporting readiness to shared UI and tools.
+                initialize(listener: RuntimeReadinessInitializationListener(
+                    onReady: { listener.onSuccess(value: true) },
+                    onError: { listener.onError(message: $0) },
+                ))
             } catch {
                 onMain { listener.onError(message: error.localizedDescription) }
             }
@@ -147,7 +238,7 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
                 let workspace = try workspaceURL()
                 let chromeRuntime = try chromeRuntimeURL()
                 let chromeDependencies = try chromeDependenciesURL()
-                try configureChinaApkMirror()
+                try configureApkRepositories(environment: startupNetworkEnvironment ?? .unknown)
                 try guestCreateDirectories("/workspace")
                 try guestBind(hostPath: workspace.path, guestPath: "/workspace")
                 try guestCreateDirectories("/usr/lib/chromium")
@@ -561,6 +652,45 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         guard let target = URL(string: url), UIApplication.shared.canOpenURL(target) else { return false }
         onMain { UIApplication.shared.open(target) }
         return true
+    }
+
+    func openAuthenticationUrl(url: String, listener: NativeAuthenticationSessionListener) -> Bool {
+        guard let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased()) else {
+            return false
+        }
+        onMain { [weak self] in
+            guard let self else { return }
+            self.authenticationSession?.cancel()
+            let session = ASWebAuthenticationSession(
+                url: target,
+                callbackURLScheme: "http"
+            ) { [weak self] callbackURL, error in
+                self?.authenticationSession = nil
+                if let callbackURL {
+                    listener.onCallback(url: callbackURL.absoluteString)
+                } else if let sessionError = error as? ASWebAuthenticationSessionError,
+                          sessionError.code == .canceledLogin {
+                    listener.onCancelled()
+                } else {
+                    listener.onError(message: error?.localizedDescription ?? "Authentication session failed.")
+                }
+            }
+            session.presentationContextProvider = self
+            session.prefersEphemeralWebBrowserSession = false
+            self.authenticationSession = session
+            if !session.start() {
+                self.authenticationSession = nil
+            }
+        }
+        return true
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }
+            ?? ASPresentationAnchor()
     }
 
     func terminateApplication() -> Bool {
@@ -1006,23 +1136,12 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         }
     }
 
-    private func configureChinaApkMirror() throws {
-        guard Locale.current.region?.identifier.caseInsensitiveCompare("CN") == .orderedSame else {
-            return
-        }
+    private func configureApkRepositories(environment: AlpineNetworkEnvironment) throws {
         let repositoriesPath = "/etc/apk/repositories"
         guard runtime.fileExists(repositoriesPath) else { return }
         guard let original = try? runtime.readFile(repositoriesPath) else { return }
-        guard var contents = String(data: original, encoding: .utf8) else { return }
-        contents = contents
-            .replacingOccurrences(
-                of: "https://dl-cdn.alpinelinux.org/alpine",
-                with: "https://mirrors.tuna.tsinghua.edu.cn/alpine"
-            )
-            .replacingOccurrences(
-                of: "http://dl-cdn.alpinelinux.org/alpine",
-                with: "https://mirrors.tuna.tsinghua.edu.cn/alpine"
-            )
+        guard let originalContents = String(data: original, encoding: .utf8) else { return }
+        let contents = alpineRepositories(originalContents, environment: environment)
         guard contents != String(data: original, encoding: .utf8) else { return }
         try runtime.writeFile(
             repositoriesPath,
@@ -1061,6 +1180,21 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 }
 
+private final class RuntimeReadinessInitializationListener: NSObject, NativeRuntimeInitializationListener {
+    private let readyHandler: () -> Void
+    private let errorHandler: (String) -> Void
+
+    init(onReady: @escaping () -> Void, onError: @escaping (String) -> Void) {
+        self.readyHandler = onReady
+        self.errorHandler = onError
+    }
+
+    func onProgress(phase: String, detail: String, fraction: Double) {}
+    func onOutput(text: String) {}
+    func onReady() { readyHandler() }
+    func onError(message: String) { errorHandler(message) }
+}
+
 private final class AetherBackgroundExecutionCoordinator {
     static let shared = AetherBackgroundExecutionCoordinator()
 
@@ -1089,7 +1223,7 @@ private final class AetherBackgroundExecutionCoordinator {
         onMainSync {
             guard #available(iOS 26.0, *), !registrationAttempted else { return }
             registrationAttempted = true
-            BGTaskScheduler.shared.register(
+            let registered = BGTaskScheduler.shared.register(
                 forTaskWithIdentifier: taskIdentifierPattern,
                 using: nil
             ) { [weak self] task in
@@ -1098,6 +1232,14 @@ private final class AetherBackgroundExecutionCoordinator {
                     return
                 }
                 self.onMain { self.attach(task) }
+            }
+            guard registered else {
+                NSLog("Aether continued-processing task handler was not registered for %@", self.taskIdentifierPattern)
+                return
+            }
+            if UIApplication.shared.backgroundRefreshStatus != .available {
+                NSLog("Aether background refresh is unavailable (status: %ld)",
+                      UIApplication.shared.backgroundRefreshStatus.rawValue)
             }
         }
     }
@@ -1150,18 +1292,25 @@ private final class AetherBackgroundExecutionCoordinator {
     private func ensureContinuedProcessingTask(name: String) {
         let scheduler = BGTaskScheduler.shared
         register()
-        guard !continuedTaskSubmitted, continuedTask == nil else { return }
+        guard continuedTask == nil else { return }
+        // A previously queued request may still be pending after a short-lived
+        // lease ended. Submitting the same wildcard replaces that request and
+        // lets the new foreground turn own the eventual launch.
+        pendingCompletionSuccess = nil
         let request = BGContinuedProcessingTaskRequest(
             identifier: taskIdentifierPattern,
             title: name,
             subtitle: "Agent is working"
         )
-        request.strategy = .fail
+        // Agent turns are user initiated. Queueing lets iOS start the continued
+        // task as soon as conditions allow instead of rejecting it under load.
+        request.strategy = .queue
         do {
             try scheduler.submit(request)
             continuedTaskSubmitted = true
         } catch {
             continuedTaskSubmitted = false
+            NSLog("Aether continued-processing task submission failed: %@", error.localizedDescription)
         }
     }
 

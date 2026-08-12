@@ -1,7 +1,6 @@
 package com.zhousl.aether.runtime
 
 import android.content.Context
-import android.content.res.Resources
 import android.net.TrafficStats
 import android.os.Build
 import com.zhousl.aether.data.AetherDiagnosticLogger
@@ -10,9 +9,10 @@ import com.zhousl.aether.data.LocalRuntimeId
 import com.zhousl.aether.data.normalizeAlpineEnvironmentVariables
 import java.io.File
 import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.zip.GZIPInputStream
 import java.util.UUID
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -31,10 +31,54 @@ private const val AlpineMaxTailBytes = 64 * 1024
 private const val AlpineNetworkRateWindowMillis = 5_000L
 private const val AlpineAssetRoot = "runtimes/alpine/arm64-v8a"
 private const val AlpineHostLinker = "/system/bin/linker64"
+private const val AlpineNetworkTraceUrl = "https://www.cloudflare.com/cdn-cgi/trace"
+private const val AlpineNetworkDetectionTimeoutMillis = 4_000
+private const val AlpineOfficialRepository = "https://dl-cdn.alpinelinux.org/alpine"
+private const val AlpineChinaRepository = "https://mirrors.tuna.tsinghua.edu.cn/alpine"
 private val AlpineRootfsAssetCandidates = listOf(
     RootfsAsset("$AlpineAssetRoot/rootfs.tar.gz", compressed = true),
     RootfsAsset("$AlpineAssetRoot/rootfs.tar", compressed = false),
 )
+
+internal enum class ApkNetworkEnvironment {
+    China,
+    International,
+    Unknown,
+}
+
+internal fun parseCloudflareCountryCode(trace: String): String? =
+    trace.lineSequence()
+        .firstOrNull { it.startsWith("loc=", ignoreCase = true) }
+        ?.substringAfter('=')
+        ?.trim()
+        ?.takeIf { it.length == 2 }
+        ?.uppercase()
+
+internal fun apkRepositories(
+    original: String,
+    environment: ApkNetworkEnvironment,
+): String =
+    original.lines().flatMap { line ->
+        val official = line
+            .replace(Regex("https?://dl-cdn\\.alpinelinux\\.org/alpine"), AlpineOfficialRepository)
+            .replace(Regex("https?://mirrors\\.tuna\\.tsinghua\\.edu\\.cn/alpine"), AlpineOfficialRepository)
+        if (official == line &&
+            "dl-cdn.alpinelinux.org/alpine" !in line &&
+            "mirrors.tuna.tsinghua.edu.cn/alpine" !in line
+        ) {
+            listOf(line)
+        } else {
+            val china = official.replace(AlpineOfficialRepository, AlpineChinaRepository)
+            when (environment) {
+                ApkNetworkEnvironment.China -> listOf(china, official)
+                ApkNetworkEnvironment.International -> listOf(official)
+                ApkNetworkEnvironment.Unknown -> listOf(official, china)
+            }
+        }
+    }.distinct().joinToString("\n")
+
+internal fun chinaApkRepositories(original: String): String =
+    apkRepositories(original, ApkNetworkEnvironment.China)
 
 class AlpineRuntime(
     context: Context,
@@ -55,6 +99,9 @@ class AlpineRuntime(
     private val runs = ConcurrentHashMap<String, AlpineRun>()
     private val nextRunId = AtomicInteger(1)
     private val packageInstallMutex = Mutex()
+    private val apkRepositoryMutex = Mutex()
+    @Volatile
+    private var startupNetworkEnvironment: ApkNetworkEnvironment? = null
     @Volatile
     private var environmentVariables: List<AlpineEnvironmentVariable> = emptyList()
 
@@ -109,6 +156,7 @@ class AlpineRuntime(
                 state.issue != LocalRuntimeIssue.Failed &&
                 state.issue != LocalRuntimeIssue.MissingAssets
             ) {
+                if (state.isReady) refreshApkRepositoriesForCurrentNetwork(onProgress)
                 return@withContext state
             }
         }
@@ -256,6 +304,7 @@ class AlpineRuntime(
         }
         val setup = inspectSetup()
         if (!setup.isReady) return setup
+        refreshApkRepositoriesForCurrentNetwork(onProgress)
         if (verifyPackageProfile(profileId)) {
             return LocalRuntimeSetupState(
                 runtimeId = id,
@@ -646,7 +695,7 @@ class AlpineRuntime(
             appContext.assets.open(path).use { true }
         }.getOrDefault(false)
 
-    private fun installFromAssets(
+    private suspend fun installFromAssets(
         onProgress: (AlpineSetupProgress) -> Unit,
     ) {
         onProgress(AlpineSetupProgress(output = "Preparing Alpine runtime files...\n"))
@@ -689,37 +738,66 @@ class AlpineRuntime(
         }
         ensureWorkspace()
         ensureGuestNetworkConfig()
-        configureChinaApkMirror(onProgress)
+        refreshApkRepositoriesForCurrentNetwork(onProgress)
         onProgress(AlpineSetupProgress(output = "Alpine runtime files are ready.\n"))
     }
 
-    private fun configureChinaApkMirror(
+    suspend fun refreshApkRepositoriesForCurrentNetwork(
+        onProgress: (AlpineSetupProgress) -> Unit = {},
+    ) = withContext(Dispatchers.IO) {
+        apkRepositoryMutex.lock()
+        try {
+            val environment = startupNetworkEnvironment ?: detectNetworkEnvironment().also {
+                startupNetworkEnvironment = it
+            }
+            configureApkRepositories(environment, onProgress)
+        } finally {
+            apkRepositoryMutex.unlock()
+        }
+    }
+
+    private fun detectNetworkEnvironment(): ApkNetworkEnvironment {
+        val countryCode = runCatching {
+            val connection = URL(AlpineNetworkTraceUrl).openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "GET"
+                connection.connectTimeout = AlpineNetworkDetectionTimeoutMillis
+                connection.readTimeout = AlpineNetworkDetectionTimeoutMillis
+                connection.setRequestProperty("Accept", "text/plain")
+                connection.setRequestProperty("User-Agent", "Aether-Alpine-Network-Check")
+                if (connection.responseCode !in 200..299) return@runCatching null
+                connection.inputStream.bufferedReader().use { parseCloudflareCountryCode(it.readText()) }
+            } finally {
+                connection.disconnect()
+            }
+        }.getOrNull()
+        return when {
+            countryCode == null -> ApkNetworkEnvironment.Unknown
+            countryCode.equals("CN", ignoreCase = true) -> ApkNetworkEnvironment.China
+            else -> ApkNetworkEnvironment.International
+        }
+    }
+
+    private fun configureApkRepositories(
+        environment: ApkNetworkEnvironment,
         onProgress: (AlpineSetupProgress) -> Unit,
     ) {
-        val systemRegion = runCatching {
-            Resources.getSystem().configuration.locales[0].country
-        }.getOrDefault("")
-        if (
-            !systemRegion.equals("CN", ignoreCase = true) &&
-            !Locale.getDefault().country.equals("CN", ignoreCase = true)
-        ) return
         val repositories = File(rootfsDir, "etc/apk/repositories")
         if (!repositories.isFile) return
         val original = runCatching { repositories.readText() }.getOrNull() ?: return
-        val mirrored = original
-            .replace(
-                "https://dl-cdn.alpinelinux.org/alpine",
-                "https://mirrors.tuna.tsinghua.edu.cn/alpine",
-            )
-            .replace(
-                "http://dl-cdn.alpinelinux.org/alpine",
-                "https://mirrors.tuna.tsinghua.edu.cn/alpine",
-            )
-        if (mirrored != original) {
-            runCatching { repositories.writeText(mirrored) }.getOrNull() ?: return
+        val updated = apkRepositories(original, environment)
+        if (updated != original) {
+            runCatching { repositories.writeText(updated) }.getOrNull() ?: return
             onProgress(
                 AlpineSetupProgress(
-                    output = "Using the Tsinghua Alpine mirror for the China region.\n",
+                    output = when (environment) {
+                        ApkNetworkEnvironment.China ->
+                            "Using the Tsinghua Alpine mirror with the official CDN as fallback.\n"
+                        ApkNetworkEnvironment.International ->
+                            "Using the official Alpine CDN for the current network.\n"
+                        ApkNetworkEnvironment.Unknown ->
+                            "Network region detection failed; using official and China Alpine sources.\n"
+                    },
                 )
             )
         }

@@ -21,6 +21,11 @@ data class SharedThinkingCatalogCache(
     val clampsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
 )
 
+@Serializable
+data class SharedModelCatalogCache(
+    val models: Map<String, SharedModelCatalogInfo> = emptyMap(),
+)
+
 const val ModelsDevThinkingCatalogSource = "models.dev"
 
 data class SharedPersistedSettings(
@@ -29,12 +34,19 @@ data class SharedPersistedSettings(
     val onboardingCompletedVersion: Int = 0,
     val appSettings: AppSettings = AppSettings(),
     val thinkingCatalogCache: SharedThinkingCatalogCache = SharedThinkingCatalogCache(),
+    val modelCatalogCache: SharedModelCatalogCache = SharedModelCatalogCache(),
+    val uiState: SharedPersistedUiState = SharedPersistedUiState(),
 ) {
     val activeProviderConfig: LlmProviderConfig?
         get() = providerConfigs.firstOrNull { it.id == activeProviderConfigId && it.isEnabled }
             ?: providerConfigs.firstOrNull { it.isEnabled }
             ?: providerConfigs.firstOrNull()
 }
+
+data class SharedPersistedUiState(
+    val route: String = "",
+    val settingsDestination: String = "",
+)
 
 class AetherSettingsStore(
     private val dataStore: DataStore<Preferences>,
@@ -72,6 +84,13 @@ class AetherSettingsStore(
             ),
             thinkingCatalogCache = parseSharedThinkingCatalogCache(
                 preferences[ThinkingCatalogCacheJson].orEmpty(),
+            ),
+            modelCatalogCache = parseSharedModelCatalogCache(
+                preferences[ModelCatalogCacheJson].orEmpty(),
+            ),
+            uiState = SharedPersistedUiState(
+                route = preferences[LastRoute].orEmpty(),
+                settingsDestination = preferences[SettingsDestination].orEmpty(),
             ),
         )
     }
@@ -142,6 +161,23 @@ class AetherSettingsStore(
         }
     }
 
+    suspend fun saveModelCatalogCache(cache: SharedModelCatalogCache) {
+        dataStore.edit { preferences ->
+            val merged = parseSharedModelCatalogCache(preferences[ModelCatalogCacheJson].orEmpty())
+                .models + cache.models
+            preferences[ModelCatalogCacheJson] = SharedSettingsJson.encodeToString(
+                SharedModelCatalogCache(merged)
+            )
+        }
+    }
+
+    suspend fun saveUiState(route: String, settingsDestination: String) {
+        dataStore.edit { preferences ->
+            preferences[LastRoute] = route
+            preferences[SettingsDestination] = settingsDestination
+        }
+    }
+
     suspend fun markOnboardingComplete() {
         dataStore.edit { preferences ->
             preferences[OnboardingCompletedVersion] = CurrentOnboardingVersion
@@ -203,6 +239,9 @@ class AetherSettingsStore(
         val AppSettingsJson = stringPreferencesKey("app_settings_json")
         val PrivacyPolicyAccepted = booleanPreferencesKey("privacy_policy_accepted")
         val ThinkingCatalogCacheJson = stringPreferencesKey("thinking_catalog_cache_json")
+        val ModelCatalogCacheJson = stringPreferencesKey("model_catalog_cache_json")
+        val LastRoute = stringPreferencesKey("last_route")
+        val SettingsDestination = stringPreferencesKey("settings_destination")
     }
 }
 
@@ -213,6 +252,13 @@ private val SharedThinkingCatalogCacheJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
 }
+
+private val SharedSettingsJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+internal fun parseSharedModelCatalogCache(value: String): SharedModelCatalogCache =
+    value.takeIf(String::isNotBlank)
+        ?.let { runCatching { SharedSettingsJson.decodeFromString<SharedModelCatalogCache>(it) }.getOrNull() }
+        ?: SharedModelCatalogCache()
 
 internal fun parseSharedThinkingCatalogCache(value: String): SharedThinkingCatalogCache =
     value.takeIf(String::isNotBlank)

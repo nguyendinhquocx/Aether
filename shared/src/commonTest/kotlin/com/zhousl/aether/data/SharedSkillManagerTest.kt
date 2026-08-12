@@ -7,6 +7,14 @@ import kotlin.test.assertTrue
 
 class SharedSkillManagerTest {
     @Test
+    fun discoveredSkillIdsAreStableAndSourceSpecific() {
+        val path = "/root/.agents/skills/review/SKILL.md"
+        assertEquals(sharedDiscoveredSkillId(path), sharedDiscoveredSkillId("  $path "))
+        assertTrue(sharedDiscoveredSkillId(path).startsWith("pi-discovered-"))
+        assertTrue(sharedDiscoveredSkillId(path) != sharedDiscoveredSkillId("/workspace/.pi/skills/review/SKILL.md"))
+    }
+
+    @Test
     fun skillIdsMatchAndroidNameBasedRules() {
         assertEquals("document-review", buildSharedSkillId("Document Review"))
         assertEquals("pdf-json", buildSharedSkillId("PDF / JSON"))

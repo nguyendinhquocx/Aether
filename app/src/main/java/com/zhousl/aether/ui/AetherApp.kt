@@ -273,7 +273,8 @@ fun AetherApp(
         }
     }
 
-    LaunchedEffect(extensionManager, extensionContext.toString()) {
+    LaunchedEffect(extensionManager, extensionContext.toString(), uiState.alpineSetupState.isReady) {
+        if (!uiState.alpineSetupState.isReady) return@LaunchedEffect
         extensionManager.start(extensionContext)
         extensionManager.updateContext(extensionContext)
     }
@@ -525,6 +526,7 @@ private fun AetherAppContent(
     var pendingSessionExportId by remember { mutableStateOf<String?>(null) }
     var pendingSkillZipCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
     var pendingTermuxPermissionSource by remember { mutableStateOf("unknown") }
+    var didAutoRequestTermuxPermission by rememberSaveable { mutableStateOf(false) }
     var showAppDataExportWarning by remember { mutableStateOf(false) }
     val onPickedDocuments: (List<Uri>) -> Unit = { uris ->
         uris.forEach { uri ->
@@ -701,6 +703,24 @@ private fun AetherAppContent(
         )
         pendingTermuxPermissionSource = source
         termuxPermissionLauncher.launch(TermuxContract.RunCommandPermission)
+    }
+
+    LaunchedEffect(
+        uiState.isStartupRouteResolved,
+        uiState.settings.privacyPolicyAccepted,
+        uiState.termuxSetupState.issue,
+    ) {
+        if (
+            shouldAutoRequestTermuxPermission(
+                isStartupRouteResolved = uiState.isStartupRouteResolved,
+                privacyPolicyAccepted = uiState.settings.privacyPolicyAccepted,
+                setupIssue = uiState.termuxSetupState.issue,
+                didAutoRequest = didAutoRequestTermuxPermission,
+            )
+        ) {
+            didAutoRequestTermuxPermission = true
+            requestTermuxPermission("termux_detected_permission_missing")
+        }
     }
 
     fun startTermuxSetupAction(
@@ -1405,6 +1425,16 @@ private fun requestApkInstall(
         Toast.makeText(context, context.getString(R.string.app_unable_to_open_apk_installer), Toast.LENGTH_SHORT).show()
     }
 }
+
+internal fun shouldAutoRequestTermuxPermission(
+    isStartupRouteResolved: Boolean,
+    privacyPolicyAccepted: Boolean,
+    setupIssue: TermuxSetupIssue,
+    didAutoRequest: Boolean,
+): Boolean = isStartupRouteResolved &&
+    privacyPolicyAccepted &&
+    setupIssue == TermuxSetupIssue.PermissionMissing &&
+    !didAutoRequest
 
 private fun normalizeAssistantLink(rawLink: String): String {
     val trimmed = rawLink.trim().removeSurrounding("<", ">")

@@ -24,6 +24,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -83,6 +84,15 @@ data class SharedPiStreamingStatus(
     val detail: String = "",
 )
 
+data class SharedPiToolEvent(
+    val id: String,
+    val name: String,
+    val argumentsJson: String,
+    val outputJson: String? = null,
+    val isRunning: Boolean,
+    val isError: Boolean = false,
+)
+
 class SharedPiChatClient(
     private val bridge: SharedPiBridgeClient,
     private val hostToolExecutor: SharedHostToolExecutor? = null,
@@ -139,6 +149,7 @@ class SharedPiChatClient(
         onAssistantReasoningSummaryDelta: suspend (String) -> Unit = {},
         onAssistantRequestStarted: suspend () -> Unit = {},
         onAssistantResponseReset: suspend () -> Unit = {},
+        onToolEvent: suspend (SharedPiToolEvent) -> Unit = {},
         onHostToolStarted: suspend (SharedPiHostToolCall) -> Unit = {},
         onHostToolFinished: suspend (SharedPiHostToolCall, SharedHostToolResult) -> Unit = { _, _ -> },
         onStreamingStatus: suspend (SharedPiStreamingStatus?) -> Unit = {},
@@ -160,6 +171,8 @@ class SharedPiChatClient(
             put("termux_workspace_directory", workspaceDirectory)
             put("runtime", "alpine")
             put("platform", "ios")
+            // Aether owns this workspace; allow Pi to discover project Skills.
+            put("workspace_trusted", true)
             put("chrome_enabled", false)
             put("skill_paths", buildJsonArray {
                 skillPaths.distinct().forEach { add(JsonPrimitive(it)) }
@@ -186,6 +199,9 @@ class SharedPiChatClient(
                 }
                 "assistant_request_start" -> onAssistantRequestStarted()
                 "assistant_stream_reset" -> onAssistantResponseReset()
+                "tool_call_start" -> onToolEvent(eventPayload.toSharedPiToolEvent(isRunning = true))
+                "tool_call_delta" -> onToolEvent(eventPayload.toSharedPiToolEvent(isRunning = true))
+                "tool_call_end" -> onToolEvent(eventPayload.toSharedPiToolEvent(isRunning = false))
                 "session_entry_appended" -> {
                     val entryId = (eventPayload["entry"] as? JsonObject)?.string("id").orEmpty()
                     if (entryId.isNotBlank()) appendedPiEntryIds += entryId
@@ -330,7 +346,14 @@ class SharedPiChatClient(
             arguments + (SharedHostToolSessionIdArgument to JsonPrimitive(request.string("session_id"))),
         )
         val result = executor.execute(toolName, executorArguments)
-        onFinished(call, result)
+        val parsedOutput = runCatching { Json.parseToJsonElement(result.outputJson).jsonObject }.getOrNull()
+        val screenshotBase64 = parsedOutput?.string("screenshot_base64").orEmpty()
+        val screenshotMimeType = parsedOutput?.string("screenshot_mime_type").orEmpty().ifBlank { "image/png" }
+        val visibleOutput = parsedOutput
+            ?.let { JsonObject(it - "screenshot_base64") }
+            ?.toString()
+            ?: result.outputJson
+        onFinished(call, result.copy(outputJson = visibleOutput))
         bridge.request(
             type = "host_tool_result",
             payload = buildJsonObject {
@@ -339,8 +362,21 @@ class SharedPiChatClient(
                 put("tool_call_id", request.string("tool_call_id"))
                 put("tool_name", toolName)
                 put("arguments_json", request.string("arguments_json"))
-                put("output_json", result.outputJson)
+                put("output_json", visibleOutput)
                 put("is_error", result.isError)
+                if (screenshotBase64.isNotBlank()) {
+                    put("content", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "text")
+                            put("text", visibleOutput)
+                        })
+                        add(buildJsonObject {
+                            put("type", "image")
+                            put("mime_type", screenshotMimeType)
+                            put("data", screenshotBase64)
+                        })
+                    })
+                }
             },
             timeoutMillis = 15_000,
             abortOnCancellation = false,
@@ -496,6 +532,41 @@ private fun JsonObject.long(name: String): Long =
 
 private fun JsonObject.int(name: String): Int =
     get(name)?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+
+internal fun JsonObject.toSharedPiToolEvent(isRunning: Boolean): SharedPiToolEvent =
+    SharedPiToolEvent(
+        id = string("id").ifBlank { "pi-tool-${int("content_index")}" },
+        name = string("name").ifBlank { "tool_call" },
+        argumentsJson = sharedToolEventJson(
+            explicitKey = "arguments_json",
+            valueKey = "arguments",
+            fallbackKey = "delta",
+        ) ?: "{}",
+        outputJson = sharedToolEventJson(
+            explicitKey = "output_json",
+            valueKey = "output",
+        ),
+        isRunning = isRunning,
+        isError = get("is_error")?.jsonPrimitive?.booleanOrNull == true,
+    )
+
+private fun JsonObject.sharedToolEventJson(
+    explicitKey: String,
+    valueKey: String,
+    fallbackKey: String = "",
+): String? {
+    string(explicitKey).takeIf(String::isNotBlank)?.let { return it }
+    get(valueKey)?.let { value ->
+        return if (value is JsonPrimitive && value.isString) {
+            value.contentOrNull?.takeIf(String::isNotBlank)
+        } else {
+            value.toString()
+        }
+    }
+    return fallbackKey.takeIf(String::isNotBlank)
+        ?.let(::string)
+        ?.takeIf(String::isNotBlank)
+}
 
 internal fun JsonObject.sharedHostToolSessionId(): String =
     get(SharedHostToolSessionIdArgument)?.jsonPrimitive?.contentOrNull.orEmpty()

@@ -25,7 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.zhousl.aether.data.pi.SharedChromeManager
-import com.zhousl.aether.platform.PlatformWebView
+import com.zhousl.aether.platform.PlatformBrowserView
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.chrome_label
 import com.zhousl.aether.ui.theme.AetherSettingsBackground
@@ -54,8 +54,8 @@ internal fun SharedChromeScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(AetherSettingsBackground)) {
         when {
-            ready -> PlatformWebView(
-                url = manager.viewerUrl,
+            ready -> PlatformBrowserView(
+                manager = manager,
                 modifier = Modifier.fillMaxSize().padding(top = 88.dp).navigationBarsPadding(),
             )
             error.isNotBlank() -> Column(
@@ -69,7 +69,7 @@ internal fun SharedChromeScreen(
             else -> Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text("Preparing Alpine Chromium", color = AetherOnSurfaceVariant)
+                Text("Preparing browser", color = AetherOnSurfaceVariant)
             }
         }
         SettingsTopBar(stringResource(Res.string.chrome_label), onBack)

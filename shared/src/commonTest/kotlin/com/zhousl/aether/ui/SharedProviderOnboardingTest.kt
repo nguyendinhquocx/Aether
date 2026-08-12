@@ -5,12 +5,12 @@ import kotlin.test.assertEquals
 
 class SharedProviderOnboardingTest {
     @Test
-    fun prioritizesAutomaticChatModelsLikeAndroidOnboarding() {
+    fun prioritizesModelFamiliesThenSortsAlphabetically() {
         assertEquals(
             listOf(
-                "claude-fable-5",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
+                "claude-fable-5",
             ),
             prioritizedSharedProviderModelOptions(
                 piProviderId = "openai",
@@ -24,7 +24,7 @@ class SharedProviderOnboardingTest {
     }
 
     @Test
-    fun trimsDeduplicatesAndUsesProviderModelOrdering() {
+    fun trimsDeduplicatesAndUsesGlobalModelOrdering() {
         assertEquals(
             listOf(
                 "gpt-a",

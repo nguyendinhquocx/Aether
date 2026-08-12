@@ -61,10 +61,10 @@ import com.zhousl.aether.data.LlmProviderConfig
 import com.zhousl.aether.data.PiProviderCatalog
 import com.zhousl.aether.data.PiProviderDefinition
 import com.zhousl.aether.data.ProviderAuthMethod
-import com.zhousl.aether.data.automaticModelPriority
 import com.zhousl.aether.data.availableModelOptions
 import com.zhousl.aether.data.findModelOption
 import com.zhousl.aether.data.resolveAutomaticModelKey
+import com.zhousl.aether.data.sortedByPreferredModelName
 import com.zhousl.aether.data.pi.PiProviderAuthState
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.*
@@ -208,6 +208,7 @@ private fun LegacySharedProviderOnboardingStep(
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
+            .sortedByPreferredModelName()
     }
     val providerChoices = remember(providerSearch, selectedAuthMethod) {
         val query = providerSearch.trim().lowercase()
@@ -750,74 +751,9 @@ internal fun prioritizedSharedProviderModelOptions(
     piProviderId: String?,
     cachedModels: List<String>,
 ): List<String> {
-    val fetchedModels = cachedModels
+    return cachedModels
         .map(String::trim)
         .filter(String::isNotBlank)
         .distinctBy { it.lowercase() }
-    val orderedModels = fetchedModels
-        .sortedWith(
-            compareBy<String> { sharedProviderPreferredModelRank(it) }
-                .thenBy { sharedProviderModelRank(piProviderId, it) }
-                .thenBy { it.lowercase() },
-        )
-    return orderedModels.withSharedAutomaticChatModelFirst(piProviderId)
-}
-
-private fun sharedProviderPreferredModelRank(model: String): Int =
-    automaticModelPriority(model, AutomaticModelPurpose.Chat) ?: Int.MAX_VALUE
-
-private fun List<String>.withSharedAutomaticChatModelFirst(
-    piProviderId: String?,
-): List<String> {
-    if (isEmpty() || piProviderId == null) return this
-    val definition = PiProviderCatalog.resolve(piProviderId)
-    val onboardingConfig = LlmProviderConfig(
-        id = "onboarding",
-        providerId = definition.id,
-        name = definition.displayName,
-        piProviderId = definition.id,
-        apiKey = "",
-        baseUrl = definition.defaultBaseUrl,
-        modelId = first(),
-        cachedModels = this,
-        enabledModelIds = this,
-    )
-    val options = listOf(onboardingConfig).availableModelOptions()
-    val automaticModel = options.findModelOption(
-        options.resolveAutomaticModelKey(AutomaticModelPurpose.Chat),
-    )?.modelId ?: return this
-    if (sharedProviderPreferredModelRank(automaticModel) > sharedProviderPreferredModelRank(first())) {
-        return this
-    }
-    return (listOf(automaticModel) + filterNot { it.equals(automaticModel, ignoreCase = true) })
-        .distinctBy { it.lowercase() }
-}
-
-private fun sharedProviderModelRank(
-    piProviderId: String?,
-    model: String,
-): Int = when (piProviderId) {
-    "openai",
-    "openai-codex" -> when {
-        model.lowercase().contains("gpt") -> 0
-        else -> 5
-    }
-
-    "anthropic" -> when {
-        model.lowercase().contains("claude") -> 0
-        else -> 5
-    }
-
-    "google",
-    "google-vertex" -> when {
-        model.lowercase().contains("gemini") -> 0
-        else -> 5
-    }
-
-    else -> when {
-        model.lowercase().contains("gpt") -> 0
-        model.lowercase().contains("claude") -> 1
-        model.lowercase().contains("gemini") -> 2
-        else -> 5
-    }
+        .sortedByPreferredModelName()
 }

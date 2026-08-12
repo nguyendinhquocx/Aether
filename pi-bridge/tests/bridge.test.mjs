@@ -135,6 +135,38 @@ afterEach(async () => {
   await Promise.all([...activeClients].map((client) => client.close()));
 });
 
+test("lists Pi-discovered project skills without Aether managed copies", async () => {
+  const root = await mkdtemp(join(tmpdir(), "aether-skills-"));
+  const workspace = join(root, "workspace");
+  const agentDir = join(root, "agent");
+  const projectSkill = join(workspace, ".agents", "skills", "review");
+  const managedSkill = join(workspace, ".aether", "skills", "managed");
+  await mkdir(projectSkill, { recursive: true });
+  await mkdir(managedSkill, { recursive: true });
+  await mkdir(agentDir, { recursive: true });
+  await writeFile(
+    join(projectSkill, "SKILL.md"),
+    "---\nname: review\ndescription: Reviews code changes\n---\n",
+  );
+  await writeFile(
+    join(managedSkill, "SKILL.md"),
+    "---\nname: managed\ndescription: Already managed by Aether\n---\n",
+  );
+  const client = new BridgeClient({ HOME: root });
+  try {
+    const payload = await client.request("skills-1", "list_discovered_skills", {
+      workspace_directory: workspace,
+      agent_directory: agentDir,
+      workspace_trusted: true,
+    });
+    assert.deepEqual(payload.skills.map((skill) => skill.name), ["review"]);
+    assert.equal(payload.skills[0].file_path, join(projectSkill, "SKILL.md"));
+  } finally {
+    await client.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("lists Pi extension packages from an isolated agent directory", async () => {
   const home = await mkdtemp(join(tmpdir(), "aether-pi-packages-"));
   const client = new BridgeClient({ HOME: home, USERPROFILE: home });
@@ -746,6 +778,134 @@ async function respondToHostTool(client, frame, id) {
   });
 }
 
+const RESPONSES_TEST_TURN_COUNT = 3;
+const RESPONSES_TEST_PROMPT = "x".repeat(60_000);
+
+function openAIResponseEvents(responseNumber) {
+  const text = `answer-${responseNumber}`;
+  const messageId = `msg_${responseNumber}`;
+  return [
+    {
+      type: "response.output_item.added",
+      item: {
+        type: "message",
+        id: messageId,
+        role: "assistant",
+        status: "in_progress",
+        content: [],
+      },
+    },
+    { type: "response.content_part.added", part: { type: "output_text", text: "" } },
+    { type: "response.output_text.delta", delta: text },
+    {
+      type: "response.output_item.done",
+      item: {
+        type: "message",
+        id: messageId,
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text }],
+      },
+    },
+    {
+      type: "response.completed",
+      response: {
+        id: `resp_${responseNumber}`,
+        status: "completed",
+        usage: {
+          input_tokens: 5,
+          output_tokens: 3,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens_details: { reasoning_tokens: 0 },
+        },
+      },
+    },
+  ];
+}
+
+async function createOpenAIResponsesServer() {
+  const requests = [];
+  let responseCount = 0;
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      requests.push({ url: request.url, body });
+      responseCount += 1;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      for (const event of openAIResponseEvents(responseCount)) {
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    requests,
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
+function openAIFetchRedirectEnvironment(targetBaseUrl) {
+  const preloadSource = `
+const targetOrigin = process.env.AETHER_TEST_OPENAI_REDIRECT_ORIGIN;
+if (!targetOrigin) throw new Error("AETHER_TEST_OPENAI_REDIRECT_ORIGIN is required.");
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+  const url = new URL(rawUrl);
+  if (url.hostname !== "api.openai.com") return originalFetch(input, init);
+  return originalFetch(new URL(url.pathname + url.search, targetOrigin), init);
+};
+`;
+  const preloadSpecifier = `data:text/javascript,${encodeURIComponent(preloadSource)}`;
+  return {
+    AETHER_TEST_OPENAI_REDIRECT_ORIGIN: new URL(targetBaseUrl).origin,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${preloadSpecifier}`.trim(),
+  };
+}
+
+function openAIResponsesModelConfig(baseUrl, overrides = {}) {
+  return {
+    provider_type: "builtin",
+    provider_config_id: "responses-test",
+    pi_provider_id: "openai",
+    pi_api: "builtin",
+    model_id: "gpt-5.6-sol",
+    base_url: baseUrl,
+    api_key: "secret-key",
+    reasoning: true,
+    context_window: 128_000,
+    max_tokens: 16_384,
+    max_retries: 0,
+    ...overrides,
+  };
+}
+
+async function runResponsesTurns(client, sessionId, modelConfig, sessionDirectory) {
+  for (let turn = 1; turn <= RESPONSES_TEST_TURN_COUNT; turn += 1) {
+    await client.request(
+      `${sessionId}-turn-${turn}`,
+      "run_turn",
+      {
+        ...turnPayload(
+          sessionId,
+          [userMessage(`turn ${turn}: ${RESPONSES_TEST_PROMPT}`)],
+          modelConfig,
+        ),
+        workspace_directory: sessionDirectory,
+        session_directory: sessionDirectory,
+        max_retries: 0,
+      },
+      20_000,
+    );
+  }
+}
+
 test("reports pinned bridge and Pi versions", async () => {
   const client = new BridgeClient();
   const ping = await client.request("ping-1", "ping");
@@ -938,6 +1098,32 @@ test("closes AgentSession instances explicitly", async () => {
   );
 });
 
+test("rehydrates a persisted AgentSession before navigation", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-session-rehydrate-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  const config = fauxConfig();
+  const first = await client.request(
+    "rehydrate-create",
+    "run_turn",
+    turnPayload("session-rehydrate", [userMessage("hello")], config),
+  );
+  await client.request("rehydrate-close", "close_session", {
+    session_id: "session-rehydrate",
+  });
+
+  const navigation = await client.request("rehydrate-navigate", "navigate_session", {
+    session_id: "session-rehydrate",
+    entry_id: first.session_leaf_id,
+    model_config: config,
+    workspace_directory: process.cwd(),
+    workspace_trusted: true,
+  });
+
+  assert.equal(navigation.session_id, "session-rehydrate");
+  assert.equal(navigation.session_leaf_id, first.session_leaf_id);
+});
+
 test("imports validated Pi JSONL into a relocated session file", async (t) => {
   const home = await mkdtemp(join(tmpdir(), "aether-jsonl-import-"));
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -1015,7 +1201,7 @@ test("uses Pi Coding Agent native tool schemas and platform runtime sets", async
   assert.equal("environment" in actualByName.bash.properties, false);
 });
 
-test("allows only Aether-owned host tools and keeps Chrome Android-only", async (t) => {
+test("allows only Aether-owned host tools and exposes the platform browser", async (t) => {
   const home = await mkdtemp(join(tmpdir(), "aether-host-tools-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   const client = new BridgeClient({ HOME: home, USERPROFILE: home });
@@ -1035,7 +1221,7 @@ test("allows only Aether-owned host tools and keeps Chrome Android-only", async 
     "mcp_call_tool",
     "aether_mcp_manage",
   ];
-  const requested = [...sharedNames, ...removedNames].map((name) => hostTool(name));
+  const requested = ["browser", ...sharedNames, ...removedNames].map((name) => hostTool(name));
 
   await client.request("android-host-turn", "run_turn", {
     ...turnPayload("android-host", [userMessage("hello")], fauxConfig(), requested),
@@ -1045,7 +1231,8 @@ test("allows only Aether-owned host tools and keeps Chrome Android-only", async 
   const android = await client.request("android-host-state", "get_session_state", {
     session_id: "android-host",
   });
-  assert.equal(android.active_tools.includes("chrome"), true);
+  assert.equal(android.active_tools.includes("browser"), true);
+  assert.equal(android.active_tools.includes("chrome"), false);
   assert.deepEqual(sharedNames.filter((name) => android.active_tools.includes(name)), sharedNames);
   assert.deepEqual(removedNames.filter((name) => android.active_tools.includes(name)), []);
 
@@ -1057,6 +1244,7 @@ test("allows only Aether-owned host tools and keeps Chrome Android-only", async 
   const ios = await client.request("ios-host-state", "get_session_state", {
     session_id: "ios-host",
   });
+  assert.equal(ios.active_tools.includes("browser"), true);
   assert.equal(ios.active_tools.includes("chrome"), false);
   assert.deepEqual(sharedNames.filter((name) => ios.active_tools.includes(name)), sharedNames);
   assert.deepEqual(removedNames.filter((name) => ios.active_tools.includes(name)), []);
@@ -1372,6 +1560,85 @@ test("accepts arbitrary manual model IDs for a built-in provider", async (t) => 
   assert.equal(receivedRequest.body.reasoning.effort, "high");
 });
 
+test("omits explicit cache mode for custom OpenAI Responses endpoints", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-custom-responses-"));
+  const api = await createOpenAIResponsesServer();
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  t.after(async () => {
+    await client.close();
+    await api.close();
+    await rm(home, { recursive: true, force: true });
+  });
+
+  const sessionId = "custom-responses-compaction";
+  await runResponsesTurns(
+    client,
+    sessionId,
+    openAIResponsesModelConfig(api.baseUrl),
+    home,
+  );
+  const compacted = await client.request(
+    "custom-responses-compact",
+    "compact_session",
+    { session_id: sessionId },
+    20_000,
+  );
+
+  assert.ok(compacted.compaction);
+  assert.equal(api.requests.length, RESPONSES_TEST_TURN_COUNT + 1);
+  for (const request of api.requests) {
+    assert.equal(request.url, "/v1/responses");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(request.body, "prompt_cache_options"),
+      false,
+    );
+  }
+});
+
+test("preserves explicit cache mode for the official OpenAI Responses endpoint", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-official-responses-"));
+  const api = await createOpenAIResponsesServer();
+  const client = new BridgeClient({
+    HOME: home,
+    USERPROFILE: home,
+    ...openAIFetchRedirectEnvironment(api.baseUrl),
+  });
+  t.after(async () => {
+    await client.close();
+    await api.close();
+    await rm(home, { recursive: true, force: true });
+  });
+
+  const sessionId = "official-responses-compaction";
+  await runResponsesTurns(
+    client,
+    sessionId,
+    openAIResponsesModelConfig("https://API.OPENAI.COM:443/v1/", {
+      provider_config_id: sessionId,
+    }),
+    home,
+  );
+  const compacted = await client.request(
+    "official-responses-compact",
+    "compact_session",
+    { session_id: sessionId },
+    20_000,
+  );
+
+  assert.ok(compacted.compaction);
+  assert.equal(api.requests.length, RESPONSES_TEST_TURN_COUNT + 1);
+  for (const request of api.requests) {
+    assert.equal(request.url, "/v1/responses");
+  }
+  for (const request of api.requests.slice(0, -1)) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(request.body, "prompt_cache_options"),
+      false,
+    );
+  }
+  assert.deepEqual(api.requests.at(-1).body.prompt_cache_options, { mode: "explicit" });
+});
+
 test("lists every built-in Pi provider and its model catalog", async () => {
   const client = new BridgeClient();
   const catalog = await client.request("providers", "list_providers");
@@ -1454,7 +1721,7 @@ test("bundles every Pi OAuth flow into the standalone bridge", async () => {
   }
 });
 
-test("keeps Codex browser OAuth on the manual redirect flow", async () => {
+test("keeps Codex browser OAuth ready for an intercepted loopback redirect", async () => {
   const client = new BridgeClient();
   const login = client.request(
     "oauth-codex-manual",
@@ -1476,15 +1743,11 @@ test("keeps Codex browser OAuth on the manual redirect flow", async () => {
       frame.event === "auth_prompt" &&
       frame.payload.prompt_type === "manual_code",
   );
-  assert.match(authUrl.payload.instructions, /copy the full URL back into Aether/i);
+  assert.match(authUrl.payload.instructions, /authentication window/i);
   assert.equal(manualPrompt.payload.placeholder, "http://localhost:...");
 
   const state = new URL(authUrl.payload.url).searchParams.get("state");
-  await assert.rejects(
-    fetch(`http://127.0.0.1:1455/auth/callback?code=test-code&state=${state}`, {
-      signal: AbortSignal.timeout(500),
-    }),
-  );
+  assert.equal(new URL(authUrl.payload.url).searchParams.get("redirect_uri"), "http://localhost:1455/auth/callback");
 
   const cancelled = await client.request("oauth-codex-cancel", "auth_prompt_result", {
     prompt_id: manualPrompt.payload.prompt_id,

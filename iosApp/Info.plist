@@ -24,9 +24,18 @@
 	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Aether accesses local network services only when you connect a self-hosted AI provider or MCP server.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).agent.*</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

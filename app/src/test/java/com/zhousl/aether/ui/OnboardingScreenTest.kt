@@ -27,16 +27,16 @@ class OnboardingScreenTest {
     }
 
     @Test
-    fun prioritizedModelsReorderOnlyFetchedPreferredFamilies() {
+    fun prioritizedModelsUseFamilyPriorityThenAlphabeticalOrder() {
         assertEquals(
             listOf(
-                "claude-fable-5",
+                "gpt-4.1",
                 "openai/gpt-5.6-sol",
+                "claude-fable-5",
                 "claude-opus-4-8",
                 "claude-sonnet-5",
-                "gemini-3.5-flash",
-                "gpt-4.1",
                 "gemini-2.5-pro",
+                "gemini-3.5-flash",
             ),
             prioritizedModelOptions(
                 piProviderId = null,
@@ -54,9 +54,9 @@ class OnboardingScreenTest {
     }
 
     @Test
-    fun automaticSelectionDoesNotOverridePreferredFetchedModel() {
+    fun alphabeticalOrderWinsWithinPreferredFamily() {
         assertEquals(
-            listOf("gpt-5.6-sol", "gpt-4.1"),
+            listOf("gpt-4.1", "gpt-5.6-sol"),
             prioritizedModelOptions(
                 piProviderId = "openai",
                 cachedModels = listOf("gpt-4.1", "gpt-5.6-sol"),

@@ -270,6 +270,32 @@ class SharedPiChatClientTest {
     }
 
     @Test
+    fun parsesNativeToolLifecycleEventsLikeAndroid() {
+        val started = buildJsonObject {
+            put("id", "tool-1")
+            put("name", "read")
+            put("arguments_json", "{\"path\":\"/workspace/note.txt\"}")
+        }.toSharedPiToolEvent(isRunning = true)
+        assertEquals("tool-1", started.id)
+        assertEquals("read", started.name)
+        assertEquals("{\"path\":\"/workspace/note.txt\"}", started.argumentsJson)
+        assertNull(started.outputJson)
+        assertTrue(started.isRunning)
+
+        val finished = buildJsonObject {
+            put("id", "tool-1")
+            put("name", "read")
+            put("arguments", buildJsonObject { put("path", "/workspace/note.txt") })
+            put("output_json", "{\"stdout\":\"ok\"}")
+            put("is_error", true)
+        }.toSharedPiToolEvent(isRunning = false)
+        assertEquals("{\"path\":\"/workspace/note.txt\"}", finished.argumentsJson)
+        assertEquals("{\"stdout\":\"ok\"}", finished.outputJson)
+        assertFalse(finished.isRunning)
+        assertTrue(finished.isError)
+    }
+
+    @Test
     fun reportsAndroidStreamingStatusesAndClearsThemAtCompletion() = runTest {
         val process = ChatProtocolProcess(assistantErrorEvent = "provider disconnected")
         val bridge = SharedPiBridgeClient(

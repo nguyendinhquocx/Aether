@@ -103,6 +103,7 @@ class PiAgentRunner(
                         JSONArray(skillPaths),
                     )
                     put("workspace_directory", workspaceDirectory)
+                    put("workspace_trusted", true)
                     put("termux_workspace_directory", termuxWorkspaceDirectory)
                     put("runtime", runtimeId.storageValue)
                     put("platform", "android")
@@ -667,7 +668,7 @@ private fun hostToolPayload(
                     put("text", visibleOutput)
                 }
             )
-            if (toolName == "agent_display" || toolName == "chrome") {
+            if (toolName == "agent_display" || toolName == "chrome" || toolName == "browser") {
                 val parsed = runCatching { JSONObject(rawOutput) }.getOrNull()
                 val imageData = parsed?.optString("screenshot_base64").orEmpty()
                 if (parsed?.optBoolean("ok") == true && imageData.isNotBlank()) {

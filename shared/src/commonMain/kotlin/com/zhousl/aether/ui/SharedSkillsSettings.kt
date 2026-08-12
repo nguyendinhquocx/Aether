@@ -89,6 +89,7 @@ import com.zhousl.aether.ui.theme.AetherSettingsBackground
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
+import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -331,7 +332,7 @@ private fun SharedSkillCard(
     var expanded by rememberSaveable(skill.id) { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(AetherSurfaceHigh).animateContentSize().padding(16.dp),
+            .background(AetherSurface).animateContentSize().padding(16.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

@@ -56,6 +56,7 @@ interface NativeRuntimeHost {
     fun shareFile(name: String, mimeType: String, bytes: ByteArray): Boolean
     fun previewFile(name: String, mimeType: String, bytes: ByteArray): Boolean
     fun openUrl(url: String): Boolean
+    fun openAuthenticationUrl(url: String, listener: NativeAuthenticationSessionListener): Boolean
     fun terminateApplication(): Boolean
 }
 
@@ -125,6 +126,12 @@ interface NativePickedDirectoryListener {
 
 interface NativeFileExportListener {
     fun onCompleted()
+    fun onCancelled()
+    fun onError(message: String)
+}
+
+interface NativeAuthenticationSessionListener {
+    fun onCallback(url: String)
     fun onCancelled()
     fun onError(message: String)
 }

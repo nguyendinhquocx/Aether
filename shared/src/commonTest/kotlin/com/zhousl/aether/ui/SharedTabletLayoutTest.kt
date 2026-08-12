@@ -46,6 +46,32 @@ class SharedTabletLayoutTest {
     }
 
     @Test
+    fun restoresSettingsUsingThePresentationForTheCurrentLayout() {
+        assertEquals(
+            SharedNavigationPresentation(
+                route = SharedRoute.Chat,
+                tabletSettingsVisible = true,
+            ),
+            resolveSharedNavigationPresentation(
+                route = SharedRoute.Settings,
+                tabletSettingsVisible = false,
+                useTabletLayout = true,
+            ),
+        )
+        assertEquals(
+            SharedNavigationPresentation(
+                route = SharedRoute.Settings,
+                tabletSettingsVisible = false,
+            ),
+            resolveSharedNavigationPresentation(
+                route = SharedRoute.Chat,
+                tabletSettingsVisible = true,
+                useTabletLayout = false,
+            ),
+        )
+    }
+
+    @Test
     fun defersAndCoalescesMobileDrawerEventsUntilRegistration() {
         val gate = SharedDrawerOpenedEventGate()
 

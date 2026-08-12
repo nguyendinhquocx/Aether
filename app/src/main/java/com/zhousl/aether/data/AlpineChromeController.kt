@@ -2,6 +2,16 @@ package com.zhousl.aether.data
 
 import android.content.Context
 import android.util.Base64
+import com.zhousl.aether.data.pi.BrowserDomStableScript
+import com.zhousl.aether.data.pi.BrowserPageInfoScript
+import com.zhousl.aether.data.pi.BrowserReadableScript
+import com.zhousl.aether.data.pi.browserBackboneScript
+import com.zhousl.aether.data.pi.browserClickScript
+import com.zhousl.aether.data.pi.browserFindElementsScript
+import com.zhousl.aether.data.pi.browserGetTextScript
+import com.zhousl.aether.data.pi.browserScrollScript
+import com.zhousl.aether.data.pi.browserTypeScript
+import com.zhousl.aether.data.pi.browserWaitForDomStableScript
 import com.zhousl.aether.runtime.AlpineRuntime
 import java.io.File
 import java.io.FileOutputStream
@@ -98,42 +108,76 @@ class AlpineChromeController(
                         captureResult("Opened $url")
                     }
                 }
-                "tap" -> {
-                    val x = normalizedCoordinate(arguments, "x", ChromeViewportWidth)
-                    val y = normalizedCoordinate(arguments, "y", ChromeViewportHeight)
-                    if (x == null || y == null) {
-                        errorResult("Both 'x' and 'y' are required, using 0..1000 screen coordinates.")
-                    } else {
-                        dispatchTap(ensureStarted(), x, y)
-                        updateCursor(x, y, 180)
+                "tap", "click" -> {
+                    val selector = arguments.optString("selector").trim()
+                    if (selector.isNotBlank()) {
+                        val result = evaluateBrowserJson(
+                            ensureStarted(),
+                            browserClickScript(selector, null, null),
+                        )
+                        updateCursorFromBrowserResult(result)
                         delay(280)
-                        captureResult("Tapped Chrome.")
+                        captureResult("Clicked browser element.", result)
+                    } else {
+                        val x = normalizedCoordinate(arguments, "x", ChromeViewportWidth)
+                        val y = normalizedCoordinate(arguments, "y", ChromeViewportHeight)
+                        if (x == null || y == null) {
+                            errorResult("Provide a CSS selector or both x and y using normalized 0..1000 coordinates.")
+                        } else {
+                            dispatchTap(ensureStarted(), x, y)
+                            updateCursor(x, y, 180)
+                            delay(280)
+                            captureResult("Clicked browser coordinates.")
+                        }
                     }
                 }
                 "swipe", "scroll" -> {
-                    val x1 = normalizedCoordinate(arguments, "x1", ChromeViewportWidth)
-                        ?: ChromeViewportWidth / 2
-                    val y1 = normalizedCoordinate(arguments, "y1", ChromeViewportHeight)
-                    val x2 = normalizedCoordinate(arguments, "x2", ChromeViewportWidth)
-                        ?: ChromeViewportWidth / 2
-                    val y2 = normalizedCoordinate(arguments, "y2", ChromeViewportHeight)
-                    if (y1 == null || y2 == null) {
-                        errorResult("y1 and y2 are required, using 0..1000 screen coordinates.")
+                    val selector = arguments.optString("selector").trim()
+                    if (selector.isNotBlank() || arguments.has("direction") || arguments.has("amount")) {
+                        val result = evaluateBrowserJson(
+                            ensureStarted(),
+                            browserScrollScript(
+                                selector = selector,
+                                direction = arguments.optString("direction", "down"),
+                                amount = arguments.optInt("amount", 600).coerceIn(1, 20_000),
+                            ),
+                        )
+                        updateCursorFromBrowserResult(result)
+                        delay(250)
+                        captureResult("Scrolled browser.", result)
                     } else {
-                        dispatchScroll(ensureStarted(), x1, y1, x2, y2)
-                        updateCursor(x2, y2, 300)
-                        delay(320)
-                        captureResult("Scrolled Chrome.")
+                        val x1 = normalizedCoordinate(arguments, "x1", ChromeViewportWidth)
+                            ?: ChromeViewportWidth / 2
+                        val y1 = normalizedCoordinate(arguments, "y1", ChromeViewportHeight)
+                        val x2 = normalizedCoordinate(arguments, "x2", ChromeViewportWidth)
+                            ?: ChromeViewportWidth / 2
+                        val y2 = normalizedCoordinate(arguments, "y2", ChromeViewportHeight)
+                        if (y1 == null || y2 == null) {
+                            errorResult("y1 and y2 are required, using 0..1000 screen coordinates.")
+                        } else {
+                            dispatchScroll(ensureStarted(), x1, y1, x2, y2)
+                            updateCursor(x2, y2, 300)
+                            delay(320)
+                            captureResult("Scrolled browser.")
+                        }
                     }
                 }
                 "text", "type" -> {
                     val text = arguments.optString("text")
                     if (text.isEmpty()) {
                         errorResult("Missing required 'text' argument.")
+                    } else if (arguments.optString("selector").isNotBlank()) {
+                        val result = evaluateBrowserJson(
+                            ensureStarted(),
+                            browserTypeScript(arguments.optString("selector"), text),
+                        )
+                        updateCursorFromBrowserResult(result)
+                        delay(180)
+                        captureResult("Typed in browser element.", result)
                     } else {
                         ensureStarted().send("Input.insertText", JSONObject().put("text", text))
                         delay(180)
-                        captureResult("Typed in Chrome.")
+                        captureResult("Typed in browser.")
                     }
                 }
                 "key" -> {
@@ -161,26 +205,44 @@ class AlpineChromeController(
                     delay(550)
                     captureResult("Reloaded Chrome.")
                 }
-                "evaluate" -> {
-                    val expression = arguments.optString("expression")
-                    if (expression.isBlank()) {
-                        errorResult("Missing required 'expression' argument.")
-                    } else {
-                        val result = ensureStarted().send(
-                            "Runtime.evaluate",
-                            JSONObject()
-                                .put("expression", expression)
-                                .put("returnByValue", true)
-                                .put("awaitPromise", true),
-                        )
-                        captureResult(
-                            message = "Evaluated JavaScript in Chrome.",
-                            extra = JSONObject().put(
-                                "result",
-                                result.optJSONObject("result")?.opt("value") ?: JSONObject.NULL,
-                            ),
-                        )
+                "evaluate", "execute_js" -> {
+                    val expression = arguments.optString("script").ifBlank {
+                        arguments.optString("expression")
                     }
+                    if (expression.isBlank()) {
+                        errorResult("Missing required 'script' argument.")
+                    } else {
+                        browserJsonResult(evaluateBrowserValue(ensureStarted(), expression))
+                    }
+                }
+                "get_text" -> browserJsonResult(
+                    evaluateBrowserJson(ensureStarted(), browserGetTextScript(arguments.optString("selector"))),
+                )
+                "get_page_info" -> browserJsonResult(
+                    evaluateBrowserJson(ensureStarted(), BrowserPageInfoScript),
+                )
+                "find_elements" -> {
+                    val selector = arguments.optString("selector").trim()
+                    if (selector.isBlank()) errorResult("find_elements requires 'selector'.")
+                    else browserJsonResult(evaluateBrowserJson(ensureStarted(), browserFindElementsScript(selector)))
+                }
+                "get_readable" -> browserJsonResult(
+                    evaluateBrowserJson(ensureStarted(), BrowserReadableScript),
+                )
+                "get_backbone" -> browserJsonResult(
+                    evaluateBrowserJson(
+                        ensureStarted(),
+                        browserBackboneScript(arguments.optInt("max_depth", 5)),
+                    ),
+                )
+                "wait_for_dom_stable" -> {
+                    val timeout = arguments.optInt("timeout", 5_000).coerceIn(1_000, 60_000)
+                    browserJsonResult(
+                        evaluateBrowserJson(
+                            ensureStarted(),
+                            browserWaitForDomStableScript(timeout),
+                        ),
+                    )
                 }
                 "screenshot" -> {
                     ensureStarted()
@@ -188,7 +250,7 @@ class AlpineChromeController(
                 }
                 "stop" -> stopLocked()
                 else -> errorResult(
-                    "Unsupported action '$action'. Use start, status, navigate, tap, swipe, text, key, back, forward, reload, evaluate, screenshot, or stop."
+                    "Unsupported browser action '$action'."
                 )
             }
         }.getOrElse { throwable ->
@@ -511,6 +573,46 @@ class AlpineChromeController(
         return value?.optString("url").orEmpty() to value?.optString("title").orEmpty()
     }
 
+    private suspend fun evaluateBrowserJson(session: CdpSession, expression: String): JSONObject {
+        val value = evaluateBrowserValue(session, expression)
+        return when (value) {
+            is JSONObject -> value
+            is String -> runCatching { JSONObject(value) }.getOrElse {
+                JSONObject().put("ok", true).put("result", value)
+            }
+            else -> JSONObject().put("ok", true).put("result", value ?: JSONObject.NULL)
+        }
+    }
+
+    private suspend fun evaluateBrowserValue(session: CdpSession, expression: String): Any? {
+        val result = session.send(
+            "Runtime.evaluate",
+            JSONObject()
+                .put("expression", expression)
+                .put("returnByValue", true)
+                .put("awaitPromise", true),
+        )
+        result.optJSONObject("exceptionDetails")?.let { exception ->
+            error(exception.optString("text").ifBlank { "JavaScript evaluation failed." })
+        }
+        return result.optJSONObject("result")?.opt("value")
+    }
+
+    private suspend fun browserJsonResult(payload: Any?): String {
+        val result = when (payload) {
+            is JSONObject -> JSONObject(payload.toString())
+            else -> JSONObject().put("ok", true).put("result", payload ?: JSONObject.NULL)
+        }
+        if (!result.has("ok")) result.put("ok", true)
+        val info = pageInfo()
+        if (!result.has("url")) result.put("url", info.first)
+        if (!result.has("title")) result.put("title", info.second)
+        if (!result.has("stdout")) {
+            result.put("stdout", result.optString("text").ifBlank { result.toString() })
+        }
+        return result.toString()
+    }
+
     private suspend fun dispatchTap(session: CdpSession, x: Int, y: Int) {
         session.send(
             "Input.dispatchMouseEvent",
@@ -579,6 +681,15 @@ class AlpineChromeController(
             cursorY = y,
             cursorAnimationDurationMillis = durationMillis,
             lastUpdatedMillis = System.currentTimeMillis(),
+        )
+    }
+
+    private fun updateCursorFromBrowserResult(result: JSONObject) {
+        if (!result.has("cursor_x") || !result.has("cursor_y")) return
+        updateCursor(
+            x = result.optInt("cursor_x").coerceIn(0, ChromeViewportWidth),
+            y = result.optInt("cursor_y").coerceIn(0, ChromeViewportHeight),
+            durationMillis = result.optInt("cursor_animation_duration_ms", 220),
         )
     }
 

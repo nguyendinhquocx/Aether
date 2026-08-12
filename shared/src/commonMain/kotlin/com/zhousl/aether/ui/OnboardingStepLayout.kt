@@ -46,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -223,6 +224,7 @@ private fun SharedConversationPageContent(
 ) {
     val pageKey = remember(stepIndex, stepCount, message) { "$stepIndex/$stepCount:$message" }
     val contentVisible = rememberSharedStepContentVisible(pageKey, message)
+    val contentStateHolder = rememberSaveableStateHolder()
     val topPadding by animateDpAsState(
         targetValue = if (contentVisible) 56.dp else 168.dp,
         animationSpec = tween(SharedMessageTravelDuration, easing = SharedTourEasing),
@@ -264,11 +266,13 @@ private fun SharedConversationPageContent(
                         exit = fadeOut(tween(180)),
                         label = "step_content_fade",
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(0.dp),
-                            content = content,
-                        )
+                        contentStateHolder.SaveableStateProvider("onboarding_step_content") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(0.dp),
+                                content = content,
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(28.dp))
                 }

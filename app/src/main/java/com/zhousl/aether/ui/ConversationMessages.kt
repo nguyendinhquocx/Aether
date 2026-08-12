@@ -39,6 +39,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -519,7 +520,8 @@ private fun UserMessageBlock(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box {
+        BoxWithConstraints {
+            val userBubbleMaxWidth = (maxWidth * 0.72f).coerceIn(300.dp, 520.dp)
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -528,6 +530,7 @@ private fun UserMessageBlock(
                 if (message.text.isNotBlank()) {
                     UserTextBubble(
                         text = message.text,
+                        maxWidth = userBubbleMaxWidth,
                         onLongPress = { menuExpanded = true },
                     )
                 }
@@ -797,11 +800,12 @@ private fun UserAttachments(
 @OptIn(ExperimentalFoundationApi::class)
 private fun UserTextBubble(
     text: String,
+    maxWidth: Dp,
     onLongPress: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .widthIn(max = 300.dp)
+            .widthIn(max = maxWidth)
             .shadow(10.dp, RoundedCornerShape(24.dp), ambientColor = AetherScrim, spotColor = AetherScrim)
             .clip(RoundedCornerShape(24.dp))
             .background(AetherMessageBubble)
@@ -843,8 +847,9 @@ private fun AssistantMessageBlock(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         val context = LocalContext.current
-        val agentModeFrames = remember(context, message.toolInvocations) {
-            buildAgentModeReplayFrames(context, message.toolInvocations)
+        val replayToolInvocations = message.replayToolInvocations()
+        val agentModeFrames = remember(context, replayToolInvocations) {
+            buildAgentModeReplayFrames(context, replayToolInvocations)
         }
 
         val workContent: @Composable () -> Unit = {
@@ -882,7 +887,7 @@ private fun AssistantMessageBlock(
                 )
             }
         }
-        if (message.reasoningTrace == null && agentModeFrames.isNotEmpty()) {
+        if (agentModeFrames.isNotEmpty()) {
             AgentModeReplayPanel(
                 frames = agentModeFrames,
                 stateKey = "agent-mode-replay-${message.id}",
@@ -952,7 +957,7 @@ private fun AssistantMessageWorkContent(
             )
         }
     }
-    if (message.reasoningTrace == null && agentModeFrames.isNotEmpty()) {
+    if (agentModeFrames.isNotEmpty()) {
         AgentModeReplayPanel(
             frames = agentModeFrames,
             stateKey = "agent-mode-replay-${message.id}",
@@ -1173,8 +1178,9 @@ private fun AssistantGroupMessageContent(
     onOpenLink: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val agentModeFrames = remember(context, message.toolInvocations) {
-        buildAgentModeReplayFrames(context, message.toolInvocations)
+    val replayToolInvocations = message.replayToolInvocations()
+    val agentModeFrames = remember(context, replayToolInvocations) {
+        buildAgentModeReplayFrames(context, replayToolInvocations)
     }
     if (message.reasoningTrace != null) {
         ReasoningTraceStatus(
@@ -3912,7 +3918,7 @@ private fun formatToolInvocationTitleLabel(
         "find" -> context.getString(if (isRunning) R.string.tool_title_find_running else R.string.tool_title_find_done)
         "ls" -> context.getString(if (isRunning) R.string.tool_title_ls_running else R.string.tool_title_ls_done)
         "agent_display" -> formatAgentDisplayTitle(context = context, isRunning = isRunning, arguments = arguments)
-        "chrome" -> formatChromeTitle(context = context, isRunning = isRunning, arguments = arguments)
+        "chrome", "browser" -> formatChromeTitle(context = context, isRunning = isRunning, arguments = arguments)
         "aether_config_get",
         "aether_config_set",
         "aether_skill_manage",
@@ -3978,7 +3984,7 @@ private fun summarizeToolInvocationCommandLabel(
             }
         }
         "agent_display" -> summarizeAgentDisplayCommand(arguments)
-        "chrome" -> summarizeChromeCommand(arguments)
+        "chrome", "browser" -> summarizeChromeCommand(arguments)
         "tavily_search" -> "search ${arguments.optString("query").trim()}"
         "fetch_web_url" -> "fetch ${arguments.optString("url").trim()}"
         "aether_config_get",
@@ -4098,7 +4104,7 @@ private fun summarizeToolInvocationCommand(
         "find" -> "find ${arguments.optString("pattern").trim()} in ${arguments.optString("path").trim()}"
         "ls" -> "ls ${arguments.optString("path").trim()}"
         "agent_display" -> summarizeAgentDisplayCommand(arguments)
-        "chrome" -> summarizeChromeCommand(arguments)
+        "chrome", "browser" -> summarizeChromeCommand(arguments)
         "tavily_search" -> "search ${arguments.optString("query").trim()}"
         "fetch_web_url" -> "fetch ${arguments.optString("url").trim()}"
         "aether_config_get",
@@ -4331,7 +4337,7 @@ private fun buildAgentModeReplayTimeline(
     val interleavedTextMessageIds = mutableSetOf<String>()
     var firstFrameMessageIndex = -1
     messages.forEachIndexed { index, message ->
-        val messageFrames = buildAgentModeReplayFrames(context, message.toolInvocations)
+        val messageFrames = buildAgentModeReplayFrames(context, message.replayToolInvocations())
         if (messageFrames.isNotEmpty()) {
             if (firstFrameMessageIndex < 0) {
                 firstFrameMessageIndex = index
@@ -4352,8 +4358,11 @@ private fun buildAgentModeReplayTimeline(
 
 private fun List<ChatMessage>.hasFutureAgentModeFrame(context: Context, startIndex: Int): Boolean =
     drop(startIndex).any { message ->
-        buildAgentModeReplayFrames(context, message.toolInvocations).isNotEmpty()
+        buildAgentModeReplayFrames(context, message.replayToolInvocations()).isNotEmpty()
     }
+
+private fun ChatMessage.replayToolInvocations(): List<ChatToolInvocation> =
+    (toolInvocations + reasoningTrace?.toolInvocations.orEmpty()).distinctBy(ChatToolInvocation::id)
 
 private fun buildAgentModeReplayFrames(
     context: Context,
@@ -4362,7 +4371,8 @@ private fun buildAgentModeReplayFrames(
     toolInvocations.forEach { invocation ->
         if (
             !invocation.toolName.equals("agent_display", ignoreCase = true) &&
-            !invocation.toolName.equals("chrome", ignoreCase = true)
+            !invocation.toolName.equals("chrome", ignoreCase = true) &&
+            !invocation.toolName.equals("browser", ignoreCase = true)
         ) return@forEach
         val output = parseJsonObject(invocation.outputJson) ?: return@forEach
         if (!output.optBoolean("ok")) return@forEach
@@ -4394,7 +4404,7 @@ private fun buildAgentModeReplayFrames(
 
 private fun ChatToolInvocation.isAgentModeDisplayInvocation(): Boolean =
     toolName.equals("agent_display", ignoreCase = true) ||
-        toolName.equals("chrome", ignoreCase = true)
+        toolName.equals("chrome", ignoreCase = true) || toolName.equals("browser", ignoreCase = true)
 
 private fun agentModeReplayBackdropBrush(): Brush = Brush.linearGradient(
     colorStops = arrayOf(
@@ -4501,7 +4511,7 @@ private fun formatChromeTitle(
             )
         }
     }
-    "tap" -> context.getString(
+    "tap", "click" -> context.getString(
         if (isRunning) R.string.tool_title_tapping_chrome else R.string.tool_title_tapped_chrome,
     )
     "swipe", "scroll" -> context.getString(
@@ -4536,7 +4546,7 @@ private fun formatChromeTitle(
     "reload" -> context.getString(
         if (isRunning) R.string.tool_title_reloading_chrome else R.string.tool_title_reloaded_chrome,
     )
-    "evaluate" -> context.getString(
+    "evaluate", "execute_js", "get_text", "get_page_info", "find_elements", "get_readable", "get_backbone", "wait_for_dom_stable" -> context.getString(
         if (isRunning) R.string.tool_title_evaluating_chrome else R.string.tool_title_evaluated_chrome,
     )
     "screenshot" -> context.getString(
@@ -4554,13 +4564,15 @@ private fun summarizeChromeCommand(arguments: JSONObject?): String {
     if (arguments == null) return "chrome"
     val action = arguments.optString("action").trim().ifBlank { "unknown" }
     return when (action.lowercase()) {
-        "navigate", "open" -> "chrome navigate ${arguments.optString("url").trim()}"
-        "tap" -> "chrome tap x=${arguments.optString("x").trim()} y=${arguments.optString("y").trim()}"
-        "swipe", "scroll" -> "chrome swipe ${arguments.optString("x1").trim()},${arguments.optString("y1").trim()} -> ${arguments.optString("x2").trim()},${arguments.optString("y2").trim()}"
-        "key" -> "chrome key ${arguments.optString("key").trim()}"
-        "text", "type" -> "chrome text"
-        "evaluate" -> "chrome evaluate"
-        else -> "chrome $action"
+        "navigate", "open" -> "browser navigate ${arguments.optString("url").trim()}"
+        "tap", "click" -> arguments.optString("selector").trim().ifBlank {
+            "browser click x=${arguments.optString("x").trim()} y=${arguments.optString("y").trim()}"
+        }.let { value -> if (value.startsWith("browser ")) value else "browser click $value" }
+        "swipe", "scroll" -> "browser scroll"
+        "key" -> "browser key ${arguments.optString("key").trim()}"
+        "text", "type" -> "browser type"
+        "evaluate", "execute_js" -> "browser execute_js"
+        else -> "browser $action"
     }.trim()
 }
 

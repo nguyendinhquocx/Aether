@@ -306,6 +306,39 @@ object LucideIcons {
             return _mousePointer2!!
         }
 
+    val MousePointer2WhiteFill: ImageVector
+        get() {
+            if (_mousePointer2WhiteFill != null) return _mousePointer2WhiteFill!!
+
+            _mousePointer2WhiteFill = ImageVector.Builder(
+                name = "mouse-pointer-2-white-fill",
+                defaultWidth = 24.dp,
+                defaultHeight = 24.dp,
+                viewportWidth = 24f,
+                viewportHeight = 24f,
+            ).apply {
+                path(
+                    fill = SolidColor(Color.White),
+                    stroke = SolidColor(Color.Black),
+                    strokeLineWidth = 2f,
+                    strokeLineCap = StrokeCap.Round,
+                    strokeLineJoin = StrokeJoin.Round,
+                ) {
+                    moveTo(4.037f, 4.688f)
+                    arcToRelative(0.495f, 0.495f, 0f, false, true, 0.651f, -0.651f)
+                    lineToRelative(16f, 6.5f)
+                    arcToRelative(0.5f, 0.5f, 0f, false, true, -0.063f, 0.947f)
+                    lineToRelative(-6.124f, 1.58f)
+                    arcToRelative(2f, 2f, 0f, false, false, -1.438f, 1.435f)
+                    lineToRelative(-1.579f, 6.126f)
+                    arcToRelative(0.5f, 0.5f, 0f, false, true, -0.947f, 0.063f)
+                    close()
+                }
+            }.build()
+
+            return _mousePointer2WhiteFill!!
+        }
+
     val RotateCcw: ImageVector
         get() {
             if (_rotateCcw != null) return _rotateCcw!!
@@ -564,6 +597,7 @@ object LucideIcons {
     private var _copy: ImageVector? = null
     private var _cursor: ImageVector? = null
     private var _mousePointer2: ImageVector? = null
+    private var _mousePointer2WhiteFill: ImageVector? = null
     private var _rotateCcw: ImageVector? = null
     private var _trash2: ImageVector? = null
     private var _chartNoAxesColumn: ImageVector? = null

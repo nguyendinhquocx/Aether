@@ -11,6 +11,7 @@ private final class AetherAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         AetherRuntimeHost.shared.registerBackgroundExecution()
+        AetherRuntimeHost.shared.refreshApkRepositoriesForCurrentNetwork()
         internetPermissionRequester.requestAccess()
         return true
     }

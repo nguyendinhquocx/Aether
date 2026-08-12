@@ -4,6 +4,7 @@ import com.zhousl.aether.runtime.NativePickedFileListener
 import com.zhousl.aether.runtime.NativePickedFilesListener
 import com.zhousl.aether.runtime.NativePickedDirectoryListener
 import com.zhousl.aether.runtime.NativeFileExportListener
+import com.zhousl.aether.runtime.NativeAuthenticationSessionListener
 import com.zhousl.aether.runtime.NativeRuntimeHost
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -103,6 +104,15 @@ class IosPlatformServices(
         }
 
     override fun openUrl(url: String): Boolean = host.openUrl(url)
+    override fun openAuthenticationUrl(
+        url: String,
+        onCallback: (String) -> Unit,
+        onCancelled: () -> Unit,
+    ): Boolean = host.openAuthenticationUrl(url, object : NativeAuthenticationSessionListener {
+        override fun onCallback(url: String) = onCallback(url)
+        override fun onCancelled() = onCancelled()
+        override fun onError(message: String) = onCancelled()
+    })
     override fun copyText(text: String): Boolean = host.copyText(text)
     override fun shareText(title: String, text: String): Boolean = host.shareText(title, text)
     override fun shareFile(name: String, mimeType: String, bytes: ByteArray): Boolean =

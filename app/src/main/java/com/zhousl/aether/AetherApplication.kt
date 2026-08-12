@@ -252,6 +252,9 @@ class AetherAppRuntime(
             nativeModManager.initialize()
         }
         appScope.launch {
+            alpineRuntime.refreshApkRepositoriesForCurrentNetwork()
+        }
+        appScope.launch {
             settingsRepository.migrateLegacyProvidersToPi()
         }
         appScope.launch {

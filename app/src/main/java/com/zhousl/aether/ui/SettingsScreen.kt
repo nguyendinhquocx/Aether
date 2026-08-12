@@ -3304,7 +3304,7 @@ private fun SkillCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(AetherSurfaceHigh)
+            .background(AetherSurface)
             .animateContentSize()
             .padding(16.dp),
     ) {

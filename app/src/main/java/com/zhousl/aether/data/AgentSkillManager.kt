@@ -31,12 +31,21 @@ private const val MaxSkillArchiveBytes = 32L * 1024L * 1024L
 private const val MaxSkillExtractedBytes = 128L * 1024L * 1024L
 private const val MaxSkillEntryBytes = 16L * 1024L * 1024L
 private const val MaxSkillZipEntries = 4096
+private const val DiscoveredSkillPreferencesName = "aether_discovered_skills"
+private const val IgnoredDiscoveredSkillSourcesKey = "ignored_sources"
 
 data class PiPackageSkillSource(
     val packageSource: String,
     val packageName: String,
     val guestPath: String,
     val hostPath: File,
+)
+
+data class PiDiscoveredSkillSource(
+    val guestFilePath: String,
+    val guestBaseDir: String,
+    val hostFile: File,
+    val hostRoot: File,
 )
 
 class AgentSkillManager(
@@ -131,8 +140,82 @@ class AgentSkillManager(
                 .installedSkills
                 .firstOrNull { it.id == skillId }
                 ?: return@runCatching
+            if (skill.source.kind == SkillInstallKind.PiDiscovered) {
+                ignoredDiscoveredSkillSources().edit()
+                    .putStringSet(
+                        IgnoredDiscoveredSkillSourcesKey,
+                        ignoredDiscoveredSkillSources().getStringSet(
+                            IgnoredDiscoveredSkillSourcesKey,
+                            emptySet(),
+                        ).orEmpty() + skill.source.uri,
+                    )
+                    .apply()
+            }
             validatedInstalledSkillRoot(skill)?.deleteRecursively()
             extensionsRepository.removeInstalledSkill(skillId)
+        }
+    }
+
+    suspend fun syncPiDiscoveredSkills(
+        discoveredSkills: List<PiDiscoveredSkillSource>,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val ignored = ignoredDiscoveredSkillSources()
+                .getStringSet(IgnoredDiscoveredSkillSourcesKey, emptySet())
+                .orEmpty()
+            val desired = discoveredSkills
+                .filter { it.guestFilePath !in ignored }
+                .distinctBy(PiDiscoveredSkillSource::guestFilePath)
+            val desiredPaths = desired.map(PiDiscoveredSkillSource::guestFilePath).toSet()
+            val initialSkills = extensionsRepository.extensionState.firstValue().installedSkills
+            desired.forEach { discovered ->
+                runCatching {
+                    val id = piDiscoveredSkillId(discovered.guestFilePath)
+                    val existing = initialSkills.firstOrNull { it.id == id }
+                    val sourceRoot = if (
+                        discovered.hostFile.name.equals(SkillFileName, ignoreCase = true) &&
+                        discovered.hostRoot.isDirectory &&
+                        File(discovered.hostRoot, SkillFileName).isFile
+                    ) {
+                        discovered.hostRoot
+                    } else {
+                        createTempDirectory().also { staging ->
+                            discovered.hostFile.copyTo(File(staging, SkillFileName), overwrite = true)
+                        }
+                    }
+                    try {
+                        val checksum = sha256OfDirectory(sourceRoot)
+                        if (
+                            existing?.checksumSha256 == checksum &&
+                            validatedInstalledSkillRoot(existing) != null
+                        ) return@runCatching
+                        installParsedSkill(
+                            sourceRoot = sourceRoot,
+                            source = SkillInstallSource(
+                                kind = SkillInstallKind.PiDiscovered,
+                                label = discovered.guestFilePath,
+                                uri = discovered.guestFilePath,
+                                subpath = discovered.guestBaseDir,
+                            ),
+                            skillIdOverride = id,
+                            installedAtMillis = existing?.installedAtMillis,
+                            isEnabled = existing?.isEnabled ?: true,
+                        )
+                    } finally {
+                        if (sourceRoot != discovered.hostRoot) sourceRoot.deleteRecursively()
+                    }
+                }
+            }
+            val refreshed = extensionsRepository.extensionState.firstValue().installedSkills
+            val stale = refreshed.filter {
+                it.source.kind == SkillInstallKind.PiDiscovered && it.source.uri !in desiredPaths
+            }
+            stale.forEach { validatedInstalledSkillRoot(it)?.deleteRecursively() }
+            if (stale.isNotEmpty()) {
+                extensionsRepository.updateInstalledSkills(
+                    refreshed.filterNot { skill -> stale.any { it.id == skill.id } },
+                )
+            }
         }
     }
 
@@ -579,6 +662,11 @@ class AgentSkillManager(
         guestPath: String,
     ): String = "${packageSource.trim()}|${guestPath.trim()}"
 
+    private fun ignoredDiscoveredSkillSources() = context.getSharedPreferences(
+        DiscoveredSkillPreferencesName,
+        Context.MODE_PRIVATE,
+    )
+
     private fun sha256OfText(text: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(text.toByteArray(Charsets.UTF_8))
@@ -757,6 +845,13 @@ class AgentSkillManager(
         )
 
     private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.firstValue(): T = first()
+}
+
+internal fun piDiscoveredSkillId(sourcePath: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(sourcePath.trim().toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+    return "pi-discovered-${digest.take(20)}"
 }
 
 private class LimitedInputStream(

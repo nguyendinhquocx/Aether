@@ -2,9 +2,48 @@ package com.zhousl.aether.data
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class LlmProviderConfigValidationTest {
+    @Test
+    fun modelListsPutMajorFamiliesFirstThenSortAlphabetically() {
+        assertEquals(
+            listOf(
+                "gpt-4o",
+                "gpt-5",
+                "claude-3-haiku",
+                "claude-sonnet-4",
+                "gemini-2.5-flash",
+                "alpha",
+                "Mistral-Large",
+                "zeta",
+            ),
+            listOf(
+                "zeta",
+                "claude-sonnet-4",
+                "Mistral-Large",
+                "gemini-2.5-flash",
+                "gpt-5",
+                "alpha",
+                "claude-3-haiku",
+                "gpt-4o",
+            ).sortedByPreferredModelName(),
+        )
+    }
+
+    @Test
+    fun namespacedModelIdsUseTheModelNameForFamilyPriority() {
+        assertEquals(
+            listOf("openai/gpt-5", "anthropic/claude-opus-4", "vendor/alpha"),
+            listOf(
+                "vendor/alpha",
+                "anthropic/claude-opus-4",
+                "openai/gpt-5",
+            ).sortedByPreferredModelName(),
+        )
+    }
+
     @Test
     fun builtInApiKeyProviderRequiresSupportedNonBlankKey() {
         assertFalse(provider(piProviderId = "openai", apiKey = "").isSharedProviderSetupValid())

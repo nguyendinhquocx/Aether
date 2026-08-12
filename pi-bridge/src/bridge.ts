@@ -9,6 +9,7 @@ import {
   clampThinkingLevel,
   createModels,
   createProvider,
+  hasApi,
   defaultProviderAuthContext,
   fauxAssistantMessage,
   fauxProvider,
@@ -92,7 +93,7 @@ const BRIDGE_VERSION = "2.0.0-alpha.0";
 const PI_AI_VERSION = "0.84.1";
 const PI_AGENT_CORE_VERSION = "0.84.1";
 const PI_CODING_AGENT_VERSION = "0.84.1";
-const AETHER_MANUAL_OAUTH_CALLBACK_HOST = "203.0.113.1";
+const AETHER_LOOPBACK_OAUTH_CALLBACK_HOST = "127.0.0.1";
 const OAUTH_FETCH_MAX_ATTEMPTS = 3;
 const DEFAULT_AGENT_RETRY_MAX_RETRIES = 5;
 const RUNTIME_OPERATION_CHUNK_BYTES = 64 * 1024;
@@ -249,8 +250,7 @@ function aetherOAuthAuth(providerId: string, oauth: OAuthAuth | undefined): OAut
             if (event.type === "auth_url") {
               interaction.notify({
                 ...event,
-                instructions:
-                  "Complete login in your browser. When it reaches the localhost redirect, copy the full URL back into Aether.",
+                instructions: "Complete login in the authentication window.",
               });
               return;
             }
@@ -524,7 +524,7 @@ async function withAetherOAuthTransport<T>(
 
   const previousCallbackHost = process.env.PI_OAUTH_CALLBACK_HOST;
   const originalFetch = globalThis.fetch;
-  process.env.PI_OAUTH_CALLBACK_HOST = AETHER_MANUAL_OAUTH_CALLBACK_HOST;
+  process.env.PI_OAUTH_CALLBACK_HOST = AETHER_LOOPBACK_OAUTH_CALLBACK_HOST;
   globalThis.fetch = async (input, init) => {
     const url = fetchUrl(input);
     if (!url.startsWith("https://auth.openai.com/")) {
@@ -578,6 +578,31 @@ function asNumber(value: unknown, fallback: number): number {
 
 function asBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeBaseUrlForComparison(value: string | undefined): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.toString();
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function isCustomResponsesEndpoint(
+  model: Model<string>,
+  configuredBaseUrl: string | undefined,
+  defaultBaseUrl: string | undefined,
+): model is Model<"openai-responses"> {
+  const configured = normalizeBaseUrlForComparison(configuredBaseUrl);
+  return (
+    hasApi(model, "openai-responses") &&
+    configured.length > 0 &&
+    configured !== normalizeBaseUrlForComparison(defaultBaseUrl)
+  );
 }
 
 function normalizeHeaders(value: unknown): Record<string, string> {
@@ -766,6 +791,20 @@ function buildModels(config: ModelConfig): {
     if (!modelTemplate) {
       throw new Error(`Built-in Pi provider ${config.pi_provider_id} has no protocol template.`);
     }
+    const defaultBaseUrl = provider.baseUrl ?? modelTemplate.baseUrl;
+    const customBaseUrlModelOverrides = isCustomResponsesEndpoint(
+      modelTemplate,
+      config.base_url,
+      defaultBaseUrl,
+    )
+      ? {
+          // Custom Responses endpoints must not inherit official prompt-cache capabilities.
+          compat: {
+            ...(modelTemplate.compat ?? {}),
+            supportsExplicitPromptCacheMode: false,
+          },
+        }
+      : {};
     const credentialStore = new BridgeCredentialStore(
       provider.id,
       config.provider_config_id,
@@ -793,6 +832,7 @@ function buildModels(config: ModelConfig): {
               cacheWrite: 0,
             },
           }),
+      ...customBaseUrlModelOverrides,
       ...(config.base_url ? { baseUrl: config.base_url } : {}),
       headers: {
         ...modelTemplate.headers,
@@ -1289,6 +1329,7 @@ function latestAssistantMessage(messages: AgentMessage[]): AssistantMessage | un
 }
 
 const AETHER_HOST_TOOL_NAMES = new Set([
+  "browser",
   "aether_config_get",
   "aether_config_set",
   "aether_skill_manage",
@@ -1323,6 +1364,7 @@ function allowedHostToolDefinitions(rawTools: unknown, platform: "android" | "io
     if (!AETHER_HOST_TOOL_NAMES.has(definition.name)) return false;
     if (platform === "ios") {
       return new Set([
+        "browser",
         "aether_config_get",
         "aether_config_set",
         "aether_skill_manage",
@@ -1790,26 +1832,32 @@ function extensionUiContext(): ExtensionUIContext {
 
 const aetherChromeExtensionFactory: ExtensionFactory = (pi) => {
   pi.registerTool({
-    name: "chrome",
-    label: "Chrome",
-    description: "Operate Aether's optional Chromium browser through its DevTools connection. Use screenshots returned by this tool to inspect the current page.",
-    promptSnippet: "control the optional Chromium browser",
+    name: "browser",
+    label: "Browser",
+    description: "Control Aether's Chromium browser. Prefer CSS selectors and DOM-reading actions; use normalized coordinates only as a fallback.",
+    promptSnippet: "control the optional browser",
     executionMode: "sequential",
     parameters: Type.Object({
-      action: Type.String({ description: "One of: start, status, navigate, tap, swipe, text, key, back, forward, reload, evaluate, screenshot, stop." }),
+      action: Type.Union([
+        Type.Literal("start"), Type.Literal("status"), Type.Literal("navigate"), Type.Literal("click"),
+        Type.Literal("type"), Type.Literal("get_text"), Type.Literal("scroll"), Type.Literal("get_page_info"),
+        Type.Literal("execute_js"), Type.Literal("find_elements"), Type.Literal("get_readable"),
+        Type.Literal("get_backbone"), Type.Literal("back"), Type.Literal("forward"), Type.Literal("reload"),
+        Type.Literal("screenshot"), Type.Literal("wait_for_dom_stable"), Type.Literal("stop"),
+      ]),
       url: Type.Optional(Type.String({ description: "For navigate: the URL to open." })),
-      x: Type.Optional(Type.Integer({ description: "For tap: normalized X coordinate from 0 to 1000." })),
-      y: Type.Optional(Type.Integer({ description: "For tap: normalized Y coordinate from 0 to 1000." })),
-      x1: Type.Optional(Type.Integer({ description: "For swipe: normalized start X coordinate from 0 to 1000." })),
-      y1: Type.Optional(Type.Integer({ description: "For swipe: normalized start Y coordinate from 0 to 1000." })),
-      x2: Type.Optional(Type.Integer({ description: "For swipe: normalized end X coordinate from 0 to 1000." })),
-      y2: Type.Optional(Type.Integer({ description: "For swipe: normalized end Y coordinate from 0 to 1000." })),
-      text: Type.Optional(Type.String({ description: "For text: text to insert into the focused field." })),
-      key: Type.Optional(Type.String({ description: "For key: Enter, Tab, Backspace, Escape, an arrow key, or a character." })),
-      expression: Type.Optional(Type.String({ description: "For evaluate: JavaScript to evaluate in the current page." })),
+      selector: Type.Optional(Type.String({ description: "CSS selector for click, type, get_text, scroll, or find_elements." })),
+      text: Type.Optional(Type.String({ description: "For type: text to enter." })),
+      x: Type.Optional(Type.Integer({ description: "For click fallback: normalized X coordinate from 0 to 1000." })),
+      y: Type.Optional(Type.Integer({ description: "For click fallback: normalized Y coordinate from 0 to 1000." })),
+      direction: Type.Optional(Type.Union([Type.Literal("up"), Type.Literal("down")])),
+      amount: Type.Optional(Type.Integer({ description: "Scroll distance in CSS pixels." })),
+      script: Type.Optional(Type.String({ description: "JavaScript source for execute_js." })),
+      max_depth: Type.Optional(Type.Integer({ description: "Maximum DOM depth for get_backbone." })),
+      timeout: Type.Optional(Type.Integer({ description: "Maximum wait in milliseconds for wait_for_dom_stable." })),
     }),
     execute: async (_toolCallId, params, signal) => {
-      if (signal?.aborted) throw new Error("Chrome operation was cancelled.");
+      if (signal?.aborted) throw new Error("Browser operation was cancelled.");
       const result = await requestAetherHost("aether_chrome_execute", { arguments: params as JsonObject });
       const screenshot = asString(result.screenshot_base64).trim();
       const visible = { ...result };
@@ -1834,7 +1882,7 @@ function setActiveSessionTools(state: AgentSessionState): void {
   const nativeNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
   const nonNative = state.session.getActiveToolNames()
     .filter((name) => !nativeNames.has(name))
-    .filter((name) => name !== "chrome" || (state.platform === "android" && state.chromeEnabled));
+    .filter((name) => name !== "browser" || state.chromeEnabled || state.platform === "ios");
   state.session.setActiveToolsByName([...activeNativeToolNames(state.runtime), ...nonNative]);
 }
 
@@ -2004,6 +2052,45 @@ async function createNativeAgentSession(
   return state;
 }
 
+async function listDiscoveredSkills(payload: JsonObject): Promise<JsonObject> {
+  const workspaceDirectory = asString(payload.workspace_directory, process.cwd()) || process.cwd();
+  const agentDir = asString(payload.agent_directory, path.join(os.homedir(), ".pi", "agent"));
+  const settingsManager = SettingsManager.create(workspaceDirectory, agentDir, {
+    projectTrusted: asBoolean(payload.workspace_trusted, true),
+  });
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: workspaceDirectory,
+    agentDir,
+    settingsManager,
+    additionalSkillPaths: stringArray(payload.skill_paths),
+    noExtensions: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+  });
+  await resourceLoader.reload({
+    resolveProjectTrust: async () => asBoolean(payload.workspace_trusted, true),
+  });
+  const managedRoot = path.resolve(workspaceDirectory, ".aether", "skills");
+  const skills = resourceLoader.getSkills().skills
+    .filter((skill) => {
+      const relative = path.relative(managedRoot, path.resolve(skill.filePath));
+      return skill.sourceInfo.origin !== "package" &&
+        relative !== "" &&
+        (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
+    })
+    .map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      file_path: skill.filePath,
+      base_dir: skill.baseDir,
+      source: skill.sourceInfo.source,
+      scope: skill.sourceInfo.scope,
+      origin: skill.sourceInfo.origin,
+    }));
+  return { skills };
+}
+
 function rejectPendingHostToolsForAgentSession(sessionId: string, message: string): void {
   for (const [toolRequestId, pending] of pendingHostToolRequests) {
     if (pending.sessionId !== sessionId) continue;
@@ -2097,7 +2184,10 @@ async function compactNativeAgentSession(id: string, payload: JsonObject): Promi
 }
 
 async function navigateNativeAgentSession(id: string, payload: JsonObject): Promise<JsonObject> {
-  const state = nativeSessionFromPayload(payload);
+  // The AgentSession map is process-local. Reopen the persisted JSONL session
+  // when the bridge was restarted, provided the caller supplies its model
+  // configuration (the normal Aether navigation path does).
+  const state = await ensureNativeSessionForRequest(payload);
   if (!state.session.isIdle) throw new Error("Cannot navigate a busy Pi AgentSession.");
   const entryId = asString(payload.entry_id).trim();
   if (!entryId && asBoolean(payload.reset, false)) {
@@ -2773,6 +2863,9 @@ async function handleRequest(request: BridgeRequest): Promise<void> {
       return;
     case "list_extension_packages":
       writeResponse(id, await installedExtensionPackagesPayload());
+      return;
+    case "list_discovered_skills":
+      writeResponse(id, await listDiscoveredSkills(payload));
       return;
     case "install_extension_package":
       writeResponse(id, await installExtensionPackage(payload));

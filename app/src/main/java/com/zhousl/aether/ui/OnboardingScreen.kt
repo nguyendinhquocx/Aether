@@ -99,9 +99,9 @@ import com.zhousl.aether.data.PiProviderCatalog
 import com.zhousl.aether.data.PiProviderDefinition
 import com.zhousl.aether.data.ProviderAuthMethod
 import com.zhousl.aether.data.availableModelOptions
-import com.zhousl.aether.data.automaticModelPriority
 import com.zhousl.aether.data.findModelOption
 import com.zhousl.aether.data.resolveAutomaticModelKey
+import com.zhousl.aether.data.sortedByPreferredModelName
 import com.zhousl.aether.data.RootSetupIssue
 import com.zhousl.aether.data.RootSetupState
 import com.zhousl.aether.runtime.LocalRuntimeIssue
@@ -134,6 +134,7 @@ private const val ContentFadeDuration = 920
 private const val MessageSettleDelayMillis = 800L
 private const val MessageMinDurationMillis = 1_000L
 private const val MessageMaxDurationMillis = 3_300L
+private const val SetupProgressTickMillis = 450L
 
 private val TourEasing = CubicBezierEasing(0.22f, 0.84f, 0.18f, 1f)
 private val InitialOnboardingSteps = listOf(
@@ -543,6 +544,7 @@ private fun LegacyProviderSetupStep(
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
+            .sortedByPreferredModelName()
     }
     val providerChoices = remember(providerSearch, selectedAuthMethod) {
         val query = providerSearch.trim().lowercase()
@@ -1042,8 +1044,28 @@ private fun PiCoreSetupProgress(
     } else {
         setupState.phase.step
     }.coerceIn(0, stepCount)
+    var organicProgress by remember { mutableStateOf(0f) }
+    val phaseProgress = currentStep.toFloat() / stepCount
+    LaunchedEffect(setupState.isChecking, setupState.isReady, setupState.phase) {
+        if (setupState.isChecking && setupState.phase == PiCoreSetupPhase.CheckingAlpine) {
+            organicProgress = phaseProgress
+        }
+        organicProgress = maxOf(organicProgress, phaseProgress)
+        if (setupState.isReady) {
+            organicProgress = 1f
+        } else if (setupState.isChecking && setupState.phase != PiCoreSetupPhase.Failed) {
+            while (true) {
+                delay(SetupProgressTickMillis)
+                val remaining = 0.94f - organicProgress
+                if (remaining > 0f) {
+                    organicProgress = (organicProgress + (remaining * 0.018f).coerceIn(0.001f, 0.006f))
+                        .coerceAtMost(0.94f)
+                }
+            }
+        }
+    }
     val animatedProgress by animateFloatAsState(
-        targetValue = currentStep.toFloat() / stepCount,
+        targetValue = organicProgress,
         animationSpec = tween(
             durationMillis = 700,
             easing = TourEasing,
@@ -1068,7 +1090,7 @@ private fun PiCoreSetupProgress(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (currentStep > 0) {
+            if (organicProgress > 0f) {
                 Text(
                     text = stringResource(
                         R.string.onboarding_pi_setup_step,
@@ -2097,76 +2119,13 @@ internal fun prioritizedModelOptions(
     piProviderId: String?,
     cachedModels: List<String>,
 ): List<String> {
-    val fetchedModels = cachedModels
+    return cachedModels
         .map(String::trim)
         .filter(String::isNotBlank)
         .distinctBy { it.lowercase() }
-    val orderedModels = fetchedModels
-        .sortedWith(
-            compareBy<String> { preferredModelRank(it) }
-                .thenBy { providerModelRank(piProviderId, it) }
-                .thenBy { it.lowercase() },
-        )
-    return orderedModels.withAutomaticChatModelFirst(piProviderId)
+        .sortedByPreferredModelName()
 }
 
-private fun preferredModelRank(model: String): Int {
-    return automaticModelPriority(model, AutomaticModelPurpose.Chat) ?: Int.MAX_VALUE
-}
-
-private fun List<String>.withAutomaticChatModelFirst(
-    piProviderId: String?,
-): List<String> {
-    if (isEmpty() || piProviderId == null) return this
-    val definition = com.zhousl.aether.data.PiProviderCatalog.resolve(piProviderId)
-    val onboardingConfig = LlmProviderConfig(
-        id = "onboarding",
-        providerId = definition.id,
-        name = definition.displayName,
-        piProviderId = definition.id,
-        apiKey = "",
-        baseUrl = definition.defaultBaseUrl,
-        modelId = first(),
-        cachedModels = this,
-        enabledModelIds = this,
-    )
-    val options = listOf(onboardingConfig).availableModelOptions()
-    val automaticModel = options.findModelOption(
-        options.resolveAutomaticModelKey(AutomaticModelPurpose.Chat)
-    )?.modelId ?: return this
-    if (preferredModelRank(automaticModel) > preferredModelRank(first())) return this
-    return (listOf(automaticModel) + filterNot { it.equals(automaticModel, ignoreCase = true) })
-        .distinctBy { it.lowercase() }
-}
-
-private fun providerModelRank(
-    piProviderId: String?,
-    model: String,
-): Int = when (piProviderId) {
-    "openai",
-    "openai-codex" -> when {
-        model.lowercase().contains("gpt") -> 0
-        else -> 5
-    }
-
-    "anthropic" -> when {
-        model.lowercase().contains("claude") -> 0
-        else -> 5
-    }
-
-    "google",
-    "google-vertex" -> when {
-        model.lowercase().contains("gemini") -> 0
-        else -> 5
-    }
-
-    else -> when {
-        model.lowercase().contains("gpt") -> 0
-        model.lowercase().contains("claude") -> 1
-        model.lowercase().contains("gemini") -> 2
-        else -> 5
-    }
-}
 
 @Composable
 private fun termuxStatusSentence(setupState: TermuxSetupState): String = when (setupState.issue) {

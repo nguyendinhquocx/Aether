@@ -29,6 +29,12 @@ interface PlatformServices {
     fun shareFile(name: String, mimeType: String, bytes: ByteArray): Boolean = false
     fun previewFile(name: String, mimeType: String, bytes: ByteArray): Boolean = false
     fun openUrl(url: String): Boolean
+    /** Opens OAuth UI and reports a loopback/custom-scheme callback when the platform can intercept it. */
+    fun openAuthenticationUrl(
+        url: String,
+        onCallback: (String) -> Unit = {},
+        onCancelled: () -> Unit = {},
+    ): Boolean = openUrl(url)
     fun terminateApplication(): Boolean = false
 }
 

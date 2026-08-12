@@ -288,6 +288,17 @@ class PiKernelBridge(
             abortOnCancellation = false,
         )
 
+    suspend fun listDiscoveredSkills(
+        workspaceDirectory: String = alpineRuntime.workspaceRoot,
+    ): JSONObject = request(
+        type = "list_discovered_skills",
+        payload = JSONObject()
+            .put("workspace_directory", workspaceDirectory)
+            .put("workspace_trusted", true),
+        timeoutMillis = PiBridgeRequestTimeoutMillis,
+        abortOnCancellation = false,
+    )
+
     suspend fun installExtensionPackage(
         source: String,
         loadOptions: PiExtensionLoadOptions = PiExtensionLoadOptions(),

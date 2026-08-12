@@ -159,6 +159,7 @@ import com.zhousl.aether.R
 import com.zhousl.aether.data.InstalledSkill
 import com.zhousl.aether.data.AppLanguage
 import com.zhousl.aether.data.AgentModeDisplayState
+import com.zhousl.aether.data.AlpineChromeViewerUrl
 import com.zhousl.aether.data.McpServerConfig
 import com.zhousl.aether.data.McpTransportConfig
 import com.zhousl.aether.data.ModelCatalogInfo
@@ -169,6 +170,7 @@ import com.zhousl.aether.data.SessionFollowUpMode
 import com.zhousl.aether.data.quickActionLabel
 import com.zhousl.aether.data.thinkingCatalogKey
 import com.zhousl.aether.termux.TermuxSetupState
+import com.zhousl.aether.platform.PlatformWebView
 import com.zhousl.aether.ui.theme.AetherBackground
 import com.zhousl.aether.ui.theme.AetherBackgroundGradientTop
 import com.zhousl.aether.ui.theme.AetherOnSurface
@@ -1511,7 +1513,14 @@ private fun PendingAssistantTimeline(
         if (index >= 0) index else if (agentModePreviewVisible) blocks.size else -1
     }
     val agentModeOverlayText = if (agentModePreviewVisible) {
-        blocks.lastTextBlockAfterAgentMode().orEmpty()
+        blocks.lastTextBlockAfterAgentMode().orEmpty().ifBlank {
+            blocks.latestReasoningStatusAfterTool { it.isAgentModeDisplayInvocation() }
+        }
+    } else {
+        ""
+    }
+    val chromeOverlayText = if (chromePreviewVisible) {
+        blocks.latestReasoningStatusAfterTool { it.isChromeDisplayInvocation() }
     } else {
         ""
     }
@@ -1524,6 +1533,7 @@ private fun PendingAssistantTimeline(
                 contentDescription = stringResource(R.string.chrome_label),
                 pendingText = stringResource(R.string.chat_chrome_preview_pending),
                 useLiveSurface = false,
+                overlayText = chromeOverlayText,
                 onAttachSurface = {},
                 onDetachSurface = {},
             )
@@ -1584,6 +1594,7 @@ private fun PendingAssistantTimeline(
             contentDescription = stringResource(R.string.chrome_label),
             pendingText = stringResource(R.string.chat_chrome_preview_pending),
             useLiveSurface = false,
+            overlayText = chromeOverlayText,
             onAttachSurface = {},
             onDetachSurface = {},
         )
@@ -1758,7 +1769,7 @@ private fun ChatToolInvocation.isAgentModeDisplayInvocation(): Boolean =
     toolName.equals("agent_display", ignoreCase = true)
 
 private fun ChatToolInvocation.isChromeDisplayInvocation(): Boolean =
-    toolName.equals("chrome", ignoreCase = true)
+    toolName.equals("chrome", ignoreCase = true) || toolName.equals("browser", ignoreCase = true)
 
 private fun List<AssistantResponseBlock>.firstAgentModeBlockIndex(): Int =
     indexOfFirst { it.agentModeToolInvocations().isNotEmpty() }
@@ -1772,6 +1783,27 @@ private fun List<AssistantResponseBlock>.lastTextBlockAfterAgentMode(): String? 
         .filterIsInstance<AssistantResponseBlock.Text>()
         .lastOrNull { it.text.isNotBlank() }
         ?.text
+}
+
+private fun List<AssistantResponseBlock>.latestReasoningStatusAfterTool(
+    predicate: (ChatToolInvocation) -> Boolean,
+): String {
+    val firstToolBlock = indexOfFirst { block ->
+        when (block) {
+            is AssistantResponseBlock.ToolGroup -> block.toolInvocations.any(predicate)
+            is AssistantResponseBlock.Reasoning -> block.trace.toolInvocations.any(predicate)
+            is AssistantResponseBlock.Text -> false
+        }
+    }
+    if (firstToolBlock < 0) return ""
+    return drop(firstToolBlock).asReversed().firstNotNullOfOrNull { block ->
+        val trace = (block as? AssistantResponseBlock.Reasoning)?.trace ?: return@firstNotNullOfOrNull null
+        trace.latestStatusText.ifBlank {
+            trace.chunks.lastOrNull { it.detail.isNotBlank() || it.title.isNotBlank() }
+                ?.let { it.detail.ifBlank(it::title) }
+                .orEmpty()
+        }.takeIf(String::isNotBlank)
+    }.orEmpty()
 }
 
 private fun List<AssistantResponseBlock>.visibleText(): String =
@@ -3088,6 +3120,20 @@ private fun AgentModePreviewPanel(
                             )
                             .clip(RoundedCornerShape(14.dp)),
                     )
+                } else if (displayState.isActive && !useLiveSurface) {
+                    PlatformWebView(
+                        url = AlpineChromeViewerUrl,
+                        scrollEnabled = false,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(10.dp)
+                            .aspectRatio(
+                                displayState.width.coerceAtLeast(1).toFloat() /
+                                    displayState.height.coerceAtLeast(1).toFloat(),
+                                matchHeightConstraintsFirst = true,
+                            )
+                            .clip(RoundedCornerShape(14.dp)),
+                    )
                 } else if (bitmap != null) {
                     Image(
                     bitmap = bitmap.asImageBitmap(),
@@ -3396,7 +3442,7 @@ private fun AgentModePreviewToolStatus(
         Icon(
             imageVector = when (toolInvocation.toolName.lowercase()) {
                 "agent_display" -> LucideIcons.MousePointer2
-                "chrome" -> Icons.Rounded.Public
+                "chrome", "browser" -> Icons.Rounded.Public
                 else -> Icons.Rounded.AutoAwesome
             },
             contentDescription = null,
@@ -3458,7 +3504,7 @@ private fun formatPendingToolTitle(
     "aether_scheduled_task_manage",
     "aether_developer_manage" -> formatAetherToolTitle(toolName, isRunning, arguments)
     "agent_display" -> formatAgentDisplayToolTitle(isRunning, arguments)
-    "chrome" -> formatChromeToolTitle(isRunning, arguments)
+    "chrome", "browser" -> formatChromeToolTitle(isRunning, arguments)
     else -> if (isRunning) {
         stringResource(R.string.tool_title_using_tool, toolName)
     } else {
@@ -3608,7 +3654,7 @@ private fun formatChromeToolTitle(
             )
         }
     }
-    "tap" -> toolStatusLabel(
+    "tap", "click" -> toolStatusLabel(
         isRunning,
         R.string.tool_title_tapping_chrome,
         R.string.tool_title_tapped_chrome,
@@ -3657,7 +3703,7 @@ private fun formatChromeToolTitle(
         R.string.tool_title_reloading_chrome,
         R.string.tool_title_reloaded_chrome,
     )
-    "evaluate" -> toolStatusLabel(
+    "evaluate", "execute_js", "get_text", "get_page_info", "find_elements", "get_readable", "get_backbone", "wait_for_dom_stable" -> toolStatusLabel(
         isRunning,
         R.string.tool_title_evaluating_chrome,
         R.string.tool_title_evaluated_chrome,

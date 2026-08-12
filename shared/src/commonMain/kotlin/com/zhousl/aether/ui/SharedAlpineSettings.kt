@@ -252,7 +252,9 @@ internal fun SharedAlpineSettingsDetailPage(
 ) {
     val scope = rememberCoroutineScope()
     val latestSettings by rememberUpdatedState(settings)
-    val profileStateCache = remember { settings.alpinePackageProfiles.toMutableMap() }
+    val profileStateCache = remember(settings.alpinePackageProfiles) {
+        settings.alpinePackageProfiles.toMutableMap()
+    }
     var ready by remember { mutableStateOf(settings.alpineSetupCompleted) }
     var setupIssue by remember {
         mutableStateOf(

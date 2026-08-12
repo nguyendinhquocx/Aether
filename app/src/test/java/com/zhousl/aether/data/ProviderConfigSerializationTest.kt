@@ -145,7 +145,7 @@ class ProviderConfigSerializationTest {
     }
 
     @Test
-    fun availableModelOptionsGroupsMatchingModelProviderPrefixes() {
+    fun availableModelOptionsUsePreferredFamiliesThenAlphabeticalOrder() {
         val options = listOf(
             LlmProviderConfig(
                 id = "first-site",
@@ -173,10 +173,10 @@ class ProviderConfigSerializationTest {
 
         assertEquals(
             listOf(
+                "site_b/openai/gpt-4o",
+                "site_a/openai/gpt-5",
                 "site_b/anthropic/claude-sonnet",
                 "site_a/google/gemini-pro",
-                "site_a/openai/gpt-5",
-                "site_b/openai/gpt-4o",
             ),
             options.map { it.fullLabel },
         )

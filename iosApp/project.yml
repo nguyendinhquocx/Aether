@@ -51,10 +51,14 @@ targets:
       properties:
         BGTaskSchedulerPermittedIdentifiers:
           - $(PRODUCT_BUNDLE_IDENTIFIER).agent.*
+        UIBackgroundModes:
+          - processing
         CADisableMinimumFrameDurationOnPhone: true
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Aether accesses local network services only when you connect a self-hosted AI provider or MCP server.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

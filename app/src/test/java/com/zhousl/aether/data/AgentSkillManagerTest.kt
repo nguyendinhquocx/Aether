@@ -5,6 +5,18 @@ import org.junit.Test
 
 class AgentSkillManagerTest {
     @Test
+    fun discoveredSkillIdsAreStableAndSourceSpecific() {
+        val path = "/root/.agents/skills/review/SKILL.md"
+
+        assertEquals(piDiscoveredSkillId(path), piDiscoveredSkillId("  $path "))
+        assertEquals(34, piDiscoveredSkillId(path).length)
+        org.junit.Assert.assertNotEquals(
+            piDiscoveredSkillId(path),
+            piDiscoveredSkillId("/workspace/.pi/skills/review/SKILL.md"),
+        )
+    }
+
+    @Test
     fun keepsGitHubArchiveZipUrlAsDirectDownload() {
         val url = "https://github.com/owner/repository/archive/refs/heads/main.zip"
 

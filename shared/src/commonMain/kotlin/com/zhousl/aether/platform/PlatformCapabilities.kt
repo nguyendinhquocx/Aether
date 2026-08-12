@@ -7,6 +7,7 @@ data class PlatformCapabilities(
     val agentMode: Boolean,
     val scheduledTasks: Boolean,
     val persistentBackground: Boolean,
+    val localNotifications: Boolean = false,
     val nativeMods: Boolean,
     val alpine: Boolean = true,
     val alpineChrome: Boolean = true,
@@ -22,6 +23,7 @@ data class PlatformCapabilities(
             agentMode = true,
             scheduledTasks = true,
             persistentBackground = true,
+            localNotifications = true,
             nativeMods = true,
         )
 
@@ -30,9 +32,10 @@ data class PlatformCapabilities(
             runtimeSelection = false,
             agentMode = false,
             scheduledTasks = false,
-            persistentBackground = false,
+            persistentBackground = true,
+            localNotifications = false,
             nativeMods = false,
-            alpineChrome = false,
+            alpineChrome = true,
             layeredScreenTransitions = true,
             supportsTabletLayout = true,
         )
