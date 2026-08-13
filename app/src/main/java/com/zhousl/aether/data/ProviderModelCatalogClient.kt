@@ -91,6 +91,8 @@ internal fun publicCatalogThinkingLevels(
 
 object ProviderModelCatalogClient {
 
+    private const val ModelsDevUrl = "https://models.dev/catalog.json"
+
     data class FetchModelsResult(
         val models: List<String>,
         val error: String? = null,
@@ -98,24 +100,24 @@ object ProviderModelCatalogClient {
 
     suspend fun fetchModels(
         config: LlmProviderConfig,
+    ): FetchModelsResult = fetchModels(config, ModelsDevUrl)
+
+    internal suspend fun fetchModels(
+        config: LlmProviderConfig,
+        modelsDevUrl: String,
     ): FetchModelsResult = withContext(Dispatchers.IO) {
         try {
             val definition = PiProviderCatalog.resolve(config.piProviderId)
-            if (shouldFetchModelsFromEndpoint(config, definition)) {
-                val endpoint = fetchOpenAiModels(config)
-                val publicCatalog = if (shouldMergeModelsDev(config, definition)) {
-                    fetchModelsDevModels(definition)
-                } else {
-                    FetchModelsResult(emptyList())
-                }
-                val merged = (endpoint.models + publicCatalog.models)
-                    .distinctBy(String::lowercase)
-                return@withContext FetchModelsResult(
-                    models = merged,
-                    error = if (merged.isEmpty()) endpoint.error ?: publicCatalog.error else null,
-                )
+            val providerModels = runCatching { fetchProviderModels(config) }.getOrElse { error ->
+                FetchModelsResult(emptyList(), error.message ?: "Unable to fetch models.")
             }
-            fetchModelsDevModels(definition)
+            if (providerModels.models.isNotEmpty()) return@withContext providerModels
+
+            val publicModels = fetchModelsDevModels(definition, modelsDevUrl)
+            if (publicModels.models.isNotEmpty()) publicModels else FetchModelsResult(
+                models = emptyList(),
+                error = providerModels.error ?: publicModels.error,
+            )
         } catch (e: Exception) {
             FetchModelsResult(emptyList(), e.message ?: "Unknown error")
         }
@@ -142,8 +144,9 @@ object ProviderModelCatalogClient {
 
     private fun fetchModelsDevModels(
         definition: PiProviderDefinition,
+        modelsDevUrl: String = ModelsDevUrl,
     ): FetchModelsResult {
-        val connection = URL("https://models.dev/catalog.json").openConnection() as HttpURLConnection
+        val connection = URL(modelsDevUrl).openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 10_000
         connection.readTimeout = 20_000
@@ -160,26 +163,7 @@ object ProviderModelCatalogClient {
         }
     }
 
-    internal fun shouldFetchModelsFromEndpoint(
-        config: LlmProviderConfig,
-        definition: PiProviderDefinition = PiProviderCatalog.resolve(config.piProviderId),
-    ): Boolean {
-        if (!definition.isBuiltIn) return true
-        if (definition.id == "openai" && config.authMethod == ProviderAuthMethod.ApiKey) return true
-
-        val normalizedBaseUrl = config.baseUrl.trim().trimEnd('/')
-        return definition.id == "openai" &&
-            normalizedBaseUrl.isNotBlank() &&
-            normalizedBaseUrl != definition.defaultBaseUrl
-    }
-
-    private fun shouldMergeModelsDev(
-        config: LlmProviderConfig,
-        definition: PiProviderDefinition,
-    ): Boolean = definition.isBuiltIn &&
-        config.baseUrl.trim().trimEnd('/') == definition.defaultBaseUrl.trim().trimEnd('/')
-
-    private fun fetchOpenAiModels(config: LlmProviderConfig): FetchModelsResult {
+    private fun fetchProviderModels(config: LlmProviderConfig): FetchModelsResult {
         val baseUrl = config.baseUrl.trim().trimEnd('/')
         val modelsUrl = when {
             baseUrl.endsWith("/responses") -> baseUrl.replace("/responses", "/models")

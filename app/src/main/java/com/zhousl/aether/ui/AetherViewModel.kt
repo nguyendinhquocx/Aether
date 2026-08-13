@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import android.view.Surface
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.FileOutputStream
 import com.zhousl.aether.BuildConfig
 import com.zhousl.aether.R
 import com.zhousl.aether.aetherRuntime
@@ -413,12 +414,42 @@ class AetherViewModel(
                     _uiState.update { current -> current.copy(modelCatalogInfo = cached) }
                 }
             }
+            val thinkingCacheKeys = options.mapTo(mutableSetOf()) { option ->
+                thinkingCatalogKey(option.piProviderId, option.modelId)
+            }
+            val cachedThinkingLevels = settingsRepository.loadThinkingCatalogCache()
+                .filterKeys(thinkingCacheKeys::contains)
+            if (cachedThinkingLevels.isNotEmpty() && requestKey == lastModelCatalogRequestKey) {
+                _uiState.update { current ->
+                    current.copy(
+                        thinkingLevelsByProviderModel = current.thinkingLevelsByProviderModel + cachedThinkingLevels,
+                    )
+                }
+            }
             val modelInfo = ModelCatalogClient.fetchModelInfo(options)
             if (modelInfo.isNotEmpty()) {
                 settingsRepository.saveModelCatalogCache(modelInfo)
             }
             if (modelInfo.isNotEmpty() && requestKey == lastModelCatalogRequestKey) {
                 _uiState.update { current -> current.copy(modelCatalogInfo = modelInfo) }
+            }
+
+            // Populate the effort cache during startup as well as when the model
+            // picker is opened. Cached values are already applied above, so an
+            // unavailable network never delays the initial picker state.
+            val publicThinkingLevels = ProviderModelCatalogClient.fetchPublicThinkingLevels(options)
+            if (publicThinkingLevels.isNotEmpty()) {
+                settingsRepository.saveThinkingCatalogCache(publicThinkingLevels)
+                if (requestKey == lastModelCatalogRequestKey) {
+                    _uiState.update { state ->
+                        state.copy(
+                            thinkingLevelsByProviderModel =
+                                state.thinkingLevelsByProviderModel + publicThinkingLevels,
+                            thinkingLevelClampsByProviderModel =
+                                state.thinkingLevelClampsByProviderModel - publicThinkingLevels.keys,
+                        )
+                    }
+                }
             }
         }
     }
@@ -2312,6 +2343,12 @@ class AetherViewModel(
         aetherMessageId: String?,
         resetWhenMissing: Boolean = false,
     ) {
+        val settings = _uiState.value.settings
+        val workspaceDirectory = workspaceFileBridge.workspaceDirectory(
+            sessionId = sessionId,
+            mode = settings.agentWorkspaceMode,
+        )
+        val metadata = runtime.chatRepository.getAgentSessionMetadata(sessionId)
         val entryId = aetherMessageId?.let { messageId ->
             runtime.chatRepository.getAgentMessageEntryIds(sessionId, messageId).lastOrNull()
         }
@@ -2320,6 +2357,17 @@ class AetherViewModel(
                 sessionId = sessionId,
                 entryId = entryId.orEmpty(),
                 reset = entryId == null && resetWhenMissing,
+                sessionPayload = JSONObject().apply {
+                    put("session_file", metadata?.jsonlPath.orEmpty())
+                    put("workspace_directory", workspaceDirectory)
+                    put("termux_workspace_directory", workspaceDirectory)
+                    put("runtime", metadata?.runtime ?: settings.defaultRuntimeId?.storageValue.orEmpty())
+                    put("platform", "android")
+                    put("workspace_trusted", true)
+                    put("model_config", settings.toPiModelConfig().toJson())
+                    put("system_prompt", "")
+                    put("host_tools", JSONArray())
+                },
             )
         }.onFailure { throwable ->
             diagnosticLogger.exception(
@@ -2550,6 +2598,7 @@ class AetherViewModel(
         viewModelScope.launch {
             val publicThinkingLevels = ProviderModelCatalogClient.fetchPublicThinkingLevels(listOf(option))
             if (publicThinkingLevels.isNotEmpty()) {
+                settingsRepository.saveThinkingCatalogCache(publicThinkingLevels)
                 _uiState.update { state ->
                     state.copy(
                         thinkingLevelsByProviderModel =
@@ -2577,6 +2626,7 @@ class AetherViewModel(
         viewModelScope.launch {
             val publicThinkingLevels = ProviderModelCatalogClient.fetchPublicThinkingLevels(listOf(option))
             if (publicThinkingLevels.isEmpty()) return@launch
+            settingsRepository.saveThinkingCatalogCache(publicThinkingLevels)
             _uiState.update { state ->
                 state.copy(
                     thinkingLevelsByProviderModel =
@@ -5849,9 +5899,15 @@ class AetherViewModel(
         uri: Uri,
         text: String,
     ): Boolean = runCatching {
-        getApplication<Application>().contentResolver.openOutputStream(uri)?.use { output ->
+        val resolver = getApplication<Application>().contentResolver
+        // Open with "rwt" so the destination is truncated before writing. The default "w"
+        // mode only truncates when the document provider declares truncation support, and
+        // providers that ignore mode entirely (or stream via FUSE) can otherwise leave the
+        // exported file at 0 bytes.
+        resolver.openOutputStream(uri, "rwt")?.use { output ->
             output.write(text.toByteArray(Charsets.UTF_8))
             output.flush()
+            (output as? FileOutputStream)?.fd?.sync()
         } ?: return false
         true
     }.getOrDefault(false)

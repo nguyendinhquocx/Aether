@@ -131,6 +131,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.zhousl.aether.R
 import com.zhousl.aether.data.InstalledSkill
+import com.zhousl.aether.data.AetherAppExtensionPage
 import com.zhousl.aether.data.AppLanguage
 import com.zhousl.aether.data.AgentModeDisplayState
 import com.zhousl.aether.data.McpServerConfig
@@ -188,6 +189,8 @@ fun ConversationDrawer(
     onExportSession: (ChatSession) -> Unit,
     onDeleteSession: (String) -> Unit,
     onSettingsSelected: () -> Unit,
+    extensionPages: List<AetherAppExtensionPage> = emptyList(),
+    onExtensionPageSelected: (String) -> Unit = {},
 ) {
     AetherConversationDrawer(
         sessions = sessions.map { session ->
@@ -220,6 +223,15 @@ fun ConversationDrawer(
         },
         extraContent = { dismissSearch ->
             AetherExtensionSlot(AetherExtensionSlotDrawer)
+            extensionPages.forEach { page ->
+                AetherExtensionPageLauncher(
+                    page = page,
+                    onClick = {
+                        dismissSearch()
+                        onExtensionPageSelected(page.id)
+                    },
+                )
+            }
             AetherExtensionSlot(AetherExtensionSlotDrawerListEnd)
         },
     )

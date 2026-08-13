@@ -157,7 +157,13 @@ class AetherSettingsStore(
 
     suspend fun saveThinkingCatalogCache(cache: SharedThinkingCatalogCache) {
         dataStore.edit { preferences ->
-            preferences[ThinkingCatalogCacheJson] = serializeSharedThinkingCatalogCache(cache)
+            val current = parseSharedThinkingCatalogCache(preferences[ThinkingCatalogCacheJson].orEmpty())
+            val merged = SharedThinkingCatalogCache(
+                source = cache.source.ifBlank { current.source },
+                levelsByProviderModel = current.levelsByProviderModel + cache.levelsByProviderModel,
+                clampsByProviderModel = current.clampsByProviderModel + cache.clampsByProviderModel,
+            )
+            preferences[ThinkingCatalogCacheJson] = serializeSharedThinkingCatalogCache(merged)
         }
     }
 

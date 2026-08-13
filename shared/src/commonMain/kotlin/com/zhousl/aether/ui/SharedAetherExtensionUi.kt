@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -26,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Code
@@ -45,6 +47,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Slider
@@ -72,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zhousl.aether.data.SharedAetherExtensionPage
 import com.zhousl.aether.data.SharedAetherExtensionSnapshot
 import com.zhousl.aether.platform.PlatformWebView
 import com.zhousl.aether.ui.theme.AetherBackground
@@ -119,6 +123,7 @@ const val SharedExtensionComponentSettingsScreen = "settings.screen"
 data class SharedAetherExtensionUiController(
     val snapshot: SharedAetherExtensionSnapshot,
     val onAction: (String, String, JsonObject) -> Unit,
+    val onOpenPage: (String) -> Unit,
 )
 
 val LocalSharedAetherExtensionUiController =
@@ -130,6 +135,39 @@ fun SharedAetherExtensionUiProvider(
     content: @Composable () -> Unit,
 ) {
     CompositionLocalProvider(LocalSharedAetherExtensionUiController provides controller, content = content)
+}
+
+@Composable
+fun SharedAetherExtensionPageScreen(page: SharedAetherExtensionPage, onBack: () -> Unit) {
+    Scaffold(modifier = Modifier.fillMaxSize(), containerColor = AetherBackground, topBar = {
+        Row(modifier = Modifier.fillMaxWidth().background(AetherBackground).statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = AetherOnSurface) }
+            Column(Modifier.weight(1f)) {
+                Text(page.title, style = MaterialTheme.typography.titleLarge, color = AetherOnSurface)
+                if (page.subtitle.isNotBlank()) Text(page.subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+            }
+        }
+    }) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 12.dp)) {
+            SharedAetherExtensionView(page.tree, page.extensionId, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+fun SharedAetherExtensionPageLauncher(page: SharedAetherExtensionPage, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(AetherSurfaceHigh).clickable(onClick = onClick)
+        .padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(AetherSurfaceHigher), contentAlignment = Alignment.Center) {
+            Icon(extensionIcon(page.icon), null, tint = AetherOnSurface, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(page.title, style = MaterialTheme.typography.bodyLarge, color = AetherOnSurface)
+            if (page.subtitle.isNotBlank()) Text(page.subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+        }
+    }
 }
 
 @Composable
@@ -488,6 +526,16 @@ private fun SharedAetherExtensionNode(
                 .height(node.double("height", 240.0).dp)
                 .clip(RoundedCornerShape(node.double("radius", 8.0).dp)),
         )
+        "pagebutton" -> {
+            val localPage = node.string("page")
+            Button(onClick = { controller.onOpenPage(if (':' in localPage) localPage else "$extensionId:$localPage") },
+                modifier = resolvedModifier, colors = ButtonDefaults.buttonColors(
+                    containerColor = AetherSurfaceHigher, contentColor = AetherOnSurface), shape = RoundedCornerShape(8.dp)) {
+                Icon(extensionIcon(node.string("icon")), null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(node.string("label"))
+            }
+        }
         else -> Column(clickable, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             renderChildren(node["children"] as? JsonArray, extensionId, nativeContent)
         }

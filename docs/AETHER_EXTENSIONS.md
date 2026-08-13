@@ -354,6 +354,26 @@ aether.registerSettings({
 });
 ```
 
+## Full-screen pages
+
+`registerPage` registers a free-layout destination for an extension. Aether
+adds the page to the conversation drawer and renders its declarative UI tree
+full-screen. Page IDs are scoped to the extension; `pageButton` accepts either
+the local page ID or a fully scoped `extensionId:pageId`.
+
+```ts
+aether.registerPage({
+  id: "dashboard",
+  title: "Dashboard",
+  subtitle: "Extension overview",
+  icon: "auto",
+  render: () => ui.column([
+    ui.text("Hello from the extension"),
+    ui.button("Refresh", "refresh"),
+  ]),
+});
+```
+
 Supported control types are `text`, `password`, `textarea`, `number`,
 `toggle`, `select`/`dropdown`, `segmented`, `tab`/`tabs`, `slider`, `button`,
 `link`, `label`, `divider`, and `spacer`. Value controls are persisted automatically per

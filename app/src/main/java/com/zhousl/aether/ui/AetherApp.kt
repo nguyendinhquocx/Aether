@@ -242,6 +242,13 @@ fun AetherApp(
     val nativeModState = appRuntime.nativeModManager.state.collectAsStateWithLifecycle().value
     val nativeComponents =
         appRuntime.modKernel.components.registrations.collectAsStateWithLifecycle().value
+    var activeExtensionPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    val activeExtensionPage = extensionState.snapshot.pages.firstOrNull { it.id == activeExtensionPageId }
+    LaunchedEffect(extensionState.snapshot.pages, activeExtensionPageId) {
+        if (activeExtensionPageId != null && activeExtensionPage == null) {
+            activeExtensionPageId = null
+        }
+    }
     val extensionContext = remember(uiState) {
         uiState.toAetherExtensionContext()
     }
@@ -262,6 +269,7 @@ fun AetherApp(
             onAction = { extensionId, action, args ->
                 extensionManager.invokeAction(extensionId, action, args)
             },
+            onOpenPage = { activeExtensionPageId = it },
         )
     }
 
@@ -314,21 +322,30 @@ fun AetherApp(
                         target = AetherExtensionComponentAppContent,
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        AetherAppContent(
-                            viewModel = viewModel,
-                            uiState = uiState,
-                            language = effectiveLanguage,
-                            nativeModState = nativeModState,
-                            onNotificationPermissionRequested = onNotificationPermissionRequested,
-                            drawerOpenedEventRegistered =
-                                "drawer.opened" in extensionState.snapshot.eventNames,
-                            onDrawerOpened = {
-                                extensionManager.emitEvent(
-                                    event = "drawer.opened",
-                                    context = extensionContext,
-                                )
-                            },
-                        )
+                        if (activeExtensionPage != null) {
+                            AetherExtensionPageScreen(
+                                page = activeExtensionPage,
+                                onBack = { activeExtensionPageId = null },
+                            )
+                        } else {
+                            AetherAppContent(
+                                viewModel = viewModel,
+                                uiState = uiState,
+                                language = effectiveLanguage,
+                                nativeModState = nativeModState,
+                                onNotificationPermissionRequested = onNotificationPermissionRequested,
+                                extensionPages = extensionState.snapshot.pages,
+                                onExtensionPageSelected = { activeExtensionPageId = it },
+                                drawerOpenedEventRegistered =
+                                    "drawer.opened" in extensionState.snapshot.eventNames,
+                                onDrawerOpened = {
+                                    extensionManager.emitEvent(
+                                        event = "drawer.opened",
+                                        context = extensionContext,
+                                    )
+                                },
+                            )
+                        }
                     }
                     AetherExtensionOverlaySlot(Modifier.fillMaxSize())
                 }
@@ -411,6 +428,8 @@ private fun AetherAppContent(
     uiState: AetherUiState,
     language: AppLanguage,
     nativeModState: AetherNativeModState,
+    extensionPages: List<com.zhousl.aether.data.AetherAppExtensionPage>,
+    onExtensionPageSelected: (String) -> Unit,
     onNotificationPermissionRequested: () -> Unit,
     drawerOpenedEventRegistered: Boolean,
     onDrawerOpened: () -> Unit,
@@ -526,6 +545,7 @@ private fun AetherAppContent(
     var pendingSessionExportId by remember { mutableStateOf<String?>(null) }
     var pendingSkillZipCompletion by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
     var pendingTermuxPermissionSource by remember { mutableStateOf("unknown") }
+    var pendingTermuxPermissionGrantedAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var didAutoRequestTermuxPermission by rememberSaveable { mutableStateOf(false) }
     var showAppDataExportWarning by remember { mutableStateOf(false) }
     val onPickedDocuments: (List<Uri>) -> Unit = { uris ->
@@ -675,7 +695,9 @@ private fun AetherAppContent(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
             val source = pendingTermuxPermissionSource
+            val onGranted = pendingTermuxPermissionGrantedAction
             pendingTermuxPermissionSource = "unknown"
+            pendingTermuxPermissionGrantedAction = null
             viewModel.trackPermissionResult(
                 permission = "termux_run_command",
                 granted = granted,
@@ -693,22 +715,41 @@ private fun AetherAppContent(
                 ),
                 Toast.LENGTH_SHORT,
             ).show()
+            if (granted) {
+                onGranted?.invoke()
+            }
         },
     )
-    fun requestTermuxPermission(source: String) {
+    fun requestTermuxPermission(
+        source: String,
+        onGranted: (() -> Unit)? = null,
+    ) {
         viewModel.trackTermuxSetupStarted(source)
         viewModel.trackPermissionRequested(
             permission = "termux_run_command",
             source = source,
         )
         pendingTermuxPermissionSource = source
+        pendingTermuxPermissionGrantedAction = onGranted
         termuxPermissionLauncher.launch(TermuxContract.RunCommandPermission)
+    }
+
+    fun runRootSetupAfterTermuxPermission(
+        source: String,
+        action: () -> Unit,
+    ) {
+        if (shouldRequestTermuxPermissionBeforeRootSetup(uiState.termuxSetupState.issue)) {
+            requestTermuxPermission(source = source, onGranted = action)
+        } else {
+            action()
+        }
     }
 
     LaunchedEffect(
         uiState.isStartupRouteResolved,
         uiState.settings.privacyPolicyAccepted,
         uiState.termuxSetupState.issue,
+        uiState.rootSetupState.issue,
     ) {
         if (
             shouldAutoRequestTermuxPermission(
@@ -719,7 +760,16 @@ private fun AetherAppContent(
             )
         ) {
             didAutoRequestTermuxPermission = true
-            requestTermuxPermission("termux_detected_permission_missing")
+            requestTermuxPermission(
+                source = if (shouldResumeRootSetupAfterTermuxPermission(uiState.rootSetupState.issue)) {
+                    "root_setup_termux_installed_permission"
+                } else {
+                    "termux_detected_permission_missing"
+                },
+                onGranted = viewModel::configureLocalAccessWithRoot.takeIf {
+                    shouldResumeRootSetupAfterTermuxPermission(uiState.rootSetupState.issue)
+                },
+            )
         }
     }
 
@@ -778,6 +828,11 @@ private fun AetherAppContent(
                         viewModel.openSettings()
                     }
                 },
+                extensionPages = extensionPages,
+                onExtensionPageSelected = { pageId ->
+                    onExtensionPageSelected(pageId)
+                    scope.launch { drawerState.close() }
+                },
             )
         },
     ) {
@@ -791,6 +846,9 @@ private fun AetherAppContent(
             AnimatedContent(
                 targetState = uiState.currentScreen,
                 transitionSpec = {
+                    if (reduceMotion) {
+                        return@AnimatedContent fadeIn(tween(80)) togetherWith fadeOut(tween(60))
+                    }
                     val isForward = targetState.depth() > initialState.depth()
                     val enterSlide = slideInHorizontally(
                         animationSpec = tween(ScreenTransitionDuration, easing = ScreenTransitionEasing),
@@ -870,7 +928,12 @@ private fun AetherAppContent(
                             }
                         },
                         onRefreshRootSetup = viewModel::refreshRootSetup,
-                        onConfigureWithRoot = viewModel::configureLocalAccessWithRoot,
+                        onConfigureWithRoot = {
+                            runRootSetupAfterTermuxPermission(
+                                source = "onboarding_root_setup_termux_permission",
+                                action = viewModel::configureLocalAccessWithRoot,
+                            )
+                        },
                         onSaveAgentModeAuthorization = { enabled, method ->
                             viewModel.saveOnboardingAgentModeAuthorization(enabled, method)
                             if (enabled && method == AgentModeAuthorizationMethod.Shizuku) {
@@ -1146,7 +1209,12 @@ private fun AetherAppContent(
                     onShouldShowAlpineChromeKeyboard = viewModel::shouldShowAlpineChromeKeyboard,
                     onSetDefaultRuntime = viewModel::setDefaultRuntime,
                     onRefreshRootSetup = viewModel::refreshRootSetup,
-                    onStartRootSetupFromSettings = viewModel::startRootSetupFromSettings,
+                    onStartRootSetupFromSettings = { returnPage ->
+                        runRootSetupAfterTermuxPermission(
+                            source = "settings_root_setup_termux_permission",
+                            action = { viewModel.startRootSetupFromSettings(returnPage) },
+                        )
+                    },
                     onDismissRootSetupProgress = viewModel::dismissRootSetupProgress,
                     onRequestShizukuPermission = viewModel::requestShizukuPermission,
                     onRefreshAgentModeAuthorization = viewModel::refreshAgentModeAuthorization,
@@ -1435,6 +1503,14 @@ internal fun shouldAutoRequestTermuxPermission(
     privacyPolicyAccepted &&
     setupIssue == TermuxSetupIssue.PermissionMissing &&
     !didAutoRequest
+
+internal fun shouldRequestTermuxPermissionBeforeRootSetup(
+    setupIssue: TermuxSetupIssue,
+): Boolean = setupIssue == TermuxSetupIssue.PermissionMissing
+
+internal fun shouldResumeRootSetupAfterTermuxPermission(
+    rootSetupIssue: com.zhousl.aether.data.RootSetupIssue,
+): Boolean = rootSetupIssue == com.zhousl.aether.data.RootSetupIssue.TermuxNotInstalled
 
 private fun normalizeAssistantLink(rawLink: String): String {
     val trimmed = rawLink.trim().removeSurrounding("<", ">")

@@ -19,6 +19,7 @@ class SharedAetherExtensionsTest {
                 {"id":"first","extension_id":"demo","extension_name":"Demo","slot":"chat.top","order":10,"tree":{"type":"text","text":"A"}}
               ],
               "components": [{"id":"wrap","extension_id":"demo","extension_name":"Demo","target":"chat.screen","mode":"wrap","order":0,"tree":{"type":"next"}}],
+              "pages": [{"id":"demo:dashboard","local_id":"dashboard","extension_id":"demo","extension_name":"Demo","title":"Dashboard","subtitle":"","icon":"extension","order":0,"tree":{"type":"text","text":"Page"}}],
               "event_names": ["chat.opened"],
               "errors": []
             }
@@ -27,6 +28,7 @@ class SharedAetherExtensionsTest {
         val snapshot = parseSharedAetherExtensionSnapshot(payload)
         assertEquals(listOf("first", "second"), snapshot.surfacesAt("chat.top").map { it.id })
         assertEquals("wrap", snapshot.componentsAt("chat.screen").single().mode)
+        assertEquals("dashboard", snapshot.pages.single().localId)
         assertEquals(setOf("chat.opened"), snapshot.eventNames)
     }
 }

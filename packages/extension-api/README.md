@@ -39,6 +39,21 @@ aether.registerSettings({
 });
 ```
 
+Extensions can also register a full-screen page. It appears as an entry in the
+conversation drawer and renders the same declarative UI tree:
+
+```ts
+aether.registerPage({
+  id: "dashboard",
+  title: "Dashboard",
+  subtitle: "Extension overview",
+  render: () => ui.column([
+    ui.text("Hello from the extension"),
+    ui.button("Refresh", "refresh"),
+  ]),
+});
+```
+
 Supported controls are `text`, `password`, `textarea`, `number`, `toggle`,
 `select`/`dropdown`, `segmented`, `tab`/`tabs`, `slider`, `button`, `link`,
 `label`, `divider`, and `spacer`. Extensions do not provide page padding, card shapes, typography,

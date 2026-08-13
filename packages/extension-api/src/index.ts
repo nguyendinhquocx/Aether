@@ -87,6 +87,13 @@ export interface AetherSettingsDefinition {
   sections: AetherSettingsSection[];
 }
 
+export interface AetherPageDefinition extends AetherSurfaceDefinition {
+  id: string;
+  title: string;
+  subtitle?: string;
+  icon?: string;
+}
+
 export interface AetherComposerMenuItemDefinition {
   id: string;
   title: string;
@@ -239,6 +246,7 @@ export interface AetherExtensionAPI {
         context: AetherRenderContext,
       ) => AetherView | Promise<AetherView>),
   ): () => void;
+  registerPage(definition: AetherPageDefinition): () => void;
   registerSettings(definition: AetherSettingsDefinition): () => void;
   registerSettingsPage(definition: AetherSettingsDefinition): () => void;
   registerComposerMenuItem(definition: AetherComposerMenuItemDefinition): () => void;

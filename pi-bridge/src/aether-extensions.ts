@@ -18,6 +18,7 @@ import type {
   AetherSettingsDefinition,
   AetherComposerMenuItemDefinition,
   AetherMessageTypeDefinition,
+  AetherPageDefinition,
   AetherRenderContext,
   AetherSurfaceDefinition,
   AetherUi,
@@ -34,6 +35,7 @@ export type {
   AetherSettingsDefinition,
   AetherComposerMenuItemDefinition,
   AetherMessageTypeDefinition,
+  AetherPageDefinition,
   AetherRenderContext,
   AetherSurfaceDefinition,
   AetherUi,
@@ -80,6 +82,17 @@ interface RegisteredComponent {
   extension: LoadedAetherExtension;
   target: string;
   mode: AetherComponentMode;
+  order: number;
+  render: AetherSurfaceDefinition["render"];
+}
+
+interface RegisteredPage {
+  id: string;
+  localId: string;
+  extension: LoadedAetherExtension;
+  title: string;
+  subtitle: string;
+  icon: string;
   order: number;
   render: AetherSurfaceDefinition["render"];
 }
@@ -134,6 +147,7 @@ interface AetherRuntimeState {
   extensions: LoadedAetherExtension[];
   surfaces: Map<string, RegisteredSurface>;
   components: Map<string, RegisteredComponent>;
+  pages: Map<string, RegisteredPage>;
   settings: Map<string, RegisteredSettings>;
   composerMenuItems: Map<string, RegisteredComposerMenuItem>;
   messageTypes: Map<string, RegisteredMessageType>;
@@ -198,6 +212,7 @@ function createEmptyRuntime(cwd: string): AetherRuntimeState {
     extensions: [],
     surfaces: new Map(),
     components: new Map(),
+    pages: new Map(),
     settings: new Map(),
     composerMenuItems: new Map(),
     messageTypes: new Map(),
@@ -756,6 +771,26 @@ function createApi(
         if (runtimeState.components.delete(id)) invalidate();
       };
     },
+    registerPage(definition) {
+      const localId = definition.id.trim();
+      if (!localId) throw new Error("Aether extension pages require an id.");
+      if (!definition.title.trim()) throw new Error("Aether extension pages require a title.");
+      const id = scopedId(extension.id, localId);
+      runtimeState.pages.set(id, {
+        id,
+        localId,
+        extension,
+        title: definition.title.trim(),
+        subtitle: definition.subtitle ?? "",
+        icon: definition.icon ?? "extension",
+        order: Number.isFinite(definition.order) ? Number(definition.order) : 0,
+        render: renderValue(definition),
+      });
+      invalidate();
+      return () => {
+        if (runtimeState.pages.delete(id)) invalidate();
+      };
+    },
     registerSettings(definition) {
       const localId = definition.id.trim();
       if (!localId) throw new Error("Aether extension settings require an id.");
@@ -1172,6 +1207,22 @@ async function aetherAppExtensionSnapshotUnlocked(
         : await renderRegisteredView(component.extension, component.render, component.id),
     });
   }
+  const pages = [];
+  for (const page of [...runtime.pages.values()].sort((left, right) =>
+    left.order - right.order || left.id.localeCompare(right.id)
+  )) {
+    pages.push({
+      id: page.id,
+      local_id: page.localId,
+      extension_id: page.extension.id,
+      extension_name: page.extension.name,
+      title: page.title,
+      subtitle: page.subtitle,
+      icon: page.icon,
+      order: page.order,
+      tree: await renderRegisteredView(page.extension, page.render, page.id),
+    });
+  }
   const composerMenuItems = [...runtime.composerMenuItems.values()]
     .sort((left, right) =>
       (Number(left.definition.order) || 0) - (Number(right.definition.order) || 0) ||
@@ -1252,6 +1303,7 @@ async function aetherAppExtensionSnapshotUnlocked(
     })),
     surfaces,
     components,
+    pages,
     settings,
     composer_menu_items: composerMenuItems,
     message_types: messageTypes,

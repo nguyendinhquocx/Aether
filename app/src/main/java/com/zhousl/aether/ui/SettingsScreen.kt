@@ -94,6 +94,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -575,7 +576,8 @@ fun SettingsScreen(
     var oldCommandHistoryRetentionHoursValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(oldCommandHistoryRetentionHours.toString()))
     }
-    var termuxEnvironmentVariablesValue by rememberSaveable {
+    // TermuxEnvironmentVariable is not Parcelable; saving this list crashes during state save.
+    var termuxEnvironmentVariablesValue by remember {
         mutableStateOf(termuxEnvironmentVariables)
     }
     var agentModeAuthorizationEnabledValue by rememberSaveable {
@@ -771,6 +773,7 @@ fun SettingsScreen(
         }
     }
 
+    val pageStateHolder = rememberSaveableStateHolder()
     AnimatedContent(
         targetState = page,
         transitionSpec = {
@@ -787,7 +790,8 @@ fun SettingsScreen(
         },
         label = "settings_page_transition",
     ) { targetPage ->
-        when (targetPage) {
+        pageStateHolder.SaveableStateProvider(targetPage.name) {
+            when (targetPage) {
             SettingsPage.Hub -> SettingsHub(
                 generalSettingsSummary = settingsGeneralSummary(
                     language = languageValue,
@@ -1316,6 +1320,7 @@ fun SettingsScreen(
                 onDownloadAndInstallUpdate = onDownloadAndInstallUpdate,
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
+            }
         }
     }
 }

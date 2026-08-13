@@ -68,6 +68,17 @@ class PiAgentRunner(
         pollInjectedUserMessages: suspend () -> List<LlmMessage> = { emptyList() },
     ): Result<AetherAgentTurnResult> {
         onStreamingStatus(StreamingStatus("Thinking", "Aether is working on this turn."))
+        diagnosticLogger.event(
+            category = "pi_agent",
+            event = "run_turn_start",
+            sessionId = sessionId,
+            details = mapOf(
+                "session_file" to sessionFile,
+                "runtime_id" to runtimeId.storageValue,
+                "workspace_directory" to workspaceDirectory,
+                "message_count" to messages.size,
+            ),
+        )
         return try {
             runCatchingPreservingCancellation {
                 val resolvedSessionId = sessionId.ifBlank {
@@ -368,7 +379,25 @@ class PiAgentRunner(
                         }
                     }
                     try {
+                        diagnosticLogger.event(
+                            category = "pi_agent",
+                            event = "bridge_run_turn_start",
+                            sessionId = resolvedSessionId,
+                            details = mapOf(
+                                "payload_session_id" to payload.optString("session_id"),
+                                "payload_session_file" to payload.optString("session_file"),
+                            ),
+                        )
                         var response = bridge.runTurn(payload, eventHandler)
+                        diagnosticLogger.event(
+                            category = "pi_agent",
+                            event = "bridge_run_turn_end",
+                            sessionId = resolvedSessionId,
+                            details = mapOf(
+                                "response_ok" to response.optBoolean("ok"),
+                                "response_session_id" to response.optString("session_id"),
+                            ),
+                        )
                         forwardInjectedMessages()
                         while (true) {
                             val injected = deferredInjectedMessages.poll() ?: break
@@ -421,6 +450,11 @@ class PiAgentRunner(
                 }
             }
         } finally {
+            diagnosticLogger.event(
+                category = "pi_agent",
+                event = "run_turn_end",
+                sessionId = sessionId,
+            )
             onStreamingStatus(null)
         }
     }

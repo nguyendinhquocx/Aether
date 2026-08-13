@@ -255,6 +255,58 @@ class AlpineRuntime(
         guestPathToHostFile(normalizePath(guestPath))
     }
 
+    override suspend fun replaceHostDirectories(
+        guestRootPath: String,
+        signature: String,
+        directories: Map<String, File>,
+    ): Boolean = withContext(Dispatchers.IO) {
+        requireReady()
+        val targetRoot = guestPathToHostFile(normalizePath(guestRootPath))
+        val signatureFileName = ".aether-mirror-signature"
+        val currentSignature = File(targetRoot, signatureFileName)
+            .takeIf(File::isFile)
+            ?.readText()
+        if (currentSignature == signature) return@withContext true
+
+        val parent = targetRoot.parentFile
+            ?: error("Unable to resolve Alpine mirror parent: $guestRootPath")
+        require(parent.mkdirs() || parent.isDirectory) {
+            "Unable to create Alpine mirror parent: $guestRootPath"
+        }
+        val staging = File(parent, ".${targetRoot.name}.staging-${UUID.randomUUID()}")
+        val backup = File(parent, ".${targetRoot.name}.backup-${UUID.randomUUID()}")
+        try {
+            require(staging.mkdirs()) { "Unable to create Alpine mirror staging directory." }
+            directories.toSortedMap().forEach { (name, source) ->
+                require(name.matches(Regex("[A-Za-z0-9._-]+"))) {
+                    "Invalid Alpine mirror directory name: $name"
+                }
+                val canonicalSource = source.canonicalFile
+                require(canonicalSource.isDirectory) {
+                    "Alpine mirror source is unavailable: ${source.path}"
+                }
+                copyDirectoryWithoutSymbolicLinks(canonicalSource, File(staging, name))
+            }
+            File(staging, signatureFileName).writeText(signature)
+
+            if (targetRoot.exists()) {
+                require(targetRoot.renameTo(backup)) {
+                    "Unable to stage the existing Alpine mirror directory."
+                }
+            }
+            if (!staging.renameTo(targetRoot)) {
+                if (backup.exists()) backup.renameTo(targetRoot)
+                error("Unable to activate the Alpine mirror directory.")
+            }
+            backup.deleteRecursively()
+            true
+        } finally {
+            staging.deleteRecursively()
+            if (backup.exists() && !targetRoot.exists()) backup.renameTo(targetRoot)
+            if (targetRoot.exists()) backup.deleteRecursively()
+        }
+    }
+
     internal fun resolveManagedGuestPath(guestPath: String): File =
         guestPathToHostFile(normalizePath(guestPath))
 
@@ -977,6 +1029,24 @@ class AlpineRuntime(
                 copyDirectory(child, File(target, child.name))
             }
         } else {
+            target.parentFile?.mkdirs()
+            source.copyTo(target, overwrite = true)
+        }
+    }
+
+    private fun copyDirectoryWithoutSymbolicLinks(
+        source: File,
+        target: File,
+    ) {
+        if (Files.isSymbolicLink(source.toPath())) return
+        if (source.isDirectory) {
+            require(target.mkdirs() || target.isDirectory) {
+                "Unable to create Alpine mirror directory: ${target.path}"
+            }
+            source.listFiles().orEmpty().forEach { child ->
+                copyDirectoryWithoutSymbolicLinks(child, File(target, child.name))
+            }
+        } else if (source.isFile) {
             target.parentFile?.mkdirs()
             source.copyTo(target, overwrite = true)
         }

@@ -45,6 +45,18 @@ data class SharedAetherExtensionComponent(
     val tree: JsonElement?,
 )
 
+data class SharedAetherExtensionPage(
+    val id: String,
+    val localId: String,
+    val extensionId: String,
+    val extensionName: String,
+    val title: String,
+    val subtitle: String,
+    val icon: String,
+    val order: Int,
+    val tree: JsonElement?,
+)
+
 data class SharedAetherExtensionComposerMenuItem(
     val id: String,
     val localId: String,
@@ -114,6 +126,7 @@ data class SharedAetherExtensionSnapshot(
     val extensions: List<SharedAetherExtensionInfo> = emptyList(),
     val surfaces: List<SharedAetherExtensionSurface> = emptyList(),
     val components: List<SharedAetherExtensionComponent> = emptyList(),
+    val pages: List<SharedAetherExtensionPage> = emptyList(),
     val composerMenuItems: List<SharedAetherExtensionComposerMenuItem> = emptyList(),
     val settings: List<SharedAetherExtensionSettingsPage> = emptyList(),
     val messageTypes: List<SharedAetherExtensionMessageType> = emptyList(),
@@ -333,6 +346,19 @@ internal fun parseSharedAetherExtensionSnapshot(
                 extensionName = item.string("extension_name"),
                 target = item.string("target"),
                 mode = item.string("mode").ifBlank { "wrap" },
+                order = item.int("order") ?: 0,
+                tree = item["tree"],
+            )
+        },
+        pages = json.objects("pages").map { item ->
+            SharedAetherExtensionPage(
+                id = item.string("id"),
+                localId = item.string("local_id"),
+                extensionId = item.string("extension_id"),
+                extensionName = item.string("extension_name"),
+                title = item.string("title"),
+                subtitle = item.string("subtitle"),
+                icon = item.string("icon").ifBlank { "extension" },
                 order = item.int("order") ?: 0,
                 tree = item["tree"],
             )

@@ -43,6 +43,18 @@ data class AetherAppExtensionComponent(
     val tree: Any?,
 )
 
+data class AetherAppExtensionPage(
+    val id: String,
+    val localId: String,
+    val extensionId: String,
+    val extensionName: String,
+    val title: String,
+    val subtitle: String,
+    val icon: String,
+    val order: Int,
+    val tree: Any?,
+)
+
 data class AetherAppExtensionComposerMenuItem(
     val id: String,
     val localId: String,
@@ -91,6 +103,7 @@ data class AetherAppExtensionSnapshot(
     val extensions: List<AetherAppExtensionInfo> = emptyList(),
     val surfaces: List<AetherAppExtensionSurface> = emptyList(),
     val components: List<AetherAppExtensionComponent> = emptyList(),
+    val pages: List<AetherAppExtensionPage> = emptyList(),
     val composerMenuItems: List<AetherAppExtensionComposerMenuItem> = emptyList(),
     val settings: List<AetherAppExtensionSettingsPage> = emptyList(),
     val messageTypes: List<AetherAppExtensionMessageType> = emptyList(),
@@ -483,6 +496,19 @@ internal fun parseAetherAppExtensionSnapshot(json: JSONObject?): AetherAppExtens
                 extensionName = item.optString("extension_name"),
                 target = item.optString("target"),
                 mode = item.optString("mode").ifBlank { "wrap" },
+                order = item.optInt("order"),
+                tree = item.opt("tree"),
+            )
+        },
+        pages = json.optJSONArray("pages").objects().map { item ->
+            AetherAppExtensionPage(
+                id = item.optString("id"),
+                localId = item.optString("local_id"),
+                extensionId = item.optString("extension_id"),
+                extensionName = item.optString("extension_name"),
+                title = item.optString("title"),
+                subtitle = item.optString("subtitle"),
+                icon = item.optString("icon").ifBlank { "extension" },
                 order = item.optInt("order"),
                 tree = item.opt("tree"),
             )

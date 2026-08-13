@@ -16,6 +16,11 @@ const factory = defineAetherExtension((aether) => {
     const count = aether.storage.get("count", 0) + 1;
     aether.storage.set("count", count);
   });
+  aether.registerPage({
+    id: "dashboard",
+    title: "Dashboard",
+    render: () => ui.text("Extension dashboard"),
+  });
   aether.registerSettings({
     id: "preferences",
     title: "Preferences",

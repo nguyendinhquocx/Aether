@@ -86,6 +86,7 @@ import {
   invokeAetherAppExtensionAction,
   loadAetherAppExtensions,
 } from "./aether-extensions.js";
+import { bridgeDebug, bridgeDebugEnabled, elapsedMillis } from "./debug.js";
 
 registerBunOAuthFlows();
 
@@ -280,7 +281,14 @@ class BridgeCredentialStore implements CredentialStore {
 
   async read(providerId: string): Promise<Credential | undefined> {
     if (providerId !== this.providerId) return undefined;
+    const startedAt = Date.now();
+    bridgeDebug("credential_read_start", { provider_id: providerId });
     await this.state.queue;
+    bridgeDebug("credential_read_done", {
+      provider_id: providerId,
+      has_credential: this.state.credential !== undefined,
+      elapsed_ms: elapsedMillis(startedAt),
+    });
     return this.state.credential;
   }
 
@@ -295,6 +303,8 @@ class BridgeCredentialStore implements CredentialStore {
     fn: (current: Credential | undefined) => Promise<Credential | undefined>,
   ): Promise<Credential | undefined> {
     if (providerId !== this.providerId) return undefined;
+    const startedAt = Date.now();
+    bridgeDebug("credential_modify_start", { provider_id: providerId });
     let result: Credential | undefined;
     const operation = this.state.queue.then(async () => {
       const next = await fn(this.state.credential);
@@ -302,17 +312,32 @@ class BridgeCredentialStore implements CredentialStore {
       result = this.state.credential;
     });
     this.state.queue = operation.catch(() => undefined);
-    await operation;
+    try {
+      await operation;
+      bridgeDebug("credential_modify_done", {
+        provider_id: providerId,
+        elapsed_ms: elapsedMillis(startedAt),
+      });
+    } catch (error) {
+      bridgeDebug("credential_modify_failed", {
+        provider_id: providerId,
+        error: errorMessageWithCause(error),
+        elapsed_ms: elapsedMillis(startedAt),
+      });
+      throw error;
+    }
     return result;
   }
 
   async delete(providerId: string): Promise<void> {
     if (providerId !== this.providerId) return;
+    bridgeDebug("credential_delete_start", { provider_id: providerId });
     const operation = this.state.queue.then(() => {
       this.state.credential = undefined;
     });
     this.state.queue = operation.catch(() => undefined);
     await operation;
+    bridgeDebug("credential_delete_done", { provider_id: providerId });
   }
 }
 
@@ -320,6 +345,7 @@ async function replaceSharedCredential(
   providerConfigId: string,
   credential: Credential,
 ): Promise<void> {
+  bridgeDebug("shared_credential_replace", { provider_config_id: providerConfigId });
   const existing = sharedCredentialStates.get(providerConfigId);
   if (!existing) {
     sharedCredentialStates.set(providerConfigId, {
@@ -336,6 +362,7 @@ async function replaceSharedCredential(
 }
 
 async function clearSharedCredential(providerConfigId: string): Promise<boolean> {
+  bridgeDebug("shared_credential_clear", { provider_config_id: providerConfigId });
   const existing = sharedCredentialStates.get(providerConfigId);
   if (!existing) return false;
   const operation = existing.queue.then(() => {
@@ -384,17 +411,25 @@ function requestAetherHost(method: string, args: JsonObject): Promise<JsonObject
     ? operationRequestId
     : aetherSubscriberRequestIds.values().next().value;
   if (!requestId) {
+    bridgeDebug("aether_host_call_no_subscriber", { method });
     throw new Error("The Aether app host is not subscribed.");
   }
   const callId = `aether-host-${Date.now()}-${++aetherHostCallCounter}`;
+  bridgeDebug("aether_host_call_start", { call_id: callId, method, routed_request_id: requestId });
   writeEvent(requestId, "aether_host_call", {
     call_id: callId,
     method,
     args,
   });
+  const startedAt = Date.now();
   return new Promise<JsonObject>((resolve, reject) => {
     const timeout = setTimeout(() => {
       pendingAetherHostCalls.delete(callId);
+      bridgeDebug("aether_host_call_timeout", {
+        call_id: callId,
+        method,
+        elapsed_ms: elapsedMillis(startedAt),
+      });
       reject(new Error(`Aether host call timed out: ${method}`));
     }, 2 * 60 * 1000);
     pendingAetherHostCalls.set(callId, { resolve, reject, timeout });
@@ -416,9 +451,13 @@ async function runAetherOperation<T>(
 function resolveAetherHostCall(payload: JsonObject): boolean {
   const callId = asString(payload.call_id).trim();
   const pending = callId ? pendingAetherHostCalls.get(callId) : undefined;
-  if (!pending) return false;
+  if (!pending) {
+    bridgeDebug("aether_host_result_orphaned", { call_id: callId });
+    return false;
+  }
   pendingAetherHostCalls.delete(callId);
   clearTimeout(pending.timeout);
+  bridgeDebug("aether_host_call_resolved", { call_id: callId, ok: asBoolean(payload.ok, true) });
   if (asBoolean(payload.ok, true)) {
     pending.resolve(asObject(payload.result));
   } else {
@@ -489,10 +528,28 @@ function fetchWithDetailedErrors(
   onError?: (detail: string) => void,
 ): typeof fetch {
   return async (input, init) => {
+    const url = fetchUrl(input);
+    const method = typeof init?.method === "string" ? init.method : "GET";
+    const startedAt = Date.now();
+    bridgeDebug("fetch_start", { method, url });
     try {
-      return await fetchImplementation(input, init);
+      const response = await fetchImplementation(input, init);
+      bridgeDebug("fetch_end", {
+        method,
+        url,
+        status: response.status,
+        elapsed_ms: elapsedMillis(startedAt),
+      });
+      return response;
     } catch (error) {
       const detail = errorMessageWithCause(error);
+      bridgeDebug("fetch_error", {
+        method,
+        url,
+        error: detail,
+        aborted: Boolean(init?.signal?.aborted),
+        elapsed_ms: elapsedMillis(startedAt),
+      });
       onError?.(detail);
       if (error instanceof Error && detail === error.message) throw error;
       throw new Error(detail, { cause: error });
@@ -632,6 +689,20 @@ function normalizeModelConfig(rawValue: unknown): ModelConfig {
     throw new Error("model_config.base_url is required.");
   }
   const authMethod = asString(raw.auth_method).trim();
+  bridgeDebug("model_config_normalized", {
+    provider_type: providerType,
+    pi_provider_id: piProviderId,
+    pi_api: piApi,
+    model_id: modelId,
+    base_url: baseUrl,
+    auth_method: authMethod || "api_key",
+    has_api_key: asString(raw.api_key) !== "",
+    custom_header_names: Object.keys(normalizeHeaders(raw.custom_headers)),
+    timeout_ms: asNumber(raw.timeout_ms, 360000),
+    max_retries: Math.max(0, asNumber(raw.max_retries, DEFAULT_AGENT_RETRY_MAX_RETRIES)),
+    max_retry_delay_ms: asNumber(raw.max_retry_delay_ms, 60000),
+    reasoning: asBoolean(raw.reasoning, false),
+  });
   return {
     provider_type: providerType,
     provider_config_id: providerConfigId,
@@ -747,7 +818,16 @@ function buildModels(config: ModelConfig): {
   provider: Provider;
   credentialStore?: BridgeCredentialStore;
 } {
+  bridgeDebug("build_models_start", {
+    provider_type: config.provider_type,
+    pi_provider_id: config.pi_provider_id,
+    pi_api: config.pi_api,
+    model_id: config.model_id,
+    base_url: config.base_url,
+    auth_method: config.auth_method,
+  });
   if (config.provider_type === "faux") {
+    bridgeDebug("build_models_path", { path: "faux" });
     const models = createModels();
     const faux = fauxProvider({
       provider: config.pi_provider_id,
@@ -783,6 +863,7 @@ function buildModels(config: ModelConfig): {
   }
 
   if (config.provider_type === "builtin") {
+    bridgeDebug("build_models_path", { path: "builtin", pi_provider_id: config.pi_provider_id });
     const provider = builtinProviderById.get(config.pi_provider_id);
     if (!provider) throw new Error(`Unknown built-in Pi provider: ${config.pi_provider_id}`);
     const providerModels = provider.getModels();
@@ -844,6 +925,7 @@ function buildModels(config: ModelConfig): {
 
   const models = createModels();
   const model = createAetherModel(config);
+  bridgeDebug("build_models_path", { path: "custom", pi_api: config.pi_api });
   const headers = config.custom_headers ?? {};
   const provider = createProvider({
     id: config.pi_provider_id,
@@ -875,6 +957,11 @@ async function buildModelRuntime(config: ModelConfig): Promise<{
   model: Model<string>;
   credentialStore?: BridgeCredentialStore;
 }> {
+  const startedAt = Date.now();
+  bridgeDebug("model_runtime_create_start", {
+    provider_type: config.provider_type,
+    model_id: config.model_id,
+  });
   const built = buildModels(config);
   const modelRuntime = await ModelRuntime.create({
     credentials: built.credentialStore,
@@ -884,6 +971,11 @@ async function buildModelRuntime(config: ModelConfig): Promise<{
     refreshOnCreate: false,
   });
   modelRuntime.registerNativeProvider(built.provider);
+  bridgeDebug("model_runtime_create_done", {
+    provider_type: config.provider_type,
+    model_id: config.model_id,
+    elapsed_ms: elapsedMillis(startedAt),
+  });
   return {
     modelRuntime,
     model: built.model,
@@ -1237,8 +1329,19 @@ function hostToolResultFromPayload(payload: JsonObject): AgentToolResult<JsonObj
 function resolveHostToolResult(payload: JsonObject): boolean {
   const toolRequestId = asString(payload.tool_request_id).trim();
   const pending = toolRequestId ? pendingHostToolRequests.get(toolRequestId) : undefined;
-  if (!pending) return false;
+  if (!pending) {
+    bridgeDebug("host_tool_result_orphaned", {
+      tool_request_id: toolRequestId,
+      tool_name: asString(payload.tool_name),
+    });
+    return false;
+  }
   pendingHostToolRequests.delete(toolRequestId);
+  bridgeDebug("host_tool_result_accepted", {
+    tool_request_id: toolRequestId,
+    tool_name: asString(payload.tool_name),
+    is_error: asBoolean(payload.is_error, false),
+  });
   applyRuntimeToolResult(payload);
   pending.resolve(hostToolResultFromPayload(payload));
   return true;
@@ -1247,7 +1350,10 @@ function resolveHostToolResult(payload: JsonObject): boolean {
 function applyHostToolProgress(payload: JsonObject): boolean {
   const toolRequestId = asString(payload.tool_request_id).trim();
   const pending = toolRequestId ? pendingHostToolRequests.get(toolRequestId) : undefined;
-  if (!pending) return false;
+  if (!pending) {
+    bridgeDebug("host_tool_progress_orphaned", { tool_request_id: toolRequestId });
+    return false;
+  }
   pending.onUpdate?.(hostToolResultFromPayload(payload));
   return true;
 }
@@ -1387,9 +1493,22 @@ function requestAgentHostTool(
   const runRequestId = state.currentRequestId;
   if (!runRequestId) throw new Error(`Host tool ${definition.name} was called outside an active turn.`);
   const toolRequestId = `host-tool-${Date.now()}-${++hostToolCounter}`;
+  const startedAt = Date.now();
+  bridgeDebug("host_tool_request_sent", {
+    tool_request_id: toolRequestId,
+    tool_call_id: toolCallId,
+    tool_name: definition.name,
+    session_id: state.sessionId,
+    run_request_id: runRequestId,
+  });
   return new Promise((resolve, reject) => {
     const abort = () => {
       if (!pendingHostToolRequests.delete(toolRequestId)) return;
+      bridgeDebug("host_tool_request_aborted", {
+        tool_request_id: toolRequestId,
+        tool_name: definition.name,
+        elapsed_ms: elapsedMillis(startedAt),
+      });
       reject(new Error(`Host tool ${definition.name} was aborted.`));
     };
     signal?.addEventListener("abort", abort, { once: true });
@@ -1397,10 +1516,21 @@ function requestAgentHostTool(
       sessionId: state.sessionId,
       resolve: (result) => {
         signal?.removeEventListener("abort", abort);
+        bridgeDebug("host_tool_request_resolved", {
+          tool_request_id: toolRequestId,
+          tool_name: definition.name,
+          elapsed_ms: elapsedMillis(startedAt),
+        });
         resolve(result);
       },
       reject: (error) => {
         signal?.removeEventListener("abort", abort);
+        bridgeDebug("host_tool_request_rejected", {
+          tool_request_id: toolRequestId,
+          tool_name: definition.name,
+          error: errorMessageWithCause(error),
+          elapsed_ms: elapsedMillis(startedAt),
+        });
         reject(error);
       },
       onUpdate,
@@ -1441,9 +1571,21 @@ function requestRuntimeOperation(
   const requestId = state.currentRequestId;
   if (!requestId) throw new Error(`Runtime operation ${kind} was called outside an active turn.`);
   const operationId = `runtime-op-${Date.now()}-${++runtimeOperationCounter}`;
+  const startedAt = Date.now();
+  bridgeDebug("runtime_op_request_sent", {
+    operation_id: operationId,
+    kind,
+    session_id: state.sessionId,
+    input_bytes: options.input?.length ?? 0,
+  });
   return new Promise((resolve, reject) => {
     const abort = () => {
       if (!pendingRuntimeOperations.delete(operationId)) return;
+      bridgeDebug("runtime_op_aborted", {
+        operation_id: operationId,
+        kind,
+        elapsed_ms: elapsedMillis(startedAt),
+      });
       writeEvent(requestId, "runtime_op_cancel", {
         operation_id: operationId,
         session_id: state.sessionId,
@@ -1457,10 +1599,21 @@ function requestRuntimeOperation(
       onChunk: options.onChunk,
       resolve: (result) => {
         options.signal?.removeEventListener("abort", abort);
+        bridgeDebug("runtime_op_resolved", {
+          operation_id: operationId,
+          kind,
+          elapsed_ms: elapsedMillis(startedAt),
+        });
         resolve(result);
       },
       reject: (error) => {
         options.signal?.removeEventListener("abort", abort);
+        bridgeDebug("runtime_op_rejected", {
+          operation_id: operationId,
+          kind,
+          error: errorMessageWithCause(error),
+          elapsed_ms: elapsedMillis(startedAt),
+        });
         reject(error);
       },
     });
@@ -1503,8 +1656,15 @@ function runtimeOperationChunk(payload: JsonObject): boolean {
 function runtimeOperationResult(payload: JsonObject): boolean {
   const operationId = asString(payload.operation_id).trim();
   const pending = pendingRuntimeOperations.get(operationId);
-  if (!pending) return false;
+  if (!pending) {
+    bridgeDebug("runtime_op_result_orphaned", { operation_id: operationId });
+    return false;
+  }
   pendingRuntimeOperations.delete(operationId);
+  bridgeDebug("runtime_op_result_received", {
+    operation_id: operationId,
+    ok: asBoolean(payload.ok, true),
+  });
   if (!asBoolean(payload.ok, true)) {
     pending.reject(new Error(asString(payload.error, "Runtime operation failed.")));
   } else {
@@ -1888,11 +2048,29 @@ function setActiveSessionTools(state: AgentSessionState): void {
 
 function emitAgentSessionEvent(state: AgentSessionState, event: AgentSessionEvent): void {
   const requestId = state.currentRequestId;
-  if (!requestId) return;
+  if (!requestId) {
+    if (event.type !== "message_update") {
+      bridgeDebug("agent_session_event_without_request", {
+        event_type: event.type,
+        session_id: state.sessionId,
+      });
+    }
+    return;
+  }
   switch (event.type) {
     case "message_update":
       if (event.message.role === "assistant" &&
           (event.assistantMessageEvent.type === "text_delta" || event.assistantMessageEvent.type === "thinking_delta")) {
+        if (state.firstAssistantEventAtMillis === undefined) {
+          state.firstAssistantEventAtMillis = Date.now();
+          bridgeDebug("first_assistant_delta", {
+            session_id: state.sessionId,
+            delta_type: event.assistantMessageEvent.type,
+            elapsed_since_turn_start_ms: state.turnStartedAtMillis
+              ? state.firstAssistantEventAtMillis - state.turnStartedAtMillis
+              : undefined,
+          });
+        }
         emitStreamEvent(requestId, event.assistantMessageEvent);
       }
       return;

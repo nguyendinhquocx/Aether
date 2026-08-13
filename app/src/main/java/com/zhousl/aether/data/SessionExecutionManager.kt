@@ -579,6 +579,18 @@ class SessionExecutionManager(
                 }
             }
 
+            diagnosticLogger.event(
+                category = "session",
+                event = "pi_agent_runner_start",
+                sessionId = handle.sessionId,
+                turnId = turnId,
+                details = mapOf(
+                    "runtime_id" to activeRuntimeId.storageValue,
+                    "workspace_directory" to runtimeWorkspaceDirectory,
+                    "session_file" to agentSessionMetadata?.jsonlPath.orEmpty(),
+                    "message_count" to request.requestMessages.size,
+                ),
+            )
             val result = piAgentRunner.runTurn(
                 settings = request.settings,
                 messages = buildRequestMessages(
@@ -686,6 +698,16 @@ class SessionExecutionManager(
                     }
                     drained.map { buildSteerRequestMessage(it.message, request.settings) }
                 },
+            )
+            diagnosticLogger.event(
+                category = "session",
+                event = "pi_agent_runner_end",
+                sessionId = handle.sessionId,
+                turnId = turnId,
+                details = mapOf(
+                    "success" to result.isSuccess,
+                    "error" to (result.exceptionOrNull()?.message ?: ""),
+                ),
             )
             if (handle.pauseRequested) {
                 return finalizePausedTurn(

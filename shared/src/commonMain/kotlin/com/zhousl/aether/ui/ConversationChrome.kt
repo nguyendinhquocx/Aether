@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
+import com.zhousl.aether.platform.LocalReduceMotion
 import com.zhousl.aether.ui.theme.AetherSurface
 
 private val ConversationControlShadow = Color(0x14000000)
@@ -59,6 +60,7 @@ fun AetherConversationTopBarFrame(
     modifier: Modifier = Modifier,
     centerContent: @Composable BoxScope.() -> Unit,
 ) {
+    val reduceMotion = LocalReduceMotion.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -137,9 +139,10 @@ fun AetherConversationEmptyState(
     onStarterPromptSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val reduceMotion = LocalReduceMotion.current
     val titleOffset by animateDpAsState(
         targetValue = if (inputFocused) (-34).dp else (-24).dp,
-        animationSpec = tween(durationMillis = 260, easing = ConversationMotionEasing),
+        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = ConversationMotionEasing),
         label = "empty_state_title_offset",
     )
     Column(

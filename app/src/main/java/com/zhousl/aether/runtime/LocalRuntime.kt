@@ -1,6 +1,7 @@
 package com.zhousl.aether.runtime
 
 import com.zhousl.aether.data.LocalRuntimeId
+import java.io.File
 
 enum class LocalRuntimeIssue {
     Ready,
@@ -51,6 +52,16 @@ interface LocalRuntime {
         workingDirectory: String = homeDirectory,
         awaitTimeoutMillis: Long = 15_000L,
     ): String
+
+    /**
+     * Atomically mirrors host-owned directories into this runtime without starting a guest
+     * process. Runtimes that do not expose a host-backed filesystem return false.
+     */
+    suspend fun replaceHostDirectories(
+        guestRootPath: String,
+        signature: String,
+        directories: Map<String, File>,
+    ): Boolean = false
 
     fun normalizePath(path: String): String = when {
         path == "~" -> homeDirectory

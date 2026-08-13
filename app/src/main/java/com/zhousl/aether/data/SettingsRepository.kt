@@ -28,6 +28,17 @@ class SettingsRepository(
             preferences[MODEL_CATALOG_CACHE_JSON] = serializeModelCatalogCache(merged)
         }
     }
+
+    suspend fun loadThinkingCatalogCache(): Map<String, List<String>> = context.dataStore.data.first()
+        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()) }
+
+    suspend fun saveThinkingCatalogCache(cache: Map<String, List<String>>) {
+        if (cache.isEmpty()) return
+        context.dataStore.edit { preferences ->
+            val merged = parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()) + cache
+            preferences[THINKING_CATALOG_CACHE_JSON] = serializeThinkingCatalogCache(merged)
+        }
+    }
     suspend fun initializeLanguageIfNeeded() {
         val preferences = context.dataStore.data.first()
         if (preferences[LANGUAGE] == null) {
@@ -552,6 +563,7 @@ class SettingsRepository(
         val DEFAULT_NAMING_MODEL_KEY = stringPreferencesKey("default_naming_model_key")
         val DEFAULT_COMPACTING_MODEL_KEY = stringPreferencesKey("default_compacting_model_key")
         val MODEL_CATALOG_CACHE_JSON = stringPreferencesKey("model_catalog_cache_json")
+        val THINKING_CATALOG_CACHE_JSON = stringPreferencesKey("thinking_catalog_cache_json")
         val DEFAULT_SELECTED_SKILL_IDS = stringPreferencesKey("default_selected_skill_ids")
         val UNSUPPORTED_PARALLEL_TOOL_CALL_PROVIDER_KEYS =
             stringPreferencesKey("unsupported_parallel_tool_call_provider_keys")
@@ -866,6 +878,33 @@ private fun parseModelCatalogCache(raw: String): Map<String, ModelCatalogInfo> =
                 labLogoViewportWidth = item.optDouble("labLogoViewportWidth", 40.0).toFloat(),
                 labLogoViewportHeight = item.optDouble("labLogoViewportHeight", 40.0).toFloat(),
             ))
+        }
+    }
+}.getOrDefault(emptyMap())
+
+private fun serializeThinkingCatalogCache(cache: Map<String, List<String>>): String = JSONArray().apply {
+    cache.forEach { (key, levels) ->
+        put(JSONObject().apply {
+            put("key", key)
+            put("levels", JSONArray(levels))
+        })
+    }
+}.toString()
+
+private fun parseThinkingCatalogCache(raw: String): Map<String, List<String>> = runCatching {
+    val array = JSONArray(raw)
+    buildMap {
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val key = item.optString("key").takeIf(String::isNotBlank) ?: continue
+            val levels = item.optJSONArray("levels")?.let { values ->
+                buildList {
+                    for (i in 0 until values.length()) {
+                        values.optString(i).trim().takeIf(String::isNotBlank)?.let(::add)
+                    }
+                }
+            }.orEmpty()
+            put(key, levels)
         }
     }
 }.getOrDefault(emptyMap())

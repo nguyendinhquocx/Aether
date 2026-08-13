@@ -140,21 +140,14 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
         config: LlmProviderConfig,
     ): SharedProviderModelsResult {
         val definition = PiProviderCatalog.resolve(config.piProviderId)
-        return if (shouldFetchModelsFromEndpoint(config, definition)) {
-            val endpoint = fetchOpenAiModels(config)
-            val publicModels = if (shouldMergeModelsDev(config, definition)) {
-                fetchPublicProviderModels(definition)
-            } else {
-                SharedProviderModelsResult(emptyList())
-            }
-            val merged = (endpoint.models + publicModels.models).distinctBy(String::lowercase)
-            SharedProviderModelsResult(
-                models = merged,
-                error = if (merged.isEmpty()) endpoint.error ?: publicModels.error else null,
-            )
-        } else {
-            fetchPublicProviderModels(definition)
-        }
+        val providerModels = fetchProviderModels(config)
+        if (providerModels.models.isNotEmpty()) return providerModels
+
+        val publicModels = fetchPublicProviderModels(definition)
+        return if (publicModels.models.isNotEmpty()) publicModels else SharedProviderModelsResult(
+            models = emptyList(),
+            error = providerModels.error ?: publicModels.error,
+        )
     }
 
     private suspend fun fetchPublicProviderModels(
@@ -204,11 +197,11 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
                     normalizedLabIds.associateWith { cachedLabLogos[it] }
                 }
             }
-        }
+    }
 
-    private suspend fun fetchOpenAiModels(config: LlmProviderConfig): SharedProviderModelsResult {
-        val modelsUrl = modelsEndpoint(config.baseUrl)
+    private suspend fun fetchProviderModels(config: LlmProviderConfig): SharedProviderModelsResult {
         return runCatching {
+            val modelsUrl = modelsEndpoint(config.baseUrl)
             val response = client.get(modelsUrl) {
                 headers {
                     append(HttpHeaders.Authorization, "Bearer ${config.apiKey.trim()}")
@@ -419,24 +412,6 @@ private fun sharedModelLabDisplayName(labId: String): String = when (labId.lower
 
 private fun JsonObject.stringValue(key: String): String =
     this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
-
-internal fun shouldFetchModelsFromEndpoint(
-    config: LlmProviderConfig,
-    definition: PiProviderDefinition = PiProviderCatalog.resolve(config.piProviderId),
-): Boolean {
-    if (!definition.isBuiltIn) return true
-    if (definition.id == "openai" && config.authMethod == ProviderAuthMethod.ApiKey) return true
-    val normalizedBaseUrl = config.baseUrl.trim().trimEnd('/')
-    return definition.id == "openai" &&
-        normalizedBaseUrl.isNotBlank() &&
-        normalizedBaseUrl != definition.defaultBaseUrl
-}
-
-private fun shouldMergeModelsDev(
-    config: LlmProviderConfig,
-    definition: PiProviderDefinition,
-): Boolean = definition.isBuiltIn &&
-    config.baseUrl.trim().trimEnd('/') == definition.defaultBaseUrl.trim().trimEnd('/')
 
 internal fun modelsEndpoint(baseUrl: String): String {
     val normalized = baseUrl.trim().trimEnd('/')

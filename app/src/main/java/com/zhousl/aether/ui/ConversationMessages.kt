@@ -139,6 +139,7 @@ import com.zhousl.aether.ui.theme.AetherPrimary
 import com.zhousl.aether.ui.theme.AetherScrim
 import com.zhousl.aether.ui.theme.AetherSecondary
 import com.zhousl.aether.ui.theme.AetherSurface
+import com.zhousl.aether.platform.LocalReduceMotion
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import com.zhousl.aether.ui.theme.AetherTertiary
 
@@ -1996,6 +1997,11 @@ fun ShimmerStatusText(
     travelDurationMillis: Int = 1800,
     pauseDurationMillis: Int = 1000,
 ) {
+    if (LocalReduceMotion.current) {
+        Text(text = text, modifier = modifier, style = MaterialTheme.typography.bodyMedium,
+            color = AetherOnSurfaceVariant)
+        return
+    }
     val travelDistance = (280f + text.length * 18f).coerceIn(280f, 760f)
     val sweepHalfWidth = 180f
     val totalDurationMillis = travelDurationMillis + pauseDurationMillis

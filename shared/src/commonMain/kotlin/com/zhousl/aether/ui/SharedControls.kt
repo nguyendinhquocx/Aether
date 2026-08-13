@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -73,6 +74,7 @@ import com.zhousl.aether.ui.theme.AetherSettingsIcon
 import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import com.zhousl.aether.platform.currentPlatformCapabilities
+import com.zhousl.aether.platform.LocalReduceMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -172,12 +174,16 @@ internal fun <T> SharedSettingsPageTransition(
     targetState: T,
     depth: (T) -> Int,
     label: String,
+    stateKey: (T) -> Any = { it.toString() },
     content: @Composable (T) -> Unit,
 ) {
     val richMotion = LocalSharedSettingsRichMotion.current
+    val reduceMotion = LocalReduceMotion.current
+    val stateHolder = rememberSaveableStateHolder()
     AnimatedContent(
         targetState = targetState,
         transitionSpec = {
+            if (reduceMotion) return@AnimatedContent fadeIn(tween(80)) togetherWith fadeOut(tween(60))
             if (!currentPlatformCapabilities.layeredScreenTransitions && !richMotion) {
                 return@AnimatedContent fadeIn(tween(120)) togetherWith
                     fadeOut(tween(80))
@@ -211,7 +217,9 @@ internal fun <T> SharedSettingsPageTransition(
         },
         label = label,
     ) { currentState ->
-        content(currentState)
+        stateHolder.SaveableStateProvider(stateKey(currentState)) {
+            content(currentState)
+        }
     }
 }
 

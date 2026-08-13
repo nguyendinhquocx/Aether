@@ -103,44 +103,6 @@ class ProviderModelCatalogClientTest {
     }
 
     @Test
-    fun builtInOpenAiApiKeyUsesLiveModelsEndpoint() {
-        val definition = PiProviderCatalog.resolve("openai")
-        val config = LlmProviderConfig(
-            providerId = "openai",
-            name = "OpenAI",
-            piProviderId = "openai",
-            apiKey = "test-key",
-            baseUrl = definition.defaultBaseUrl,
-            modelId = "",
-            authMethod = ProviderAuthMethod.ApiKey,
-        )
-
-        assertEquals(
-            true,
-            ProviderModelCatalogClient.shouldFetchModelsFromEndpoint(config, definition),
-        )
-    }
-
-    @Test
-    fun openAiCodexOAuthKeepsProviderCatalog() {
-        val definition = PiProviderCatalog.resolve("openai-codex")
-        val config = LlmProviderConfig(
-            providerId = "openai-codex",
-            name = "OpenAI Codex",
-            piProviderId = "openai-codex",
-            apiKey = "",
-            baseUrl = definition.defaultBaseUrl,
-            modelId = "",
-            authMethod = ProviderAuthMethod.OAuth,
-        )
-
-        assertEquals(
-            false,
-            ProviderModelCatalogClient.shouldFetchModelsFromEndpoint(config, definition),
-        )
-    }
-
-    @Test
     fun customOpenAiBaseUrlFetchesModelsFromConfiguredEndpoint() = runBlocking {
         val server = MockWebServer()
         server.enqueue(
@@ -171,12 +133,17 @@ class ProviderModelCatalogClientTest {
     }
 
     @Test
-    fun failedLiveRequestDoesNotReturnBundledModels() = runBlocking {
+    fun failedProviderRequestFallsBackToModelsDev() = runBlocking {
         val server = MockWebServer()
         server.enqueue(
             MockResponse()
                 .setResponseCode(401)
                 .setBody("""{"error":{"message":"invalid key"}}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .addHeader("Content-Type", "application/json")
+                .setBody("""{"providers":{"openai":{"models":{"gpt-fallback":{"id":"gpt-fallback"}}}}}""")
         )
         server.start()
 
@@ -190,11 +157,14 @@ class ProviderModelCatalogClientTest {
                     baseUrl = server.url("/v1").toString(),
                     modelId = "",
                     authMethod = ProviderAuthMethod.ApiKey,
-                )
+                ),
+                modelsDevUrl = server.url("/catalog.json").toString(),
             )
 
-            assertEquals(emptyList<String>(), result.models)
-            assertEquals("""{"error":{"message":"invalid key"}}""", result.error)
+            assertEquals(listOf("gpt-fallback"), result.models)
+            assertEquals(null, result.error)
+            assertEquals("/v1/models", server.takeRequest().path)
+            assertEquals("/catalog.json", server.takeRequest().path)
         } finally {
             server.shutdown()
         }

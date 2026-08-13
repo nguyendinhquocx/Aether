@@ -59,6 +59,37 @@ class PiBridgeProtocolTest {
     }
 
     @Test
+    fun navigationPayloadRetainsModelConfigurationForSessionRecovery() {
+        val payload = JSONObject()
+            .put("session_file", "/root/.aether/agent-sessions/session.jsonl")
+            .put("model_config", fauxPiModelConfig(response = "done").toJson())
+            .apply {
+                put("session_id", "session-1")
+                put("entry_id", "entry-1")
+                put("reset", false)
+                put("summarize", false)
+            }
+        val request = JSONObject(
+            PiBridgeRequest(
+                id = "req",
+                type = "navigate_session",
+                payload = payload,
+            ).toJsonLine(),
+        )
+        val serializedPayload = request.getJSONObject("payload")
+
+        assertEquals("session-1", serializedPayload.optString("session_id"))
+        assertEquals(
+            "faux",
+            serializedPayload.getJSONObject("model_config").optString("provider_type"),
+        )
+        assertEquals(
+            "/root/.aether/agent-sessions/session.jsonl",
+            serializedPayload.optString("session_file"),
+        )
+    }
+
+    @Test
     fun requestStreamsOneLfDelimitedJsonRecord() {
         val output = StringWriter()
         val escapedText = "\"\\\b\u000c\n\r\t\u0001\u2028\u2029"

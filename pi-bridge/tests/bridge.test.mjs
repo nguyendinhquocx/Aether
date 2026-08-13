@@ -325,6 +325,12 @@ export default defineAetherExtension((aether) => {
       ui.core(),
     ]),
   });
+  aether.registerPage({
+    id: "dashboard",
+    title: "Dashboard",
+    subtitle: "Demo page",
+    render: () => ui.column([ui.text("Page body")]),
+  });
   aether.registerSettings({
     id: "preferences",
     title: "Preferences",
@@ -366,6 +372,8 @@ export default defineAetherExtension((aether) => {
     assert.equal(loaded.snapshot.components[0].target, "chat.composer.actionTray");
     assert.equal(loaded.snapshot.components[0].mode, "wrap");
     assert.equal(loaded.snapshot.components[0].tree.children[1].type, "core");
+    assert.equal(loaded.snapshot.pages[0].id, `${loaded.snapshot.extensions[0].id}:dashboard`);
+    assert.equal(loaded.snapshot.pages[0].tree.children[0].text, "Page body");
     assert.equal(loaded.snapshot.settings[0].title, "Preferences");
     assert.equal(loaded.snapshot.settings[0].sections[0].settings[0].id, "enabled");
     assert.equal(loaded.snapshot.settings[1].title, "Secondary");

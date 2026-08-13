@@ -1,5 +1,7 @@
 package com.zhousl.aether.ui
 
+import com.zhousl.aether.platform.LocalReduceMotion
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -2082,6 +2084,10 @@ internal fun SharedReasoningShimmerText(
     travelDurationMillis: Int = 1_800,
     pauseDurationMillis: Int = 1_000,
 ) {
+    if (LocalReduceMotion.current) {
+        Text(text = text, modifier = modifier, style = MaterialTheme.typography.bodyMedium, color = AetherOnSurfaceVariant)
+        return
+    }
     val totalDurationMillis = travelDurationMillis + pauseDurationMillis
     val travelDistance = (280f + text.length * 18f).coerceIn(280f, 760f)
     val shimmerOffset by rememberInfiniteTransition(label = "shared_reasoning_status_shimmer").animateFloat(

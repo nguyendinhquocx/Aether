@@ -35,11 +35,11 @@ class SharedProviderModelCatalogClientTest {
     }
 
     @Test
-    fun builtInProviderUsesModelsDevCatalog() = runTest {
+    fun builtInProviderUsesConfiguredModelsEndpointFirst() = runTest {
         val engine = MockEngine { request ->
-            assertEquals("models.dev", request.url.host)
+            assertEquals("https://api.anthropic.com/models", request.url.toString())
             respond(
-                """{"providers":{"anthropic":{"models":{"claude-a":{"id":"claude-a"},"claude-b":{"id":"claude-b"}}}}}""",
+                """{"data":[{"id":"claude-live"}]}""",
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }
@@ -51,7 +51,7 @@ class SharedProviderModelCatalogClientTest {
             ),
         )
 
-        assertEquals(listOf("claude-a", "claude-b"), result.models)
+        assertEquals(listOf("claude-live"), result.models)
         assertNull(result.error)
     }
 
@@ -68,34 +68,21 @@ class SharedProviderModelCatalogClientTest {
     }
 
     @Test
-    fun openAiApiKeyUsesRemoteEndpoint() {
-        assertTrue(
-            shouldFetchModelsFromEndpoint(
-                customConfig(
-                    piProviderId = "openai",
-                    baseUrl = "https://api.openai.com/v1",
-                    authMethod = ProviderAuthMethod.ApiKey,
-                ),
-            ),
-        )
+    fun modelEndpointFollowsConfiguredBaseUrl() {
         assertEquals("https://example.com/v1/models", modelsEndpoint("https://example.com/v1/responses"))
         assertEquals("https://example.com/v1/models", modelsEndpoint("https://example.com/v1/chat/completions"))
     }
 
     @Test
-    fun openAiEndpointModelsAreMergedWithPublicCatalog() = runTest {
+    fun successfulProviderRequestDoesNotFetchModelsDev() = runTest {
+        var requestCount = 0
         val engine = MockEngine { request ->
-            when (request.url.host) {
-                "api.openai.com" -> respond(
-                    """{"data":[{"id":"gpt-endpoint"}]}""",
-                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-                "models.dev" -> respond(
-                    """{"providers":{"openai":{"models":{"gpt-catalog":{"id":"gpt-catalog"}}}}}""",
-                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
-                )
-                else -> respondError(HttpStatusCode.NotFound)
-            }
+            requestCount += 1
+            assertEquals("api.openai.com", request.url.host)
+            respond(
+                """{"data":[{"id":"gpt-endpoint"}]}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
         }
 
         val result = SharedProviderModelCatalogClient(engine).fetchModels(
@@ -106,7 +93,36 @@ class SharedProviderModelCatalogClientTest {
             ),
         )
 
-        assertEquals(listOf("gpt-endpoint", "gpt-catalog"), result.models)
+        assertEquals(listOf("gpt-endpoint"), result.models)
+        assertEquals(1, requestCount)
+        assertNull(result.error)
+    }
+
+    @Test
+    fun failedProviderRequestFallsBackToModelsDev() = runTest {
+        val requestedHosts = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requestedHosts += request.url.host
+            when (request.url.host) {
+                "api.anthropic.com" -> respondError(HttpStatusCode.Unauthorized)
+                "models.dev" -> respond(
+                    """{"providers":{"anthropic":{"models":{"claude-fallback":{"id":"claude-fallback"}}}}}""",
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+                else -> respondError(HttpStatusCode.NotFound)
+            }
+        }
+
+        val result = SharedProviderModelCatalogClient(engine).fetchModels(
+            customConfig(
+                piProviderId = "anthropic",
+                baseUrl = "https://api.anthropic.com",
+                authMethod = ProviderAuthMethod.OAuth,
+            ),
+        )
+
+        assertEquals(listOf("api.anthropic.com", "models.dev"), requestedHosts)
+        assertEquals(listOf("claude-fallback"), result.models)
         assertNull(result.error)
     }
 
