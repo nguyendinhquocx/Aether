@@ -78,7 +78,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.zhousl.aether.data.AetherAppExtensionPage
 import com.zhousl.aether.data.AetherAppExtensionSnapshot
 import com.zhousl.aether.mod.AetherNativeComponentContext
 import com.zhousl.aether.mod.AetherNativeComponentMode
@@ -123,7 +122,6 @@ data class AetherExtensionUiController(
     val publicState: JSONObject,
     val onHostCall: suspend (String, JSONObject) -> JSONObject,
     val onAction: (String, String, JSONObject) -> Unit,
-    val onOpenPage: (String) -> Unit,
 )
 
 val LocalAetherExtensionUiController =
@@ -149,54 +147,6 @@ fun AetherExtensionSlot(
                     extensionId = surface.extensionId,
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun AetherExtensionPageScreen(page: AetherAppExtensionPage, onBack: () -> Unit) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = AetherBackground,
-        topBar = {
-            Row(
-                modifier = Modifier.fillMaxWidth().background(AetherBackground)
-                    .statusBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = AetherOnSurface)
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(page.title, style = MaterialTheme.typography.titleLarge, color = AetherOnSurface,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (page.subtitle.isNotBlank()) Text(page.subtitle,
-                        style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 12.dp)) {
-            AetherExtensionView(page.tree, page.extensionId, Modifier.fillMaxWidth())
-        }
-    }
-}
-
-@Composable
-fun AetherExtensionPageLauncher(page: AetherAppExtensionPage, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(AetherSurfaceHigh)
-        .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(34.dp).clip(CircleShape).background(AetherSurfaceHigher), contentAlignment = Alignment.Center) {
-            Icon(extensionIcon(page.icon), null, tint = AetherOnSurface, modifier = Modifier.size(18.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(page.title, style = MaterialTheme.typography.bodyLarge, color = AetherOnSurface,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (page.subtitle.isNotBlank()) Text(page.subtitle, style = MaterialTheme.typography.bodySmall,
-                color = AetherOnSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -709,19 +659,6 @@ private fun AetherExtensionNode(
             extensionId = extensionId,
             modifier = resolvedModifier,
         )
-
-        "pagebutton" -> {
-            val pageId = node.optString("page")
-            Button(onClick = {
-                controller.onOpenPage(if (pageId.contains(':')) pageId else "$extensionId:$pageId")
-            }, modifier = resolvedModifier, colors = ButtonDefaults.buttonColors(
-                containerColor = AetherSurfaceHigher, contentColor = AetherOnSurface),
-                shape = RoundedCornerShape(18.dp)) {
-                Icon(extensionIcon(node.optString("icon")), null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(node.optString("label"), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
 
         else -> Column(
             modifier = clickableModifier,

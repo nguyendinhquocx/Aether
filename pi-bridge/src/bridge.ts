@@ -74,6 +74,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import type { TSchema } from "typebox";
 import {
   discoverAetherExtensionPaths,
+  discoverPackageExtensionPaths,
   installAetherExtensionPackage,
   listAetherExtensionPackages,
   removeAetherExtensionPackage,
@@ -161,6 +162,7 @@ interface AgentSessionState {
   sessionId: string;
   configSignature: string;
   toolSignature: string;
+  extensionSignature: string;
   skillSignature: string;
   workspaceDirectory: string;
   termuxWorkspaceDirectory: string;
@@ -176,6 +178,8 @@ interface AgentSessionState {
   configuredExtensionPaths: string[];
   pendingReload: boolean;
   currentRequestId: string;
+  turnStartedAtMillis?: number;
+  firstAssistantEventAtMillis?: number;
   toolArgsById: Map<string, unknown>;
   lastAccessedAt: number;
 }
@@ -2147,6 +2151,16 @@ async function createNativeAgentSession(
       const relative = path.relative(disabled, candidate);
       return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
     }));
+  // Extension files are part of the session's tool registry. Include the
+  // resolved set in the reuse key so installing/enabling a package cannot
+  // leave an existing session with a stale tool list.
+  const packageExtensionPaths = await discoverPackageExtensionPaths(
+    workspaceDirectory,
+    new Set(stringArray(payload.disabled_package_sources)),
+  );
+  const extensionSignature = JSON.stringify(
+    [...new Set([...additionalExtensionPaths, ...packageExtensionPaths])].sort(),
+  );
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspaceDirectory,
     agentDir,
@@ -2174,6 +2188,7 @@ async function createNativeAgentSession(
     sessionId,
     configSignature: modelConfigSignature(config),
     toolSignature: hostToolSignature(allowedHostToolDefinitions(payload.host_tools, platform)),
+    extensionSignature,
     skillSignature: JSON.stringify(stringArray(payload.skill_paths).sort()),
     workspaceDirectory,
     termuxWorkspaceDirectory,
@@ -2444,11 +2459,28 @@ async function prepareNativeAgentSession(
   if (!sessionId) throw new Error("session_id is required for Pi AgentSession.");
   const platform = platformForPayload(payload);
   const signature = hostToolSignature(allowedHostToolDefinitions(payload.host_tools, platform));
+  const disabledPaths = stringArray(payload.disabled_extension_paths).map((entry) => path.resolve(entry));
+  const configuredExtensionPaths = stringArray(payload.extension_paths);
+  const extensionPaths = discoverAetherExtensionPaths(
+    asString(payload.workspace_directory, process.cwd()) || process.cwd(),
+    configuredExtensionPaths,
+  ).filter((candidate) => !disabledPaths.some((disabled) => {
+    const relative = path.relative(disabled, candidate);
+    return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  }));
+  const packageExtensionPaths = await discoverPackageExtensionPaths(
+    asString(payload.workspace_directory, process.cwd()) || process.cwd(),
+    new Set(stringArray(payload.disabled_package_sources)),
+  );
+  const extensionSignature = JSON.stringify(
+    [...new Set([...extensionPaths, ...packageExtensionPaths])].sort(),
+  );
   const skillSignature = JSON.stringify(stringArray(payload.skill_paths).sort());
   const existing = agentSessions.get(sessionId);
   const reusable = existing &&
     existing.configSignature === modelConfigSignature(config) &&
     existing.toolSignature === signature &&
+    existing.extensionSignature === extensionSignature &&
     existing.skillSignature === skillSignature &&
     existing.workspaceDirectory === asString(payload.workspace_directory, process.cwd()) &&
     existing.runtime === runtimeForPayload(payload);

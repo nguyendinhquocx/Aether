@@ -84,14 +84,17 @@ export interface AetherSettingsDefinition {
   subtitle?: string;
   icon?: string;
   order?: number;
-  sections: AetherSettingsSection[];
+  sections?: AetherSettingsSection[];
+  categories?: AetherSettingsCategory[];
 }
 
-export interface AetherPageDefinition extends AetherSurfaceDefinition {
+export interface AetherSettingsCategory {
   id: string;
   title: string;
   subtitle?: string;
   icon?: string;
+  order?: number;
+  sections: AetherSettingsSection[];
 }
 
 export interface AetherComposerMenuItemDefinition {
@@ -246,9 +249,7 @@ export interface AetherExtensionAPI {
         context: AetherRenderContext,
       ) => AetherView | Promise<AetherView>),
   ): () => void;
-  registerPage(definition: AetherPageDefinition): () => void;
   registerSettings(definition: AetherSettingsDefinition): () => void;
-  registerSettingsPage(definition: AetherSettingsDefinition): () => void;
   registerComposerMenuItem(definition: AetherComposerMenuItemDefinition): () => void;
   registerComposerMenu(definition: AetherComposerMenuItemDefinition): () => void;
   registerMessageType(definition: AetherMessageTypeDefinition): () => void;

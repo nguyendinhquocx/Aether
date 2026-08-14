@@ -41,7 +41,7 @@ val appVersionName = providers.gradleProperty("aether.versionName")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "2.1.1"
+    ?: "2.1.2"
 val piBridgeProjectDir = rootProject.layout.projectDirectory.dir("pi-bridge")
 val piBridgeGeneratedAssetsDir = layout.buildDirectory.dir("generated/assets/piBridge")
 val piProviderIconsGeneratedResDir = layout.buildDirectory.dir("generated/res/piProviderIcons")
@@ -293,6 +293,7 @@ val buildPiBridge = tasks.register<Exec>("buildPiBridge") {
     commandLine(npmExecutable(), "run", "build")
     inputs.file(piBridgeProjectDir.file("package.json"))
     inputs.file(piBridgeProjectDir.file("tsconfig.json"))
+    inputs.dir(piBridgeProjectDir.dir("scripts"))
     inputs.dir(piBridgeProjectDir.dir("src"))
     outputs.file(piBridgeProjectDir.file("dist/bridge.mjs"))
 }

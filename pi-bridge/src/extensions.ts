@@ -211,7 +211,7 @@ function createPackageManager(cwd: string): DefaultPackageManager {
   });
 }
 
-async function discoverPackageExtensionPaths(
+export async function discoverPackageExtensionPaths(
   cwd: string,
   disabledPackageSources: Set<string> = new Set(),
 ): Promise<string[]> {

@@ -16,9 +16,10 @@ import type {
   AetherExtensionFactory,
   AetherJsonObject,
   AetherSettingsDefinition,
+  AetherSettingsSection,
+  AetherSettingsCategory,
   AetherComposerMenuItemDefinition,
   AetherMessageTypeDefinition,
-  AetherPageDefinition,
   AetherRenderContext,
   AetherSurfaceDefinition,
   AetherUi,
@@ -33,9 +34,10 @@ export type {
   AetherExtensionFactory,
   AetherJsonObject,
   AetherSettingsDefinition,
+  AetherSettingsSection,
+  AetherSettingsCategory,
   AetherComposerMenuItemDefinition,
   AetherMessageTypeDefinition,
-  AetherPageDefinition,
   AetherRenderContext,
   AetherSurfaceDefinition,
   AetherUi,
@@ -86,17 +88,6 @@ interface RegisteredComponent {
   render: AetherSurfaceDefinition["render"];
 }
 
-interface RegisteredPage {
-  id: string;
-  localId: string;
-  extension: LoadedAetherExtension;
-  title: string;
-  subtitle: string;
-  icon: string;
-  order: number;
-  render: AetherSurfaceDefinition["render"];
-}
-
 interface RegisteredSettings {
   id: string;
   extension: LoadedAetherExtension;
@@ -121,6 +112,7 @@ interface RegisteredMessageType {
 interface RegisteredAction {
   extension: LoadedAetherExtension;
   localId: string;
+  generatedBySettings?: string;
   handler: (
     payload: AetherJsonObject,
     context: AetherActionContext,
@@ -147,7 +139,6 @@ interface AetherRuntimeState {
   extensions: LoadedAetherExtension[];
   surfaces: Map<string, RegisteredSurface>;
   components: Map<string, RegisteredComponent>;
-  pages: Map<string, RegisteredPage>;
   settings: Map<string, RegisteredSettings>;
   composerMenuItems: Map<string, RegisteredComposerMenuItem>;
   messageTypes: Map<string, RegisteredMessageType>;
@@ -212,7 +203,6 @@ function createEmptyRuntime(cwd: string): AetherRuntimeState {
     extensions: [],
     surfaces: new Map(),
     components: new Map(),
-    pages: new Map(),
     settings: new Map(),
     composerMenuItems: new Map(),
     messageTypes: new Map(),
@@ -563,7 +553,9 @@ function renderValue(definition: AetherSurfaceDefinition): AetherSurfaceDefiniti
   return definition.render ?? definition.tree;
 }
 
-function settingDefault(setting: AetherSettingsDefinition["sections"][number]["settings"][number]): unknown {
+type AetherSetting = AetherSettingsSection["settings"][number];
+
+function settingDefault(setting: AetherSetting): unknown {
   if (setting.default !== undefined) return setting.default;
   switch (setting.type) {
     case "toggle": return false;
@@ -578,7 +570,7 @@ function settingStorageKey(settingsId: string, settingId: string): string {
 }
 
 function normalizeSettingValue(
-  setting: AetherSettingsDefinition["sections"][number]["settings"][number],
+  setting: AetherSetting,
   value: unknown,
 ): unknown {
   switch (setting.type) {
@@ -771,66 +763,70 @@ function createApi(
         if (runtimeState.components.delete(id)) invalidate();
       };
     },
-    registerPage(definition) {
-      const localId = definition.id.trim();
-      if (!localId) throw new Error("Aether extension pages require an id.");
-      if (!definition.title.trim()) throw new Error("Aether extension pages require a title.");
-      const id = scopedId(extension.id, localId);
-      runtimeState.pages.set(id, {
-        id,
-        localId,
-        extension,
-        title: definition.title.trim(),
-        subtitle: definition.subtitle ?? "",
-        icon: definition.icon ?? "extension",
-        order: Number.isFinite(definition.order) ? Number(definition.order) : 0,
-        render: renderValue(definition),
-      });
-      invalidate();
-      return () => {
-        if (runtimeState.pages.delete(id)) invalidate();
-      };
-    },
     registerSettings(definition) {
       const localId = definition.id.trim();
       if (!localId) throw new Error("Aether extension settings require an id.");
       if (!definition.title.trim()) throw new Error("Aether extension settings require a title.");
-      if (!Array.isArray(definition.sections)) {
-        throw new Error("Aether extension settings require sections.");
+      if ((Array.isArray(definition.sections) ? 1 : 0) + (Array.isArray(definition.categories) ? 1 : 0) !== 1) {
+        throw new Error("Aether extension settings require either sections or categories.");
       }
+      const seenSettingIds = new Set<string>();
+      const normalizeSections = (sections: AetherSettingsSection[]) => sections.map((section) => ({
+        ...section,
+        settings: section.settings.map((setting) => {
+          const id = setting.id.trim();
+          const type = setting.type ?? "text";
+          const label = setting.label?.trim() ?? "";
+          if (!id || (!label && type !== "divider" && type !== "spacer")) {
+            throw new Error("Aether extension settings require ids and visible controls require labels.");
+          }
+          if (seenSettingIds.has(id)) {
+            throw new Error(`Aether extension setting ids must be unique: ${id}.`);
+          }
+          seenSettingIds.add(id);
+          const storage = extensionStorage(extension.id);
+          const storageKey = settingStorageKey(localId, id);
+          if (!Object.prototype.hasOwnProperty.call(storage, storageKey)) {
+            storage[storageKey] = Object.prototype.hasOwnProperty.call(storage, id)
+              ? cloneJson(storage[id])
+              : cloneJson(settingDefault(setting));
+          }
+          return { ...setting, id, label };
+        }),
+      }));
       const normalized: AetherSettingsDefinition = {
         ...cloneJson(definition),
         id: localId,
         title: definition.title.trim(),
-        sections: definition.sections.map((section) => ({
-          ...section,
-          settings: section.settings.map((setting) => {
-            const id = setting.id.trim();
-            const type = setting.type ?? "text";
-            const label = setting.label?.trim() ?? "";
-            if (!id || (!label && type !== "divider" && type !== "spacer")) {
-              throw new Error("Aether extension settings require ids and visible controls require labels.");
+        sections: Array.isArray(definition.sections) ? normalizeSections(definition.sections) : undefined,
+        categories: Array.isArray(definition.categories)
+          ? definition.categories.map((category) => {
+            const id = category.id.trim();
+            if (!id || !category.title.trim() || !Array.isArray(category.sections)) {
+              throw new Error("Aether extension settings categories require ids, titles, and sections.");
             }
-            const storage = extensionStorage(extension.id);
-            const storageKey = settingStorageKey(localId, id);
-            if (!Object.prototype.hasOwnProperty.call(storage, storageKey)) {
-              storage[storageKey] = Object.prototype.hasOwnProperty.call(storage, id)
-                ? cloneJson(storage[id])
-                : cloneJson(settingDefault(setting));
-            }
-            return { ...setting, id, label };
-          }),
-        })),
+            return { ...category, id, title: category.title.trim(), sections: normalizeSections(category.sections) };
+          })
+          : undefined,
       };
       const id = scopedId(extension.id, localId);
       const registration = { id, extension, definition: normalized };
       runtimeState.settings.set(id, registration);
-      for (const section of normalized.sections) {
+      const generatedActions = new Map<string, RegisteredAction>();
+      const allSections = [
+        ...(normalized.sections ?? []),
+        ...(normalized.categories ?? []).flatMap((category) => category.sections),
+      ];
+      for (const section of allSections) {
         for (const setting of section.settings) {
           const settingAction = `settings:${localId}:${setting.id}`;
-          runtimeState.actions.set(scopedId(extension.id, settingAction), {
+          const actionId = scopedId(extension.id, settingAction);
+          const existingAction = runtimeState.actions.get(actionId);
+          if (existingAction && existingAction.generatedBySettings !== id) continue;
+          const generatedAction: RegisteredAction = {
             extension,
             localId: settingAction,
+            generatedBySettings: id,
             handler: (payload) => {
               const candidate = payload.value !== undefined ? payload.value : payload.checked;
               const storage = extensionStorage(extension.id);
@@ -843,24 +839,22 @@ function createApi(
               }
               return { setting: setting.id, value: cloneJson(storage[storageKey]) };
             },
-          });
+          };
+          runtimeState.actions.set(actionId, generatedAction);
+          generatedActions.set(actionId, generatedAction);
         }
       }
       writePersistedStorage();
       invalidate();
       return () => {
-        if (runtimeState.settings.delete(id)) {
-          for (const section of normalized.sections) {
-            for (const setting of section.settings) {
-              runtimeState.actions.delete(scopedId(extension.id, `settings:${localId}:${setting.id}`));
-            }
+        if (runtimeState.settings.get(id) === registration) {
+          runtimeState.settings.delete(id);
+          for (const [actionId, action] of generatedActions) {
+            if (runtimeState.actions.get(actionId) === action) runtimeState.actions.delete(actionId);
           }
           invalidate();
         }
       };
-    },
-    registerSettingsPage(definition) {
-      return this.registerSettings(definition);
     },
     registerComposerMenuItem(definition) {
       const localId = definition.id.trim();
@@ -1207,22 +1201,6 @@ async function aetherAppExtensionSnapshotUnlocked(
         : await renderRegisteredView(component.extension, component.render, component.id),
     });
   }
-  const pages = [];
-  for (const page of [...runtime.pages.values()].sort((left, right) =>
-    left.order - right.order || left.id.localeCompare(right.id)
-  )) {
-    pages.push({
-      id: page.id,
-      local_id: page.localId,
-      extension_id: page.extension.id,
-      extension_name: page.extension.name,
-      title: page.title,
-      subtitle: page.subtitle,
-      icon: page.icon,
-      order: page.order,
-      tree: await renderRegisteredView(page.extension, page.render, page.id),
-    });
-  }
   const composerMenuItems = [...runtime.composerMenuItems.values()]
     .sort((left, right) =>
       (Number(left.definition.order) || 0) - (Number(right.definition.order) || 0) ||
@@ -1255,7 +1233,7 @@ async function aetherAppExtensionSnapshotUnlocked(
       subtitle: item.definition.subtitle ?? "",
       icon: item.definition.icon ?? "settings",
       order: Number.isFinite(item.definition.order) ? Number(item.definition.order) : 0,
-      sections: item.definition.sections.map((section) => ({
+      sections: (item.definition.sections ?? []).map((section) => ({
         ...cloneJson(section),
         settings: section.settings.map((setting) => ({
           ...cloneJson(setting),
@@ -1264,6 +1242,16 @@ async function aetherAppExtensionSnapshotUnlocked(
               settingStorageKey(item.definition.id, setting.id)
             ],
           ),
+        })),
+      })),
+      categories: (item.definition.categories ?? []).map((category) => ({
+        ...cloneJson(category),
+        sections: category.sections.map((section) => ({
+          ...cloneJson(section),
+          settings: section.settings.map((setting) => ({
+            ...cloneJson(setting),
+            value: cloneJson(extensionStorage(item.extension.id)[settingStorageKey(item.definition.id, setting.id)]),
+          })),
         })),
       })),
     }));
@@ -1303,7 +1291,6 @@ async function aetherAppExtensionSnapshotUnlocked(
     })),
     surfaces,
     components,
-    pages,
     settings,
     composer_menu_items: composerMenuItems,
     message_types: messageTypes,

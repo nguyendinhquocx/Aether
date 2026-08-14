@@ -279,7 +279,6 @@ Supported native node types include:
 - `button`, `iconButton`
 - `switch`, `input`
 - `spacer`, `progress`
-- `pageButton`
 - `web`
 - `core` for wrapper nesting
 
@@ -354,23 +353,29 @@ aether.registerSettings({
 });
 ```
 
-## Full-screen pages
+Extensions have exactly one native page registration API: `registerSettings`.
+There is no `registerPage`, `registerSettingsPage`, drawer-page, or full-screen
+page API. Extensions cannot create pages outside the native Settings flow.
 
-`registerPage` registers a free-layout destination for an extension. Aether
-adds the page to the conversation drawer and renders its declarative UI tree
-full-screen. Page IDs are scoped to the extension; `pageButton` accepts either
-the local page ID or a fully scoped `extensionId:pageId`.
+`registerSettings` supports either the legacy flat `sections` form or optional
+`categories`. When categories are present, Aether first shows a native list of
+child settings pages, then renders the selected category's sections and controls.
+Use one form or the other, not both. Setting IDs must be unique within a
+settings registration and values remain persisted per extension, settings ID,
+and setting ID.
 
 ```ts
-aether.registerPage({
-  id: "dashboard",
-  title: "Dashboard",
-  subtitle: "Extension overview",
-  icon: "auto",
-  render: () => ui.column([
-    ui.text("Hello from the extension"),
-    ui.button("Refresh", "refresh"),
-  ]),
+aether.registerSettings({
+  id: "preferences",
+  title: "Preferences",
+  categories: [
+    {
+      id: "general",
+      title: "General",
+      sections: [{ settings: [{ id: "enabled", label: "Enabled", type: "toggle", default: true }] }],
+    },
+    { id: "advanced", title: "Advanced", sections: [{ settings: [] }] },
+  ],
 });
 ```
 

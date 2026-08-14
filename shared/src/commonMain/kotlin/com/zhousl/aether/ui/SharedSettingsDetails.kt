@@ -930,10 +930,12 @@ private fun SharedSettingsDetailScaffold(
 @Composable
 internal fun SharedAetherExtensionSettingsDetail(
     page: com.zhousl.aether.data.SharedAetherExtensionSettingsPage,
+    category: com.zhousl.aether.data.SharedAetherExtensionSettingsCategory? = null,
     onBack: () -> Unit,
 ) {
     val controller = LocalSharedAetherExtensionUiController.current
     val uriHandler = LocalUriHandler.current
+    val sections = category?.sections ?: page.sections
     fun update(setting: JsonObject, value: JsonPrimitive) {
         controller?.onAction?.invoke(
             page.extensionId,
@@ -941,8 +943,8 @@ internal fun SharedAetherExtensionSettingsDetail(
             JsonObject(mapOf("setting" to JsonPrimitive(setting.string("id")), "value" to value)),
         )
     }
-    SharedSettingsDetailScaffold(title = page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
-        page.sections.forEachIndexed { sectionIndex, section ->
+    SharedSettingsDetailScaffold(title = category?.title ?: page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
+        sections.forEachIndexed { sectionIndex, section ->
             val title = section.string("title")
             val description = section.string("description")
             if (sectionIndex > 0) Spacer(Modifier.height(16.dp))
@@ -1084,6 +1086,28 @@ internal fun SharedAetherExtensionSettingsDetail(
                         if (index < settings.size - 1 && type !in setOf("divider", "spacer")) CardDivider()
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SharedAetherExtensionSettingsCategoriesDetail(
+    page: com.zhousl.aether.data.SharedAetherExtensionSettingsPage,
+    onCategorySelected: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    SharedSettingsDetailScaffold(title = page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
+        if (page.subtitle.isNotBlank()) {
+            Text(page.subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+            Spacer(Modifier.height(12.dp))
+        }
+        SettingsCardGroup {
+            page.categories.forEachIndexed { index, category ->
+                SettingsNavRow(icon = extensionIcon(category.icon), title = category.title, subtitle = category.subtitle) {
+                    onCategorySelected(category.id)
+                }
+                if (index < page.categories.lastIndex) CardDivider()
             }
         }
     }

@@ -770,6 +770,7 @@ private enum class SharedSettingsKind {
     WebTools,
     Reliability,
     ExtensionSettings,
+    ExtensionSettingsCategory,
     Skills,
     Extensions,
     Mcp,
@@ -785,6 +786,7 @@ private data class SettingsDestination(
     val subtitle: String,
     val kind: SharedSettingsKind = SharedSettingsKind.Generic,
     val extensionSettingsId: String = "",
+    val extensionSettingsCategoryId: String = "",
 )
 
 private val SharedSettingsDestinationSaver = Saver<SettingsDestination?, String>(
@@ -793,7 +795,7 @@ private val SharedSettingsDestinationSaver = Saver<SettingsDestination?, String>
 )
 
 private fun encodeSettingsDestination(destination: SettingsDestination?): String =
-    destination?.let { it.kind.name + "\n" + it.extensionSettingsId }.orEmpty()
+    destination?.let { it.kind.name + "\n" + it.extensionSettingsId + "\n" + it.extensionSettingsCategoryId }.orEmpty()
 
 private fun decodeSettingsDestination(encoded: String): SettingsDestination? =
     encoded.takeIf(String::isNotBlank)?.let {
@@ -802,7 +804,8 @@ private fun decodeSettingsDestination(encoded: String): SettingsDestination? =
                 title = "",
                 subtitle = "",
                 kind = SharedSettingsKind.valueOf(it.substringBefore('\n')),
-                extensionSettingsId = it.substringAfter('\n', ""),
+                extensionSettingsId = it.substringAfter('\n', "").substringBefore('\n'),
+                extensionSettingsCategoryId = it.substringAfter('\n', "").substringAfter('\n', ""),
             )
         }.getOrNull()
     }
@@ -814,7 +817,7 @@ internal fun shouldReturnToSettingsHubForMissingExtension(
 ): Boolean {
     if (!extensionSnapshotResolved) return false
     val destination = decodeSettingsDestination(encodedDestination) ?: return false
-    return destination.kind == SharedSettingsKind.ExtensionSettings &&
+    return destination.kind in setOf(SharedSettingsKind.ExtensionSettings, SharedSettingsKind.ExtensionSettingsCategory) &&
         destination.extensionSettingsId !in registeredExtensionSettingsIds
 }
 
@@ -822,6 +825,7 @@ private fun SettingsDestination?.depth(): Int = when (this?.kind) {
     null -> 0
     SharedSettingsKind.Terminal,
     SharedSettingsKind.Chrome -> 2
+    SharedSettingsKind.ExtensionSettingsCategory -> 2
     else -> 1
 }
 
@@ -1017,7 +1021,6 @@ fun AetherSharedApp(
             onDispose { appScope.launch { bridgeClient.close() } }
         }
         var route by rememberSaveable { mutableStateOf(SharedRoute.Onboarding) }
-        var activeExtensionPageId by rememberSaveable { mutableStateOf<String?>(null) }
         var restoredSettingsDestination by rememberSaveable { mutableStateOf("") }
         var tabletSettingsVisible by rememberSaveable { mutableStateOf(false) }
         var tabletSettingsFullScreen by remember { mutableStateOf(false) }
@@ -1052,10 +1055,6 @@ fun AetherSharedApp(
         val activeMcpServerIds = currentSession.activeMcpServerIds
         val backgroundLeases = remember { mutableMapOf<String, BackgroundExecutionLease>() }
         var extensionSnapshot by remember { mutableStateOf(SharedAetherExtensionSnapshot()) }
-        val activeExtensionPage = extensionSnapshot.pages.firstOrNull { it.id == activeExtensionPageId }
-        LaunchedEffect(extensionSnapshot.pages, activeExtensionPageId) {
-            if (activeExtensionPageId != null && activeExtensionPage == null) activeExtensionPageId = null
-        }
         var extensionSnapshotResolved by remember { mutableStateOf(false) }
         var transientMessage by remember { mutableStateOf("") }
         var onboardingReplayMode by remember { mutableStateOf(false) }
@@ -2619,7 +2618,6 @@ fun AetherSharedApp(
                         }
                 }
             },
-            onOpenPage = { activeExtensionPageId = it },
         )
         val pauseBeforeDeletingSessionMessage =
             stringResource(Res.string.message_pause_before_deleting_session)
@@ -2917,12 +2915,7 @@ fun AetherSharedApp(
                         route = returnRoute
                     },
                 )
-                SharedRoute.Chat -> if (activeExtensionPage != null) {
-                    SharedAetherExtensionPageScreen(
-                        page = activeExtensionPage,
-                        onBack = { activeExtensionPageId = null },
-                    )
-                } else SharedAetherExtensionComponentHost(
+                SharedRoute.Chat -> SharedAetherExtensionComponentHost(
                     target = SharedExtensionComponentChatScreen,
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -3236,8 +3229,6 @@ fun AetherSharedApp(
                         if (useTabletLayout) tabletSettingsVisible = true
                         else route = SharedRoute.Settings
                     },
-                    extensionPages = extensionSnapshot.pages,
-                    onExtensionPageSelected = { activeExtensionPageId = it },
                     onDrawerOpened = {
                         appScope.launch {
                             runSharedAppCatching {
@@ -4930,8 +4921,6 @@ private fun SharedChatScreen(
     onDeleteSession: (String) -> Unit,
     onExportSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    extensionPages: List<com.zhousl.aether.data.SharedAetherExtensionPage>,
-    onExtensionPageSelected: (String) -> Unit,
     onDrawerOpened: () -> Unit,
     drawerOpenedEventRegistered: Boolean,
     useTabletLayout: Boolean,
@@ -5210,16 +5199,6 @@ private fun SharedChatScreen(
                 permanent = useTabletLayout,
                 extraContent = { dismissSearch ->
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawer)
-                    extensionPages.forEach { page ->
-                        SharedAetherExtensionPageLauncher(
-                            page = page,
-                            onClick = {
-                                dismissSearch()
-                                onExtensionPageSelected(page.id)
-                                scope.launch { drawerState.close() }
-                            },
-                        )
-                    }
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawerListEnd)
                 },
             )
@@ -8082,7 +8061,33 @@ private fun SharedSettingsScreen(
             SharedSettingsKind.ExtensionSettings -> {
                 val page = registeredExtensionSettings.firstOrNull { it.id == selected.extensionSettingsId }
                 if (page != null) {
-                    SharedAetherExtensionSettingsDetail(page = page, onBack = { destination = null })
+                    SharedAetherExtensionSettingsCategoriesDetail(
+                        page = page,
+                        onCategorySelected = { categoryId ->
+                            destination = SettingsDestination(
+                                title = page.title,
+                                subtitle = page.subtitle,
+                                kind = SharedSettingsKind.ExtensionSettingsCategory,
+                                extensionSettingsId = page.id,
+                                extensionSettingsCategoryId = categoryId,
+                            )
+                        },
+                        onBack = { destination = null },
+                    )
+                }
+            }
+            SharedSettingsKind.ExtensionSettingsCategory -> {
+                val page = registeredExtensionSettings.firstOrNull { it.id == selected.extensionSettingsId }
+                val category = page?.categories?.firstOrNull { it.id == selected.extensionSettingsCategoryId }
+                if (page != null && category != null) {
+                    SharedAetherExtensionSettingsDetail(page = page, category = category, onBack = {
+                        destination = SettingsDestination(
+                            title = page.title,
+                            subtitle = page.subtitle,
+                            kind = SharedSettingsKind.ExtensionSettings,
+                            extensionSettingsId = page.id,
+                        )
+                    })
                 }
             }
             SharedSettingsKind.Skills -> SharedSkillsSettingsDetail(

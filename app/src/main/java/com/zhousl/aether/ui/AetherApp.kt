@@ -242,13 +242,6 @@ fun AetherApp(
     val nativeModState = appRuntime.nativeModManager.state.collectAsStateWithLifecycle().value
     val nativeComponents =
         appRuntime.modKernel.components.registrations.collectAsStateWithLifecycle().value
-    var activeExtensionPageId by rememberSaveable { mutableStateOf<String?>(null) }
-    val activeExtensionPage = extensionState.snapshot.pages.firstOrNull { it.id == activeExtensionPageId }
-    LaunchedEffect(extensionState.snapshot.pages, activeExtensionPageId) {
-        if (activeExtensionPageId != null && activeExtensionPage == null) {
-            activeExtensionPageId = null
-        }
-    }
     val extensionContext = remember(uiState) {
         uiState.toAetherExtensionContext()
     }
@@ -269,7 +262,6 @@ fun AetherApp(
             onAction = { extensionId, action, args ->
                 extensionManager.invokeAction(extensionId, action, args)
             },
-            onOpenPage = { activeExtensionPageId = it },
         )
     }
 
@@ -322,20 +314,12 @@ fun AetherApp(
                         target = AetherExtensionComponentAppContent,
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (activeExtensionPage != null) {
-                            AetherExtensionPageScreen(
-                                page = activeExtensionPage,
-                                onBack = { activeExtensionPageId = null },
-                            )
-                        } else {
-                            AetherAppContent(
+                        AetherAppContent(
                                 viewModel = viewModel,
                                 uiState = uiState,
                                 language = effectiveLanguage,
                                 nativeModState = nativeModState,
                                 onNotificationPermissionRequested = onNotificationPermissionRequested,
-                                extensionPages = extensionState.snapshot.pages,
-                                onExtensionPageSelected = { activeExtensionPageId = it },
                                 drawerOpenedEventRegistered =
                                     "drawer.opened" in extensionState.snapshot.eventNames,
                                 onDrawerOpened = {
@@ -344,8 +328,7 @@ fun AetherApp(
                                         context = extensionContext,
                                     )
                                 },
-                            )
-                        }
+                        )
                     }
                     AetherExtensionOverlaySlot(Modifier.fillMaxSize())
                 }
@@ -428,8 +411,6 @@ private fun AetherAppContent(
     uiState: AetherUiState,
     language: AppLanguage,
     nativeModState: AetherNativeModState,
-    extensionPages: List<com.zhousl.aether.data.AetherAppExtensionPage>,
-    onExtensionPageSelected: (String) -> Unit,
     onNotificationPermissionRequested: () -> Unit,
     drawerOpenedEventRegistered: Boolean,
     onDrawerOpened: () -> Unit,
@@ -827,11 +808,6 @@ private fun AetherAppContent(
                         drawerState.close()
                         viewModel.openSettings()
                     }
-                },
-                extensionPages = extensionPages,
-                onExtensionPageSelected = { pageId ->
-                    onExtensionPageSelected(pageId)
-                    scope.launch { drawerState.close() }
                 },
             )
         },

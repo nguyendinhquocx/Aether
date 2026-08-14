@@ -55,8 +55,8 @@ class AetherAppExtensionsTest {
                       "tree":{"type":"core"}
                     }
                   ],
-                  "pages": [
-                    {"id":"demo:1:dashboard","local_id":"dashboard","extension_id":"demo:1","extension_name":"Demo","title":"Dashboard","subtitle":"Demo page","icon":"extension","order":2,"tree":{"type":"text","text":"Page"}}
+                  "settings": [
+                    {"id":"demo:1:settings","local_id":"settings","extension_id":"demo:1","extension_name":"Demo","title":"Settings","sections":[],"categories":[{"id":"general","title":"General","sections":[]}]}
                   ],
                   "surfaces": [
                     {
@@ -93,7 +93,7 @@ class AetherAppExtensionsTest {
             "wrap",
             snapshot.componentsAt("chat.composer.actionTray").single().mode,
         )
-        assertEquals("Dashboard", snapshot.pages.single().title)
+        assertEquals("general", snapshot.settings.single().categories.single().id)
         assertTrue("before_send" in snapshot.eventNames)
     }
 

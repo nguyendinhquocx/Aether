@@ -32,6 +32,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val InjectedMessagePollIntervalMillis = 150L
+private const val AetherExtensionGuestDirectory = "/root/.aether/extensions"
 
 class PiAgentRunner(
     private val bridge: PiKernelBridge,
@@ -116,6 +117,9 @@ class PiAgentRunner(
                     put("workspace_directory", workspaceDirectory)
                     put("workspace_trusted", true)
                     put("termux_workspace_directory", termuxWorkspaceDirectory)
+                    // Pi extensions are installed in Alpine's guest home even
+                    // when the selected chat runtime is Termux.
+                    put("extension_paths", JSONArray().put(AetherExtensionGuestDirectory))
                     put("runtime", runtimeId.storageValue)
                     put("platform", "android")
                     put("chrome_enabled", chromeEnabled)

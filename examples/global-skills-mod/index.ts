@@ -121,46 +121,12 @@ export const activateAether = defineAetherExtension((aether) => {
     order: 100,
   });
 
-  aether.registerPage({
+  /* Settings are the only native extension page entry point. */
+  aether.registerSettings({
     id: "global-skills",
     title: "Global Skills",
     subtitle: "Persistent defaults powered by Mod Kernel v2",
     icon: "extension",
-    render: (context) => {
-      const skills = (context.skills ?? []) as Skill[];
-      const defaultIds = new Set(
-        Array.isArray(context.default_skill_ids)
-          ? context.default_skill_ids.map(String)
-          : [],
-      );
-      return ui.column([
-        ui.text("Global skill defaults", {
-          style: "headline",
-          weight: "bold",
-        }),
-        ui.text(
-          "These selections are written into Aether's native Skill state and applied to new chats.",
-          {
-            color: "muted",
-          },
-        ),
-        ...skills
-          .filter((skill) => skill.enabled !== false)
-          .map((skill) =>
-            ui.switch(
-              skill.name,
-              defaultIds.has(skill.id),
-              "set-skill",
-              {
-                subtitle: skill.description ?? "",
-                args: { skill_id: skill.id },
-              },
-            )
-          ),
-      ], {
-        scroll: true,
-        spacing: 10,
-      });
-    },
+    categories: [{ id: "global", title: "Global skills", sections: [{ settings: [] }] }],
   });
 });

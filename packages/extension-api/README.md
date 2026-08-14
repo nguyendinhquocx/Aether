@@ -16,7 +16,8 @@ export const activateAether = defineAetherExtension((aether) => {
 });
 ```
 
-Extensions register data-only settings schemas. Aether renders them with the
+Extensions register data-only settings schemas. This is the only native page
+registration API; extensions cannot create full-screen or drawer pages. Aether renders settings with the
 same scaffold, cards, spacing, typography, and controls as its built-in
 Settings pages, in a dedicated group between Reliability and Agent Skills.
 Values are stored per extension, page, and setting and restored across reloads:
@@ -39,18 +40,17 @@ aether.registerSettings({
 });
 ```
 
-Extensions can also register a full-screen page. It appears as an entry in the
-conversation drawer and renders the same declarative UI tree:
+Settings may optionally contain child categories. The host shows the category
+list first and then renders the selected category with the same native controls:
 
 ```ts
-aether.registerPage({
-  id: "dashboard",
-  title: "Dashboard",
-  subtitle: "Extension overview",
-  render: () => ui.column([
-    ui.text("Hello from the extension"),
-    ui.button("Refresh", "refresh"),
-  ]),
+aether.registerSettings({
+  id: "preferences",
+  title: "Preferences",
+  categories: [
+    { id: "general", title: "General", sections: [{ settings: [] }] },
+    { id: "advanced", title: "Advanced", sections: [{ settings: [] }] },
+  ],
 });
 ```
 

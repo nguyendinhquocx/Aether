@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +19,9 @@ import {
 const activeClients = new Set();
 
 class BridgeClient {
-  constructor(environment = {}) {
-    this.child = spawn(process.execPath, ["dist/bridge.mjs"], {
-      cwd: process.cwd(),
+  constructor(environment = {}, bridgePath = "dist/bridge.mjs", cwd = process.cwd()) {
+    this.child = spawn(process.execPath, [bridgePath], {
+      cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...environment },
     });
@@ -211,7 +211,7 @@ test("removes extension packages without reloading their code", async () => {
   );
   await writeFile(
     join(packageDirectory, "broken.ts"),
-    "export default (aether) => aether.registerPage({ id: 'old', title: 'Old' });\n",
+    "export default (aether) => aether.registerSettings({ id: 'old', title: 'Old', sections: [] });\n",
     "utf8",
   );
 
@@ -325,11 +325,9 @@ export default defineAetherExtension((aether) => {
       ui.core(),
     ]),
   });
-  aether.registerPage({
-    id: "dashboard",
-    title: "Dashboard",
-    subtitle: "Demo page",
-    render: () => ui.column([ui.text("Page body")]),
+  aether.registerAction("settings:preferences:enabled", ({ value }) => {
+    aether.storage.set("settings:preferences:enabled", value === true);
+    return { customSettingsAction: true };
   });
   aether.registerSettings({
     id: "preferences",
@@ -372,8 +370,7 @@ export default defineAetherExtension((aether) => {
     assert.equal(loaded.snapshot.components[0].target, "chat.composer.actionTray");
     assert.equal(loaded.snapshot.components[0].mode, "wrap");
     assert.equal(loaded.snapshot.components[0].tree.children[1].type, "core");
-    assert.equal(loaded.snapshot.pages[0].id, `${loaded.snapshot.extensions[0].id}:dashboard`);
-    assert.equal(loaded.snapshot.pages[0].tree.children[0].text, "Page body");
+    assert.equal(loaded.snapshot.pages, undefined);
     assert.equal(loaded.snapshot.settings[0].title, "Preferences");
     assert.equal(loaded.snapshot.settings[0].sections[0].settings[0].id, "enabled");
     assert.equal(loaded.snapshot.settings[1].title, "Secondary");
@@ -391,6 +388,7 @@ export default defineAetherExtension((aether) => {
         context: {},
       },
     );
+    assert.equal(settingsResult.result.customSettingsAction, true);
     assert.equal(settingsResult.snapshot.settings[0].sections[0].settings[0].value, false);
     assert.equal(settingsResult.snapshot.settings[1].sections[0].settings[0].value, true);
 
@@ -991,6 +989,45 @@ export default function (pi: ExtensionAPI) {
   assert.ok(listed.tools.some((tool) => tool.name === "extension_echo"));
 });
 
+test("loads TypeBox extensions from the standalone bridge bundle", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "aether-standalone-bridge-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bridgePath = join(root, "bridge.mjs");
+  const workspace = join(root, "workspace");
+  const extensionDirectory = join(workspace, ".pi", "extensions");
+  await mkdir(extensionDirectory, { recursive: true });
+  await copyFile(join(process.cwd(), "dist", "bridge.mjs"), bridgePath);
+  await writeFile(
+    join(extensionDirectory, "standalone.ts"),
+    `
+import { Type } from "typebox";
+export default (pi) => pi.registerTool({
+  name: "standalone_tool",
+  label: "Standalone Tool",
+  description: "Loaded without a neighboring node_modules directory.",
+  parameters: Type.Object({}),
+  async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+});
+`,
+    "utf8",
+  );
+
+  const client = new BridgeClient({}, bridgePath, root);
+  try {
+    await client.request("standalone-turn", "run_turn", {
+      ...turnPayload("session-standalone", [userMessage("start")]),
+      workspace_directory: workspace,
+    });
+    const listed = await client.request("standalone-list", "list_extensions", {
+      session_id: "session-standalone",
+    });
+    assert.deepEqual(listed.errors, []);
+    assert.ok(listed.tools.some((tool) => tool.name === "standalone_tool"));
+  } finally {
+    await client.close();
+  }
+});
+
 test("reloads Pi extensions atomically for an existing harness session", async (t) => {
   const workspace = await mkdtemp(join(tmpdir(), "aether-pi-reload-"));
   t.after(() => rm(workspace, { recursive: true, force: true }));
@@ -1047,6 +1084,46 @@ export default function (pi: ExtensionAPI) {
     command: "/extension-version",
   });
   assert.equal(invoked.invoked, true);
+});
+
+test("recreates a reused session when a new Pi extension becomes discoverable", async (t) => {
+  const workspace = await mkdtemp(join(tmpdir(), "aether-pi-extension-discovery-"));
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  const extensionDirectory = join(workspace, ".pi", "extensions");
+  await mkdir(extensionDirectory, { recursive: true });
+
+  const client = new BridgeClient();
+  try {
+    await client.request("discovery-before", "run_turn", {
+      ...turnPayload("session-discovery", [userMessage("start")]),
+      workspace_directory: workspace,
+    });
+    await writeFile(
+      join(extensionDirectory, "discovered.ts"),
+      `
+import { Type } from "typebox";
+export default (pi) => pi.registerTool({
+  name: "discovered_tool",
+  label: "Discovered Tool",
+  description: "A tool added after the session was created.",
+  parameters: Type.Object({}),
+  async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+});
+`,
+      "utf8",
+    );
+    const rerun = await client.request("discovery-after", "run_turn", {
+      ...turnPayload("session-discovery", [userMessage("refresh")]),
+      workspace_directory: workspace,
+    });
+    assert.equal(rerun.session_reused, false);
+    const listed = await client.request("discovery-list", "list_extensions", {
+      session_id: "session-discovery",
+    });
+    assert.ok(listed.tools.some((tool) => tool.name === "discovered_tool"));
+  } finally {
+    await client.close();
+  }
 });
 
 test("runs text turns and reuses the persisted Pi assistant session", async () => {
