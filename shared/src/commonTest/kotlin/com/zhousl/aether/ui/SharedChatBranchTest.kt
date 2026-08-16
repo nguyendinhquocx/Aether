@@ -90,7 +90,7 @@ class SharedChatBranchTest {
         assertEquals("", message.text)
         assertFalse(message.isError)
         assertFalse(message.isStreaming)
-        assertEquals("Reconnected", message.status)
+        assertEquals("Reconnected 2/5", message.status)
         assertEquals("fetch failed: connect timed out (ETIMEDOUT)", message.statusDetail)
         assertEquals(1_000L, message.completedAtMillis)
         assertEquals(1_000L, message.tools.single().completedAtMillis)

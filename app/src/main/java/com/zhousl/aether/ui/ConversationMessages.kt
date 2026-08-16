@@ -866,8 +866,10 @@ private fun AssistantMessageBlock(
         if (shouldFoldWorkBeforeFinalText) {
             AgentWorkSummaryDisclosure(
                 title = formatWorkedSummaryTitle(
-                    message.thoughtDurationMillis
-                        ?: workDurationMillisForMessages(listOf(message), endAtMillis = message.createdAtMillis),
+                    workDurationMillisForMessages(
+                        messages = listOf(message),
+                        endAtMillis = message.createdAtMillis,
+                    ),
                 ),
                 stateKey = "message-work-${message.id}",
                 content = workContent,
@@ -996,7 +998,6 @@ fun ConversationAssistantGroupBubble(
     val thoughtDurationMillis = messages.lastOrNull()?.thoughtDurationMillis
     val hasReasoningTrace = messages.any { it.reasoningTrace != null }
     val showActions = messages.none { it.assistantActionsHidden }
-    val statusMessage = messages.lastOrNull { it.statusText.isNotBlank() }
     val context = LocalContext.current
     val agentModeReplayTimeline = remember(context, messages) {
         buildAgentModeReplayTimeline(context, messages)
@@ -1030,13 +1031,6 @@ fun ConversationAssistantGroupBubble(
                         onLinkClick = onOpenLink,
                     )
                 }
-            statusMessage?.let { status ->
-                ReconnectingStatusCard(
-                    text = status.statusText,
-                    detail = status.statusDetail,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
             if (showActions) {
                 AssistantMessageActions(
                     usageStatistics = groupUsageStatistics,
@@ -1075,11 +1069,10 @@ fun ConversationAssistantGroupBubble(
         if (shouldFoldWorkBeforeFinalText) {
             AgentWorkSummaryDisclosure(
                 title = formatWorkedSummaryTitle(
-                    thoughtDurationMillis
-                        ?: workDurationMillisForMessages(
-                            workMessages,
-                            endAtMillis = messages[finalTextMessageIndex].createdAtMillis,
-                        ),
+                    workDurationMillisForMessages(
+                        messages = messages,
+                        endAtMillis = messages[finalTextMessageIndex].createdAtMillis,
+                    ),
                 ),
                 stateKey = "assistant-work-${messages.first().responseGroupId ?: messages.first().id}",
             ) {
@@ -1148,13 +1141,6 @@ fun ConversationAssistantGroupBubble(
                 onOpenLink = onOpenLink,
             )
         }
-        statusMessage?.let { status ->
-            ReconnectingStatusCard(
-                text = status.statusText,
-                detail = status.statusDetail,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
         if (showActions) {
             AssistantMessageActions(
                 usageStatistics = groupUsageStatistics,
@@ -1217,6 +1203,13 @@ private fun AssistantGroupMessageContent(
             workspaceDirectory = workspaceDirectory,
             allowRootImageRead = allowRootImageRead,
             onLinkClick = onOpenLink,
+        )
+    }
+    if (message.statusText.isNotBlank()) {
+        ReconnectingStatusCard(
+            text = message.statusText,
+            detail = message.statusDetail,
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
 }
@@ -3756,6 +3749,19 @@ fun workDurationMillisForMessages(
     messages: List<ChatMessage>,
     endAtMillis: Long? = null,
 ): Long {
+    messages.asReversed().forEach { message ->
+        val usage = message.usageStatistics ?: return@forEach
+        if (
+            usage.startedAtMillis >= MinimumEpochMillis &&
+            usage.completedAtMillis >= usage.startedAtMillis
+        ) {
+            return (usage.completedAtMillis - usage.startedAtMillis).coerceAtLeast(1_000L)
+        }
+    }
+    messages.lastOrNull()?.thoughtDurationMillis?.let { duration ->
+        return duration.coerceAtLeast(1_000L)
+    }
+
     val timestamps = mutableListOf<Long>()
     messages.forEach { message ->
         if (message.createdAtMillis > 0L) {
@@ -3777,7 +3783,7 @@ fun workDurationMillisForMessages(
 
     val wallClockTimestamps = timestamps.filter { it >= MinimumEpochMillis }
     if (wallClockTimestamps.size < 2) {
-        return messages.lastOrNull()?.thoughtDurationMillis ?: 1_000L
+        return 1_000L
     }
     return (wallClockTimestamps.maxOrNull()!! - wallClockTimestamps.minOrNull()!!)
         .coerceAtLeast(1_000L)
@@ -3791,6 +3797,7 @@ fun workDurationMillisForBlocks(
     blocks.forEach { block ->
         when (block) {
             is AssistantResponseBlock.Text -> Unit
+            is AssistantResponseBlock.Status -> Unit
             is AssistantResponseBlock.ToolGroup -> block.toolInvocations.forEach { invocation ->
                 if (invocation.startedAtMillis > 0L) timestamps += invocation.startedAtMillis
                 invocation.completedAtMillis?.takeIf { it > 0L }?.let { timestamps += it }

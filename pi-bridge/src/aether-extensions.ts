@@ -767,8 +767,8 @@ function createApi(
       const localId = definition.id.trim();
       if (!localId) throw new Error("Aether extension settings require an id.");
       if (!definition.title.trim()) throw new Error("Aether extension settings require a title.");
-      if ((Array.isArray(definition.sections) ? 1 : 0) + (Array.isArray(definition.categories) ? 1 : 0) !== 1) {
-        throw new Error("Aether extension settings require either sections or categories.");
+      if (!Array.isArray(definition.sections) && !Array.isArray(definition.categories)) {
+        throw new Error("Aether extension settings require sections, categories, or both.");
       }
       const seenSettingIds = new Set<string>();
       const normalizeSections = (sections: AetherSettingsSection[]) => sections.map((section) => ({

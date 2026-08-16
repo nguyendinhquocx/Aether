@@ -52,8 +52,23 @@ private const val ReasoningSummarySystemPrompt =
 
 private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
-internal fun completedReconnectStatus(status: String): String =
-    if (status.startsWith("Reconnecting", ignoreCase = true)) "Reconnected" else status
+internal fun completedReconnectStatus(status: String): String {
+    val match = Regex("^Reconnecting\\.\\.\\.\\s*(.*)$", RegexOption.IGNORE_CASE).matchEntire(status.trim())
+        ?: return status
+    return "Reconnected" + match.groupValues[1].takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
+}
+
+internal fun completePendingReconnectBlocks(
+    blocks: List<AssistantResponseBlock>,
+): List<AssistantResponseBlock> = blocks.map { block ->
+    if (block is AssistantResponseBlock.Status &&
+        block.text.startsWith("Reconnecting", ignoreCase = true)
+    ) {
+        block.copy(text = completedReconnectStatus(block.text))
+    } else {
+        block
+    }
+}
 
 enum class SessionFollowUpMode {
     Queue,
@@ -639,7 +654,7 @@ class SessionExecutionManager(
                     )
                     updateExecutionState(handle.sessionId) { current ->
                         val pendingResponseBlocks = appendAssistantResponseText(
-                            blocks = current.pendingResponseBlocks,
+                            blocks = completePendingReconnectBlocks(current.pendingResponseBlocks),
                             delta = delta,
                         ) { handle.nextPendingBlockId("pending-text") }
                         current.copy(
@@ -683,11 +698,42 @@ class SessionExecutionManager(
                 },
                 onStreamingStatus = { status ->
                     if (handle.pauseRequested) return@runTurn
-                    updateExecutionState(handle.sessionId) { current ->
-                        current.copy(
-                            pendingStatusText = status?.text.orEmpty(),
-                            pendingStatusDetail = status?.detail.orEmpty(),
+                    if (status?.text?.startsWith("Reconnecting", ignoreCase = true) == true) {
+                        completeActiveReasoning(
+                            handle = handle,
+                            trigger = ReasoningCompletionTrigger.BodyStarted,
                         )
+                    }
+                    updateExecutionState(handle.sessionId) { current ->
+                        val text = status?.text.orEmpty()
+                        if (text.startsWith("Reconnecting", ignoreCase = true)) {
+                            val last = current.pendingResponseBlocks.lastOrNull()
+                            val blocks = if (last is AssistantResponseBlock.Status &&
+                                last.text.startsWith("Reconnecting", ignoreCase = true)
+                            ) {
+                                current.pendingResponseBlocks.dropLast(1) + last.copy(
+                                    text = text,
+                                    detail = status?.detail.orEmpty(),
+                                )
+                            } else {
+                                current.pendingResponseBlocks + AssistantResponseBlock.Status(
+                                    id = handle.nextPendingBlockId("pending-status"),
+                                    text = text,
+                                    detail = status?.detail.orEmpty(),
+                                )
+                            }
+                            current.copy(
+                                pendingResponseBlocks = blocks,
+                                pendingStatusText = "",
+                                pendingStatusDetail = "",
+                            )
+                        } else {
+                            current.copy(
+                                pendingResponseBlocks = completePendingReconnectBlocks(current.pendingResponseBlocks),
+                                pendingStatusText = text,
+                                pendingStatusDetail = status?.detail.orEmpty(),
+                            )
+                        }
                     }
                 },
                 pollInjectedUserMessages = {
@@ -1103,15 +1149,16 @@ class SessionExecutionManager(
         }
         updateExecutionState(handle.sessionId) { current ->
             val targetReasoningBlockId = reasoningBlockId
+            val currentBlocks = completePendingReconnectBlocks(current.pendingResponseBlocks)
             val pendingToolInvocations = upsertToolInvocation(
                 current.pendingToolInvocations,
                 invocation,
             )
             val blocksWithReasoningTrace = if (
                 targetReasoningBlockId != null &&
-                current.pendingResponseBlocks.none { it is AssistantResponseBlock.Reasoning && it.id == targetReasoningBlockId }
+                currentBlocks.none { it is AssistantResponseBlock.Reasoning && it.id == targetReasoningBlockId }
             ) {
-                current.pendingResponseBlocks + AssistantResponseBlock.Reasoning(
+                currentBlocks + AssistantResponseBlock.Reasoning(
                     id = targetReasoningBlockId,
                     trace = ReasoningTrace(
                         id = targetReasoningBlockId,
@@ -1120,7 +1167,7 @@ class SessionExecutionManager(
                     ),
                 )
             } else {
-                current.pendingResponseBlocks
+                currentBlocks
             }
             val pendingResponseBlocks = upsertAssistantResponseToolInvocation(
                 blocks = blocksWithReasoningTrace,
@@ -1231,6 +1278,20 @@ class SessionExecutionManager(
                         isIncomplete = isIncomplete,
                     )
                 }
+
+                is AssistantResponseBlock.Status -> {
+                    if (block.text.isBlank()) null else ChatMessage(
+                        id = responseIdentity?.messageIdFor(block.id) ?: "agent-${messageTimestamp + index}",
+                        author = MessageAuthor.Agent,
+                        text = "",
+                        createdAtMillis = messageTimestamp + index,
+                        responseGroupId = responseGroupId,
+                        assistantActionsHidden = assistantActionsHidden,
+                        isIncomplete = isIncomplete,
+                        statusText = block.text,
+                        statusDetail = block.detail,
+                    )
+                }
             }
         }.let { messages ->
             if (messages.isEmpty()) {
@@ -1261,8 +1322,8 @@ class SessionExecutionManager(
                                 thoughtDurationMillis = thoughtDurationMillis,
                                 usageStatistics = usageStatistics,
                                 providerPayloadJson = providerPayloadJson,
-                                statusText = statusText,
-                                statusDetail = statusDetail,
+                                statusText = statusText.ifBlank { get(lastIndex).statusText },
+                                statusDetail = statusDetail.ifBlank { get(lastIndex).statusDetail },
                             ),
                         )
                     } else {
@@ -1272,8 +1333,8 @@ class SessionExecutionManager(
                             get(lastIndex).copy(
                                 usageStatistics = usageStatistics,
                                 providerPayloadJson = providerPayloadJson,
-                                statusText = statusText,
-                                statusDetail = statusDetail,
+                                statusText = statusText.ifBlank { get(lastIndex).statusText },
+                                statusDetail = statusDetail.ifBlank { get(lastIndex).statusDetail },
                             ),
                         )
                     }
@@ -2015,7 +2076,7 @@ class SessionExecutionManager(
         val now = System.currentTimeMillis()
         var activeBlockId = handle.activeReasoningBlockId
         updateExecutionState(handle.sessionId) { current ->
-            val blocks = current.pendingResponseBlocks.toMutableList()
+            val blocks = completePendingReconnectBlocks(current.pendingResponseBlocks).toMutableList()
             val activeIndex = activeBlockId?.let { id ->
                 blocks.indexOfFirst { it is AssistantResponseBlock.Reasoning && it.id == id }
             } ?: -1
@@ -2552,6 +2613,8 @@ class SessionExecutionManager(
                     }
                     add(block)
                 }
+
+                is AssistantResponseBlock.Status -> if (block.text.isNotBlank()) add(block)
             }
         }
     }
@@ -2562,6 +2625,7 @@ class SessionExecutionManager(
                 is AssistantResponseBlock.ToolGroup -> block.toolInvocations
                 is AssistantResponseBlock.Text -> emptyList()
                 is AssistantResponseBlock.Reasoning -> block.trace.toolInvocations
+                is AssistantResponseBlock.Status -> emptyList()
             }
         }.distinctBy { it.id }
 
@@ -2579,6 +2643,9 @@ class SessionExecutionManager(
                 )
                 is AssistantResponseBlock.ToolGroup -> block.copy(
                     toolInvocations = finalizeInterruptedToolInvocations(block.toolInvocations),
+                )
+                is AssistantResponseBlock.Status -> block.copy(
+                    text = completedReconnectStatus(block.text),
                 )
             }
         }
@@ -2599,6 +2666,7 @@ class SessionExecutionManager(
         }?.let { chunk ->
             chunk.detail.ifBlank { chunk.title }
         } ?: "Thought for ${formatReasoningDurationLabel(block.trace)}"
+        is AssistantResponseBlock.Status -> block.text
     }
 
     private fun finalizeInterruptedToolInvocations(

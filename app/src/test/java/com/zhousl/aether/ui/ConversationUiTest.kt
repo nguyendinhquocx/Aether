@@ -259,6 +259,56 @@ class ConversationUiTest {
     }
 
     @Test
+    fun completedWorkDurationUsesTurnStatisticsInsteadOfOlderTraceTimestamps() {
+        val turnStartedAt = 1_700_000_090_000L
+        val turnCompletedAt = 1_700_000_100_000L
+        val messages = listOf(
+            ChatMessage(
+                id = "reasoning",
+                author = MessageAuthor.Agent,
+                text = "",
+                createdAtMillis = turnCompletedAt,
+                reasoningTrace = ReasoningTrace(
+                    id = "trace",
+                    startedAtMillis = 1_700_000_000_000L,
+                    completedAtMillis = turnCompletedAt,
+                ),
+            ),
+            ChatMessage(
+                id = "answer",
+                author = MessageAuthor.Agent,
+                text = "Done",
+                createdAtMillis = turnCompletedAt + 1L,
+                thoughtDurationMillis = 90_000L,
+                usageStatistics = ChatUsageStatistics(
+                    startedAtMillis = turnStartedAt,
+                    completedAtMillis = turnCompletedAt,
+                ),
+            ),
+        )
+
+        assertEquals(
+            10_000L,
+            workDurationMillisForMessages(messages, endAtMillis = turnCompletedAt + 1L),
+        )
+        assertEquals(
+            7_000L,
+            workDurationMillisForMessages(
+                messages = listOf(
+                    ChatMessage(
+                        id = "legacy-answer",
+                        author = MessageAuthor.Agent,
+                        text = "Done",
+                        createdAtMillis = turnCompletedAt,
+                        thoughtDurationMillis = 7_000L,
+                    ),
+                ),
+                endAtMillis = turnCompletedAt,
+            ),
+        )
+    }
+
+    @Test
     fun reasoningTimelineKeepsSummaryAndToolsInRecordedOrder() {
         val trace = ReasoningTrace(
             id = "reasoning-1",

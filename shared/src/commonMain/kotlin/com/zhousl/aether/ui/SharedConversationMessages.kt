@@ -1,5 +1,6 @@
 package com.zhousl.aether.ui
 
+import com.zhousl.aether.data.platformRandomUuid
 import com.zhousl.aether.platform.LocalReduceMotion
 
 import androidx.compose.animation.AnimatedVisibility
@@ -205,6 +206,7 @@ internal fun SharedChatMessage.sharedBrowserTools(): List<SharedChatToolInvocati
             is SharedAssistantResponseBlock.ToolGroup -> addAll(block.tools.filter(::isSharedBrowserTool))
             is SharedAssistantResponseBlock.Reasoning -> addAll(block.trace.toolInvocations.filter(::isSharedBrowserTool))
             is SharedAssistantResponseBlock.Text -> Unit
+            is SharedAssistantResponseBlock.Status -> Unit
         }
     }
 }.distinctBy(SharedChatToolInvocation::id)
@@ -215,6 +217,7 @@ internal fun SharedChatMessage.withoutSharedBrowserTools(): SharedChatMessage {
             is SharedAssistantResponseBlock.ToolGroup -> block.tools.any(::isSharedBrowserTool)
             is SharedAssistantResponseBlock.Reasoning -> block.trace.toolInvocations.any(::isSharedBrowserTool)
             is SharedAssistantResponseBlock.Text -> false
+            is SharedAssistantResponseBlock.Status -> false
         }
     }
     return copy(
@@ -223,6 +226,7 @@ internal fun SharedChatMessage.withoutSharedBrowserTools(): SharedChatMessage {
         responseBlocks = responseBlocks.mapIndexedNotNull { index, block ->
             when (block) {
                 is SharedAssistantResponseBlock.Text -> block
+                is SharedAssistantResponseBlock.Status -> block
                 is SharedAssistantResponseBlock.ToolGroup -> block.copy(
                     tools = block.tools.filterNot(::isSharedBrowserTool),
                 ).takeIf { it.tools.isNotEmpty() }
@@ -245,6 +249,7 @@ internal fun SharedChatMessage.sharedBrowserOverlayText(): String {
             is SharedAssistantResponseBlock.ToolGroup -> block.tools.any(::isSharedBrowserTool)
             is SharedAssistantResponseBlock.Reasoning -> block.trace.toolInvocations.any(::isSharedBrowserTool)
             is SharedAssistantResponseBlock.Text -> false
+            is SharedAssistantResponseBlock.Status -> false
         }
     }
     if (firstBrowserBlock < 0) return reasoningText.takeIf { sharedBrowserTools().isNotEmpty() }.orEmpty()
@@ -659,6 +664,50 @@ internal sealed interface SharedAssistantResponseBlock {
         override val id: String,
         val tools: List<SharedChatToolInvocation>,
     ) : SharedAssistantResponseBlock
+
+    data class Status(
+        override val id: String,
+        val text: String,
+        val detail: String = "",
+    ) : SharedAssistantResponseBlock
+}
+
+internal fun completedReconnectStatus(status: String): String {
+    val match = Regex("^Reconnecting\\.\\.\\.\\s*(.*)$", RegexOption.IGNORE_CASE).matchEntire(status.trim())
+        ?: return status
+    return "Reconnected" + match.groupValues[1].takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
+}
+
+internal fun SharedChatMessage.withStreamingStatus(
+    text: String,
+    detail: String,
+): SharedChatMessage {
+    if (!text.startsWith("Reconnecting", ignoreCase = true)) {
+        return completePendingReconnect().copy(status = text, statusDetail = detail)
+    }
+    val completed = completeAssistantReasoning()
+    val last = completed.responseBlocks.lastOrNull()
+    val blocks = if (last is SharedAssistantResponseBlock.Status &&
+        last.text.startsWith("Reconnecting", ignoreCase = true)
+    ) {
+        completed.responseBlocks.dropLast(1) + last.copy(text = text, detail = detail)
+    } else {
+        completed.responseBlocks + SharedAssistantResponseBlock.Status(platformRandomUuid(), text, detail)
+    }
+    return completed.copy(responseBlocks = blocks, status = "", statusDetail = "")
+}
+
+internal fun SharedChatMessage.completePendingReconnect(): SharedChatMessage {
+    val blocks = responseBlocks.map { block ->
+        if (block is SharedAssistantResponseBlock.Status &&
+            block.text.startsWith("Reconnecting", ignoreCase = true)
+        ) {
+            block.copy(text = completedReconnectStatus(block.text))
+        } else {
+            block
+        }
+    }
+    return copy(responseBlocks = blocks, status = completedReconnectStatus(status))
 }
 
 internal fun SharedReasoningTrace.hasVisibleSharedReasoningStatus(): Boolean =
@@ -673,6 +722,7 @@ internal fun List<SharedAssistantResponseBlock>.hasVisibleSharedPendingWork(): B
             is SharedAssistantResponseBlock.Text -> block.text.isNotBlank()
             is SharedAssistantResponseBlock.ToolGroup -> block.tools.isNotEmpty()
             is SharedAssistantResponseBlock.Reasoning -> block.trace.hasVisibleSharedReasoningStatus()
+            is SharedAssistantResponseBlock.Status -> block.text.isNotBlank()
         }
     }
 
@@ -681,6 +731,7 @@ internal fun List<SharedAssistantResponseBlock>.sharedWorkStartedAtMillis(
 ): Long = flatMap { block ->
     when (block) {
         is SharedAssistantResponseBlock.Text -> emptyList()
+        is SharedAssistantResponseBlock.Status -> emptyList()
         is SharedAssistantResponseBlock.ToolGroup -> block.tools.mapNotNull { tool ->
             tool.startedAtMillis.takeIf { it >= SharedMinimumWallClockMillis }
         }
@@ -705,6 +756,21 @@ internal fun sharedRunningWorkDurationMillis(
     (nowMillis - startedAtMillis).coerceAtLeast(1_000L)
 } else {
     1_000L
+}
+
+internal fun sharedCompletedWorkDurationMillis(
+    startedAtMillis: Long,
+    completedAtMillis: Long?,
+    fallbackDurationMillis: Long?,
+): Long {
+    if (
+        startedAtMillis >= SharedMinimumWallClockMillis &&
+        completedAtMillis != null &&
+        completedAtMillis >= startedAtMillis
+    ) {
+        return (completedAtMillis - startedAtMillis).coerceAtLeast(1_000L)
+    }
+    return fallbackDurationMillis?.takeIf { it > 0L }?.coerceAtLeast(1_000L) ?: 1_000L
 }
 
 internal data class SharedChatAttachment(
@@ -1104,6 +1170,11 @@ internal fun SharedConversationMessage(
             }
             val thoughtDuration = metrics.thoughtDurationMillis
                 ?: message.thoughtDurationMillis.takeIf { it > 0L }
+            val completedWorkDuration = sharedCompletedWorkDurationMillis(
+                startedAtMillis = message.createdAtMillis,
+                completedAtMillis = message.completedAtMillis,
+                fallbackDurationMillis = thoughtDuration,
+            )
             val hasReasoningTrace = message.responseBlocks.any {
                 it is SharedAssistantResponseBlock.Reasoning
             } || message.reasoningText.isNotBlank()
@@ -1163,7 +1234,7 @@ internal fun SharedConversationMessage(
                     SharedAgentWorkSummaryDisclosure(
                         title = stringResource(
                             Res.string.chat_working_for_duration,
-                            formatSharedThoughtDuration(thoughtDuration ?: 1L),
+                            formatSharedThoughtDuration(completedWorkDuration),
                         ),
                         stateKey = "shared-message-work-${message.id}",
                     ) {
@@ -1327,6 +1398,11 @@ private fun SharedAssistantResponseBlockContent(
             isStreaming = message.isStreaming,
             runtime = runtime,
             onOpenLink = onOpenLink,
+        )
+        is SharedAssistantResponseBlock.Status -> SharedGenerationStatusCard(
+            text = block.text,
+            detail = block.detail,
+            isRunning = block.text.startsWith("Reconnecting", ignoreCase = true),
         )
     }
 }

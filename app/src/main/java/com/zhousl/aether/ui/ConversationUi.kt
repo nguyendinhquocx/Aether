@@ -512,6 +512,8 @@ fun ConversationScreen(
                                 "${invocation.id}:${invocation.isRunning}:${invocation.outputJson.length}:${invocation.startedAtMillis}:${invocation.completedAtMillis ?: 0L}:${invocation.timelineOrder}"
                             })
                         }
+                        is AssistantResponseBlock.Status ->
+                            "${block.id}:status:${block.text}:${block.detail}"
                     }
                 }
             )
@@ -1644,6 +1646,7 @@ private fun PendingAssistantTimeline(
             is AssistantResponseBlock.Text -> block.text.isNotBlank()
             is AssistantResponseBlock.ToolGroup -> block.toolInvocations.isNotEmpty()
             is AssistantResponseBlock.Reasoning -> hasVisibleReasoningStatus(block.trace)
+            is AssistantResponseBlock.Status -> block.text.isNotBlank()
         }
     }
 
@@ -1750,6 +1753,11 @@ private fun PendingAssistantTimelineBlock(
                 )
             }
         }
+
+        is AssistantResponseBlock.Status -> ReconnectingStatusCard(
+            text = block.text,
+            detail = block.detail,
+        )
     }
 }
 
@@ -1757,12 +1765,14 @@ private fun AssistantResponseBlock.agentModeToolInvocations(): List<ChatToolInvo
     is AssistantResponseBlock.ToolGroup -> toolInvocations.filter { it.isAgentModeDisplayInvocation() }
     is AssistantResponseBlock.Reasoning -> trace.toolInvocations.filter { it.isAgentModeDisplayInvocation() }
     is AssistantResponseBlock.Text -> emptyList()
+    is AssistantResponseBlock.Status -> emptyList()
 }
 
 private fun AssistantResponseBlock.chromeToolInvocations(): List<ChatToolInvocation> = when (this) {
     is AssistantResponseBlock.ToolGroup -> toolInvocations.filter { it.isChromeDisplayInvocation() }
     is AssistantResponseBlock.Reasoning -> trace.toolInvocations.filter { it.isChromeDisplayInvocation() }
     is AssistantResponseBlock.Text -> emptyList()
+    is AssistantResponseBlock.Status -> emptyList()
 }
 
 private fun ChatToolInvocation.isAgentModeDisplayInvocation(): Boolean =
@@ -1793,6 +1803,7 @@ private fun List<AssistantResponseBlock>.latestReasoningStatusAfterTool(
             is AssistantResponseBlock.ToolGroup -> block.toolInvocations.any(predicate)
             is AssistantResponseBlock.Reasoning -> block.trace.toolInvocations.any(predicate)
             is AssistantResponseBlock.Text -> false
+            is AssistantResponseBlock.Status -> false
         }
     }
     if (firstToolBlock < 0) return ""
@@ -1816,6 +1827,7 @@ private fun List<AssistantResponseBlock>.hasVisiblePendingWork(): Boolean =
             is AssistantResponseBlock.Text -> block.text.isNotBlank()
             is AssistantResponseBlock.ToolGroup -> block.toolInvocations.isNotEmpty()
             is AssistantResponseBlock.Reasoning -> hasVisibleReasoningStatus(block.trace)
+            is AssistantResponseBlock.Status -> block.text.isNotBlank()
         }
     }
 
@@ -1823,6 +1835,7 @@ private fun List<AssistantResponseBlock>.workStartedAtMillis(): Long? =
     flatMap { block ->
         when (block) {
             is AssistantResponseBlock.Text -> emptyList()
+            is AssistantResponseBlock.Status -> emptyList()
             is AssistantResponseBlock.ToolGroup -> block.toolInvocations.mapNotNull {
                 it.startedAtMillis.takeIf { timestamp -> timestamp > 0L }
             }

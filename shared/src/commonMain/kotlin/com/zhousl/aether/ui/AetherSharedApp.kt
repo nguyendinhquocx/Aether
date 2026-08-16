@@ -1915,7 +1915,9 @@ fun AetherSharedApp(
                                 fallbackConfig = config,
                             )
                             target.messages.updateMessage(assistantId) { current ->
-                                current.completeAssistantReasoning(now).appendAssistantTextDelta(delta).copy(
+                                current.completePendingReconnect()
+                                    .completeAssistantReasoning(now)
+                                    .appendAssistantTextDelta(delta).copy(
                                     status = "",
                                     statusDetail = "",
                                     firstTokenLatencyMillis = current.firstTokenLatencyMillis
@@ -1929,7 +1931,7 @@ fun AetherSharedApp(
                             reasoningTracker.finishDirectSummaryChunk()
                             val now = platformCurrentTimeMillis()
                             target.messages.updateMessage(assistantId) { current ->
-                                current.appendAssistantReasoningDelta(delta, now).copy(
+                                current.completePendingReconnect().appendAssistantReasoningDelta(delta, now).copy(
                                     status = "",
                                     statusDetail = "",
                                 )
@@ -1946,7 +1948,7 @@ fun AetherSharedApp(
                             backgroundLeases[target.id]?.update("Reasoning")
                             val now = platformCurrentTimeMillis()
                             target.messages.updateMessage(assistantId) { current ->
-                                current.appendDirectAssistantReasoningSummaryDelta(
+                                current.completePendingReconnect().appendDirectAssistantReasoningSummaryDelta(
                                     delta = delta,
                                     tracker = reasoningTracker,
                                     nowMillis = now,
@@ -1989,7 +1991,7 @@ fun AetherSharedApp(
                                     .firstOrNull { it.id == event.id }
                                     ?.timelineOrder
                                     ?.takeIf { it > 0L }
-                                current.withAssistantToolEvent(
+                                current.completePendingReconnect().withAssistantToolEvent(
                                     event = event,
                                     routeIntoReasoning = reasoningTraceToolRoutingEnabled,
                                     nowMillis = now,
@@ -2013,7 +2015,7 @@ fun AetherSharedApp(
                                 fallbackConfig = config,
                             )
                             target.messages.updateMessage(assistantId) { current ->
-                                current.withStartedAssistantTool(
+                                current.completePendingReconnect().withStartedAssistantTool(
                                     call = call,
                                     startedAtMillis = now,
                                     timelineOrder = reasoningTracker.nextTimelineOrder(),
@@ -2036,9 +2038,9 @@ fun AetherSharedApp(
                             status?.text?.takeIf(String::isNotBlank)
                                 ?.let { backgroundLeases[target.id]?.update(it) }
                             target.messages.updateMessage(assistantId) { current ->
-                                current.copy(
-                                    status = status?.text.orEmpty(),
-                                    statusDetail = status?.detail.orEmpty(),
+                                current.withStreamingStatus(
+                                    text = status?.text.orEmpty(),
+                                    detail = status?.detail.orEmpty(),
                                 )
                             }
                             target.streamingStatus = status?.text.orEmpty()
@@ -3768,6 +3770,7 @@ private fun SharedChatMessage.sharedRunningToolCount(): Int = buildList {
             is SharedAssistantResponseBlock.ToolGroup -> addAll(block.tools)
             is SharedAssistantResponseBlock.Reasoning -> addAll(block.trace.toolInvocations)
             is SharedAssistantResponseBlock.Text -> Unit
+            is SharedAssistantResponseBlock.Status -> Unit
         }
     }
 }.distinctBy(SharedChatToolInvocation::id).count(SharedChatToolInvocation::isRunning)
@@ -7460,14 +7463,16 @@ internal fun SharedChatMessage.finalizeSharedInterruptedAssistantWork(
                         toolInvocations = block.trace.toolInvocations.map { it.finalizeInterrupted() },
                     ),
                 )
+                is SharedAssistantResponseBlock.Status -> block.copy(
+                    text = completedReconnectStatus(block.text),
+                )
                 else -> block
             }
         },
     )
 }
 
-internal fun completedSharedReconnectStatus(status: String): String =
-    if (status.startsWith("Reconnecting", ignoreCase = true)) "Reconnected" else status
+internal fun completedSharedReconnectStatus(status: String): String = completedReconnectStatus(status)
 
 private fun SharedChatToolInvocation.isSharedInterruptedToolInvocation(): Boolean {
     if (isRunning) return true
@@ -7483,6 +7488,7 @@ internal fun SharedChatMessage.hasSharedVisibleAssistantWork(): Boolean =
             is SharedAssistantResponseBlock.Text -> block.text.isNotBlank()
             is SharedAssistantResponseBlock.Reasoning -> true
             is SharedAssistantResponseBlock.ToolGroup -> block.tools.isNotEmpty()
+            is SharedAssistantResponseBlock.Status -> block.text.isNotBlank()
         }
         } || tools.isNotEmpty()
 
@@ -7561,6 +7567,12 @@ private fun SharedChatMessage.toPersistedMessage(): PersistedChatMessage =
                     id = block.id,
                     type = PersistedAssistantResponseBlockType.ToolGroup,
                     tools = block.tools.map(SharedChatToolInvocation::toPersistedChatTool),
+                )
+                is SharedAssistantResponseBlock.Status -> PersistedAssistantResponseBlock(
+                    id = block.id,
+                    type = PersistedAssistantResponseBlockType.Status,
+                    text = block.text,
+                    statusDetail = block.detail,
                 )
             }
         },
@@ -7709,6 +7721,11 @@ internal fun PersistedChatMessage.toSharedChatMessage(): SharedChatMessage {
             PersistedAssistantResponseBlockType.ToolGroup -> SharedAssistantResponseBlock.ToolGroup(
                 id = block.id,
                 tools = block.tools.map(PersistedChatTool::toSharedChatToolInvocation),
+            )
+            PersistedAssistantResponseBlockType.Status -> SharedAssistantResponseBlock.Status(
+                id = block.id,
+                text = block.text,
+                detail = block.statusDetail,
             )
         }
     }.ifEmpty {

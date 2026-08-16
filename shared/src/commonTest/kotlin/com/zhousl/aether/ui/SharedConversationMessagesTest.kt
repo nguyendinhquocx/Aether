@@ -15,6 +15,27 @@ import kotlinx.serialization.json.put
 
 class SharedConversationMessagesTest {
     @Test
+    fun reconnectStatusCompletesInPlaceBeforeLaterResponseBlocks() {
+        val reconnecting = SharedChatMessage(
+            text = "",
+            fromUser = false,
+            responseBlocks = listOf(SharedAssistantResponseBlock.Text("before", "Before")),
+        ).withStreamingStatus("Reconnecting... 3/5", "timed out")
+        val completed = reconnecting.completePendingReconnect().copy(
+            responseBlocks = reconnecting.completePendingReconnect().responseBlocks +
+                SharedAssistantResponseBlock.ToolGroup(
+                    "after",
+                    listOf(SharedChatToolInvocation(id = "tool", name = "read", summary = "Reading")),
+                ),
+        )
+
+        val status = completed.responseBlocks[1] as SharedAssistantResponseBlock.Status
+        assertEquals("Reconnected 3/5", status.text)
+        assertEquals("timed out", status.detail)
+        assertTrue(completed.responseBlocks[2] is SharedAssistantResponseBlock.ToolGroup)
+    }
+
+    @Test
     fun pendingWorkVisibilityMatchesAndroidResponseBlockRules() {
         assertFalse(emptyList<SharedAssistantResponseBlock>().hasVisibleSharedPendingWork())
         assertFalse(
@@ -210,6 +231,26 @@ class SharedConversationMessagesTest {
         assertEquals(
             1_000L,
             sharedRunningWorkDurationMillis(startedAt, nowMillis = 1_700_000_002_100L),
+        )
+    }
+
+    @Test
+    fun completedWorkDurationUsesMessageTurnBoundsInsteadOfFallbackDuration() {
+        assertEquals(
+            10_000L,
+            sharedCompletedWorkDurationMillis(
+                startedAtMillis = 1_700_000_090_000L,
+                completedAtMillis = 1_700_000_100_000L,
+                fallbackDurationMillis = 90_000L,
+            ),
+        )
+        assertEquals(
+            5_000L,
+            sharedCompletedWorkDurationMillis(
+                startedAtMillis = 0L,
+                completedAtMillis = null,
+                fallbackDurationMillis = 5_000L,
+            ),
         )
     }
 
@@ -852,6 +893,30 @@ class SharedConversationMessagesTest {
         ).toPersistedMessages().single().toSharedChatMessage()
 
         assertEquals("estimated", restored.tokenUsageSource)
+    }
+
+    @Test
+    fun reconnectTimelineStatusSurvivesPersistenceMapping() {
+        val restored = listOf(
+            SharedChatMessage(
+                id = "assistant",
+                text = "answer",
+                fromUser = false,
+                responseBlocks = listOf(
+                    SharedAssistantResponseBlock.Status(
+                        id = "retry",
+                        text = "Reconnected 2/5",
+                        detail = "connection reset",
+                    ),
+                    SharedAssistantResponseBlock.Text("answer", "answer"),
+                ),
+            ),
+        ).toPersistedMessages().single().toSharedChatMessage()
+
+        val status = assertIs<SharedAssistantResponseBlock.Status>(restored.responseBlocks[0])
+        assertEquals("Reconnected 2/5", status.text)
+        assertEquals("connection reset", status.detail)
+        assertIs<SharedAssistantResponseBlock.Text>(restored.responseBlocks[1])
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.zhousl.aether.ui
 
 import com.zhousl.aether.data.SessionExecutionState
 import com.zhousl.aether.data.completedReconnectStatus
+import com.zhousl.aether.data.completePendingReconnectBlocks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -44,7 +45,7 @@ class PauseGenerationStateTest {
         assertTrue(updated.pendingAssistantText.isEmpty())
         assertTrue(updated.pendingStatusText.isEmpty())
         assertEquals(finalized.messages, updated.sessions.single().messages)
-        assertEquals("Reconnected", updated.sessions.single().messages.single().statusText)
+        assertEquals("Reconnected 2/5", updated.sessions.single().messages.single().statusText)
         assertEquals(
             "fetch failed: connect timed out (ETIMEDOUT)",
             updated.sessions.single().messages.single().statusDetail,
@@ -53,7 +54,26 @@ class PauseGenerationStateTest {
 
     @Test
     fun stoppingOnlyCompletesReconnectStatus() {
-        assertEquals("Reconnected", completedReconnectStatus("Reconnecting... 5/5"))
+        assertEquals("Reconnected 5/5", completedReconnectStatus("Reconnecting... 5/5"))
         assertEquals("Waiting for approval", completedReconnectStatus("Waiting for approval"))
+    }
+
+    @Test
+    fun reconnectBlockCompletesInPlaceBeforeLaterTimelineWork() {
+        val blocks = completePendingReconnectBlocks(
+            listOf(
+                AssistantResponseBlock.Text("before", "Before"),
+                AssistantResponseBlock.Status("retry", "Reconnecting... 3/5", "timed out"),
+                AssistantResponseBlock.ToolGroup(
+                    "after",
+                    listOf(ChatToolInvocation(id = "tool", toolName = "read", argumentsJson = "{}")),
+                ),
+            )
+        )
+
+        val status = blocks[1] as AssistantResponseBlock.Status
+        assertEquals("Reconnected 3/5", status.text)
+        assertEquals("timed out", status.detail)
+        assertTrue(blocks[2] is AssistantResponseBlock.ToolGroup)
     }
 }

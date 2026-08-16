@@ -3019,10 +3019,15 @@ private fun AetherExtensionSettingsCategoriesPage(
     onCategorySelected: (String) -> Unit,
     onBack: () -> Unit,
 ) {
+    val controller = LocalAetherExtensionUiController.current
     SubPageScaffold(title = page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
         if (page.subtitle.isNotBlank()) {
             Text(page.subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
             Spacer(Modifier.height(12.dp))
+        }
+        if (page.sections.isNotEmpty()) {
+            AetherExtensionSettingsSections(page.sections, page, controller)
+            Spacer(Modifier.height(16.dp))
         }
         SettingsCardGroup {
             page.categories.forEachIndexed { index, category ->
@@ -3038,14 +3043,12 @@ private fun AetherExtensionSettingsCategoriesPage(
 }
 
 @Composable
-private fun AetherExtensionSettingsPage(
+private fun AetherExtensionSettingsSections(
+    sections: List<JSONObject>,
     page: com.zhousl.aether.data.AetherAppExtensionSettingsPage,
-    category: com.zhousl.aether.data.AetherAppExtensionSettingsCategory?,
-    onBack: () -> Unit,
+    controller: AetherExtensionUiController?,
 ) {
-    val controller = LocalAetherExtensionUiController.current
     val uriHandler = LocalUriHandler.current
-    val sections = category?.sections ?: page.sections
     fun update(setting: JSONObject, value: Any?) {
         controller?.onAction?.invoke(
             page.extensionId,
@@ -3053,8 +3056,7 @@ private fun AetherExtensionSettingsPage(
             JSONObject().put("setting", setting.optString("id")).put("value", value),
         )
     }
-    SubPageScaffold(title = category?.title ?: page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
-        sections.forEachIndexed { sectionIndex, section ->
+    sections.forEachIndexed { sectionIndex, section ->
             val sectionTitle = section.optString("title")
             val sectionDescription = section.optString("description")
             if (sectionIndex > 0) Spacer(Modifier.height(16.dp))
@@ -3221,6 +3223,17 @@ private fun AetherExtensionSettingsPage(
                 }
             }
         }
+}
+
+@Composable
+private fun AetherExtensionSettingsPage(
+    page: com.zhousl.aether.data.AetherAppExtensionSettingsPage,
+    category: com.zhousl.aether.data.AetherAppExtensionSettingsCategory?,
+    onBack: () -> Unit,
+) {
+    val controller = LocalAetherExtensionUiController.current
+    SubPageScaffold(title = category?.title ?: page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
+        AetherExtensionSettingsSections(category?.sections ?: page.sections, page, controller)
     }
 }
 

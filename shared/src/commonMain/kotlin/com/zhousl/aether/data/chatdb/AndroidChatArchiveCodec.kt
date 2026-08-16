@@ -136,6 +136,10 @@ private fun PersistedChatMessage.toAndroidChatMessageJson(
         )
         put("reasoningTrace", trace.toAndroidReasoningTraceJson())
     }
+    val statusText = if (block?.type == PersistedAssistantResponseBlockType.Status) block.text else if (block == null) status else ""
+    val resolvedStatusDetail = if (block?.type == PersistedAssistantResponseBlockType.Status) block.statusDetail else if (block == null) statusDetail else ""
+    if (statusText.isNotBlank()) put("statusText", statusText)
+    if (resolvedStatusDetail.isNotBlank()) put("statusDetail", resolvedStatusDetail)
     if (!fromUser) {
         put(
             "responseGroupId",
@@ -247,6 +251,8 @@ private data class AndroidArchiveMessage(
     val thoughtDurationMillis: Long?,
     val reasoningTrace: PersistedReasoningTrace?,
     val tools: List<PersistedChatTool>,
+    val statusText: String,
+    val statusDetail: String,
     val attachments: List<PersistedChatAttachment>,
     val responseGroupId: String,
     val assistantActionsHidden: Boolean,
@@ -358,6 +364,14 @@ private fun List<AndroidArchiveMessage>.toPersistedAssistantGroup(): PersistedCh
 }
 
 private fun AndroidArchiveMessage.toResponseBlocks(): List<PersistedAssistantResponseBlock> = when {
+    statusText.isNotBlank() -> listOf(
+        PersistedAssistantResponseBlock(
+            id = id,
+            type = PersistedAssistantResponseBlockType.Status,
+            text = statusText,
+            statusDetail = statusDetail,
+        ),
+    )
     reasoningTrace != null -> listOf(
         PersistedAssistantResponseBlock(
             id = reasoningTrace.id.ifBlank { id },
@@ -413,6 +427,8 @@ private fun JsonObject.toAndroidArchiveMessage(index: Int): AndroidArchiveMessag
         thoughtDurationMillis = long("thoughtDurationMillis"),
         reasoningTrace = (this["reasoningTrace"] as? JsonObject)?.toPersistedReasoningTrace(),
         tools = array("toolInvocations").orEmpty().mapNotNull { (it as? JsonObject)?.toPersistedChatTool() },
+        statusText = string("statusText"),
+        statusDetail = string("statusDetail"),
         attachments = array("attachments").orEmpty().mapIndexedNotNull { attachmentIndex, element ->
             (element as? JsonObject)?.toPersistedChatAttachment(attachmentIndex)
         },

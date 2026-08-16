@@ -177,6 +177,12 @@ sealed interface AssistantResponseBlock {
         override val id: String,
         val trace: ReasoningTrace,
     ) : AssistantResponseBlock
+
+    data class Status(
+        override val id: String,
+        val text: String,
+        val detail: String = "",
+    ) : AssistantResponseBlock
 }
 
 data class ChatMessage(

@@ -139,6 +139,7 @@ enum class PersistedAssistantResponseBlockType {
     Text,
     Reasoning,
     ToolGroup,
+    Status,
 }
 
 @Serializable
@@ -148,6 +149,7 @@ data class PersistedAssistantResponseBlock(
     val text: String = "",
     val tools: List<PersistedChatTool> = emptyList(),
     val reasoningTrace: PersistedReasoningTrace? = null,
+    val statusDetail: String = "",
 )
 
 @Serializable
@@ -216,6 +218,8 @@ internal fun PersistedChatMessage.sharedSummaryText(): String {
 
             PersistedAssistantResponseBlockType.ToolGroup ->
                 if (block.tools.isNotEmpty()) return block.tools.sharedToolSummaryText()
+
+            PersistedAssistantResponseBlockType.Status -> Unit
         }
     }
     if (reasoningText.isNotBlank()) return "Thought"
@@ -569,6 +573,7 @@ private fun JsonObject.toPersistedChatMessage(
             text = block.string("text"),
             tools = (block["tools"] as? JsonArray).orEmpty().mapNotNull(::parsePersistedChatTool),
             reasoningTrace = (block["reasoningTrace"] as? JsonObject)?.toPersistedReasoningTrace(),
+            statusDetail = block.string("statusDetail"),
         )
     },
     attachments = (get("attachments") as? JsonArray).orEmpty().mapNotNull { element ->
@@ -643,6 +648,7 @@ private fun PersistedChatMessage.toJsonObject(): JsonObject = buildJsonObject {
                 put("id", block.id)
                 put("type", block.type.name)
                 put("text", block.text)
+                if (block.statusDetail.isNotBlank()) put("statusDetail", block.statusDetail)
                 put("tools", buildJsonArray {
                     block.tools.forEach { tool ->
                         add(tool.toJsonObject())

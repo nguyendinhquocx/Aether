@@ -928,14 +928,12 @@ private fun SharedSettingsDetailScaffold(
 }
 
 @Composable
-internal fun SharedAetherExtensionSettingsDetail(
+private fun SharedAetherExtensionSettingsSections(
+    sections: List<JsonObject>,
     page: com.zhousl.aether.data.SharedAetherExtensionSettingsPage,
-    category: com.zhousl.aether.data.SharedAetherExtensionSettingsCategory? = null,
-    onBack: () -> Unit,
+    controller: SharedAetherExtensionUiController?,
 ) {
-    val controller = LocalSharedAetherExtensionUiController.current
     val uriHandler = LocalUriHandler.current
-    val sections = category?.sections ?: page.sections
     fun update(setting: JsonObject, value: JsonPrimitive) {
         controller?.onAction?.invoke(
             page.extensionId,
@@ -943,11 +941,10 @@ internal fun SharedAetherExtensionSettingsDetail(
             JsonObject(mapOf("setting" to JsonPrimitive(setting.string("id")), "value" to value)),
         )
     }
-    SharedSettingsDetailScaffold(title = category?.title ?: page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
-        sections.forEachIndexed { sectionIndex, section ->
-            val title = section.string("title")
-            val description = section.string("description")
-            if (sectionIndex > 0) Spacer(Modifier.height(16.dp))
+    sections.forEachIndexed { sectionIndex, section ->
+        val title = section.string("title")
+        val description = section.string("description")
+        if (sectionIndex > 0) Spacer(Modifier.height(16.dp))
             if (title.isNotBlank() || description.isNotBlank()) {
                 if (title.isNotBlank()) {
                     Text(title, style = MaterialTheme.typography.labelLarge, color = AetherOnSurface, modifier = Modifier.padding(horizontal = 4.dp))
@@ -1088,6 +1085,17 @@ internal fun SharedAetherExtensionSettingsDetail(
                 }
             }
         }
+}
+
+@Composable
+internal fun SharedAetherExtensionSettingsDetail(
+    page: com.zhousl.aether.data.SharedAetherExtensionSettingsPage,
+    category: com.zhousl.aether.data.SharedAetherExtensionSettingsCategory? = null,
+    onBack: () -> Unit,
+) {
+    val controller = LocalSharedAetherExtensionUiController.current
+    SharedSettingsDetailScaffold(title = category?.title ?: page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
+        SharedAetherExtensionSettingsSections(category?.sections ?: page.sections, page, controller)
     }
 }
 
@@ -1097,10 +1105,15 @@ internal fun SharedAetherExtensionSettingsCategoriesDetail(
     onCategorySelected: (String) -> Unit,
     onBack: () -> Unit,
 ) {
+    val controller = LocalSharedAetherExtensionUiController.current
     SharedSettingsDetailScaffold(title = page.title, onBack = onBack, trailingIcon = Icons.Rounded.Check, onTrailingAction = onBack) {
         if (page.subtitle.isNotBlank()) {
             Text(page.subtitle, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
             Spacer(Modifier.height(12.dp))
+        }
+        if (page.sections.isNotEmpty()) {
+            SharedAetherExtensionSettingsSections(page.sections, page, controller)
+            Spacer(Modifier.height(16.dp))
         }
         SettingsCardGroup {
             page.categories.forEachIndexed { index, category ->
