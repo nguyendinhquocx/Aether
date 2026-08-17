@@ -36,10 +36,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -868,11 +873,16 @@ private fun parseHexColor(value: String): Color? {
 }
 
 internal fun extensionIcon(name: String): ImageVector = when (name.lowercase()) {
-    "add", "plus" -> Icons.Rounded.Add
+    "add", "plus", "new" -> Icons.Rounded.Add
     "auto", "sparkles", "magic" -> Icons.Rounded.AutoAwesome
+    "check", "done", "save" -> Icons.Rounded.Check
+    "close", "cancel", "clear" -> Icons.Rounded.Close
     "code" -> Icons.Rounded.Code
+    "delete", "remove", "trash" -> Icons.Rounded.Delete
+    "edit", "modify", "pencil" -> Icons.Rounded.Edit
     "home" -> Icons.Rounded.Home
     "info" -> Icons.Rounded.Info
+    "link", "url" -> Icons.Rounded.Link
     "play", "run" -> Icons.Rounded.PlayArrow
     "refresh", "reload" -> Icons.Rounded.Refresh
     "settings" -> Icons.Rounded.Settings

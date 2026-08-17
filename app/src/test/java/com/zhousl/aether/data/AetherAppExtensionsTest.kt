@@ -77,6 +77,18 @@ class AetherAppExtensionsTest {
                     }
                   ],
                   "event_names":["before_send"],
+                  "tool_titles":[
+                    {
+                      "id":"demo:1:web_search-1",
+                      "extension_id":"demo:1",
+                      "extension_name":"Demo",
+                      "tool_name":"web_search",
+                      "running_title":"Searching the web",
+                      "completed_title":"Searched the web",
+                      "priority":200,
+                      "sequence":1
+                    }
+                  ],
                   "errors":[]
                 }
                 """.trimIndent()
@@ -95,6 +107,8 @@ class AetherAppExtensionsTest {
         )
         assertEquals("general", snapshot.settings.single().categories.single().id)
         assertTrue("before_send" in snapshot.eventNames)
+        assertEquals("Searching the web", snapshot.toolTitles.single().runningTitle)
+        assertEquals(200, snapshot.toolTitles.single().priority)
     }
 
     @Test

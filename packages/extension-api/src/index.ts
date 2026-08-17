@@ -43,17 +43,49 @@ export type AetherSettingType =
   | "link"
   | "label"
   | "divider"
-  | "spacer";
+  | "spacer"
+  | "item-card"
+  | "card"
+  | "empty-state"
+  | "choice"
+  | "radio"
+  | "action-row"
+  | "chips"
+  | "detail-line"
+  | "key-value"
+  | "pill"
+  | "badge"
+  | "result-card"
+  | "callout";
 
 export interface AetherSettingOption {
   value: string;
   label: string;
 }
 
+export interface AetherSettingActionItem {
+  label: string;
+  action: string;
+  args?: AetherJsonObject;
+  category?: string;
+  tone?: "primary" | "neutral" | "danger";
+  enabled?: boolean;
+}
+
+export interface AetherSettingDetailItem {
+  label: string;
+  value: string;
+}
+
 export interface AetherSettingDefinition {
   id: string;
   label?: string;
+  title?: string;
   description?: string;
+  subtitle?: string;
+  tag?: string;
+  pill?: string;
+  badge?: string;
   type?: AetherSettingType;
   default?: string | number | boolean;
   placeholder?: string;
@@ -63,12 +95,28 @@ export interface AetherSettingDefinition {
   step?: number;
   action?: string;
   args?: AetherJsonObject;
+  category?: string;
   url?: string;
   icon?: string;
   tone?: "primary" | "neutral" | "danger";
   enabled?: boolean;
+  checked?: boolean;
+  selected?: boolean;
+  toggleAction?: string;
+  editAction?: string;
+  editCategory?: string;
+  editArgs?: AetherJsonObject;
+  deleteAction?: string;
+  deleteArgs?: AetherJsonObject;
+  expanded?: boolean;
+  actions?: AetherSettingActionItem[];
+  details?: AetherSettingDetailItem[];
+  resultText?: string;
+  result?: string;
+  buttonLabel?: string;
   multiline?: boolean;
   secret?: boolean;
+  settings?: AetherSettingDefinition[];
 }
 
 export interface AetherSettingsSection {
@@ -84,6 +132,10 @@ export interface AetherSettingsDefinition {
   subtitle?: string;
   icon?: string;
   order?: number;
+  trailingIcon?: string;
+  trailingAction?: string;
+  trailingCategory?: string;
+  trailingArgs?: AetherJsonObject;
   sections?: AetherSettingsSection[];
   categories?: AetherSettingsCategory[];
 }
@@ -94,6 +146,11 @@ export interface AetherSettingsCategory {
   subtitle?: string;
   icon?: string;
   order?: number;
+  trailingIcon?: string;
+  trailingAction?: string;
+  trailingCategory?: string;
+  trailingArgs?: AetherJsonObject;
+  hidden?: boolean;
   sections: AetherSettingsSection[];
 }
 
@@ -254,6 +311,12 @@ export interface AetherExtensionAPI {
   registerComposerMenu(definition: AetherComposerMenuItemDefinition): () => void;
   registerMessageType(definition: AetherMessageTypeDefinition): () => void;
   registerCustomMessage(definition: AetherMessageTypeDefinition): () => void;
+  registerToolTitle(
+    toolName: string,
+    runningTitle: string,
+    completedTitle: string,
+    priority?: number,
+  ): () => void;
   registerAction(
     id: string,
     handler: (

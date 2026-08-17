@@ -109,6 +109,16 @@ interface RegisteredMessageType {
   render: AetherMessageTypeDefinition["render"];
 }
 
+interface RegisteredToolTitle {
+  id: string;
+  extension: LoadedAetherExtension;
+  toolName: string;
+  runningTitle: string;
+  completedTitle: string;
+  priority: number;
+  sequence: number;
+}
+
 interface RegisteredAction {
   extension: LoadedAetherExtension;
   localId: string;
@@ -142,6 +152,8 @@ interface AetherRuntimeState {
   settings: Map<string, RegisteredSettings>;
   composerMenuItems: Map<string, RegisteredComposerMenuItem>;
   messageTypes: Map<string, RegisteredMessageType>;
+  toolTitles: Map<string, RegisteredToolTitle>;
+  toolTitleSequence: number;
   actions: Map<string, RegisteredAction>;
   events: Map<string, RegisteredEventHandler[]>;
   errors: AetherExtensionError[];
@@ -206,6 +218,8 @@ function createEmptyRuntime(cwd: string): AetherRuntimeState {
     settings: new Map(),
     composerMenuItems: new Map(),
     messageTypes: new Map(),
+    toolTitles: new Map(),
+    toolTitleSequence: 0,
     actions: new Map(),
     events: new Map(),
     errors: [],
@@ -776,8 +790,9 @@ function createApi(
         settings: section.settings.map((setting) => {
           const id = setting.id.trim();
           const type = setting.type ?? "text";
-          const label = setting.label?.trim() ?? "";
-          if (!id || (!label && type !== "divider" && type !== "spacer")) {
+          const label = setting.label?.trim() ?? setting.title?.trim() ?? "";
+          const labelFree = type === "divider" || type === "spacer" || type === "item-card" || type === "card" || type === "empty-state" || type === "choice" || type === "radio" || type === "action-row" || type === "chips" || type === "detail-line" || type === "key-value" || type === "pill" || type === "badge" || type === "result-card" || type === "callout";
+          if (!id || (!label && !labelFree)) {
             throw new Error("Aether extension settings require ids and visible controls require labels.");
           }
           if (seenSettingIds.has(id)) {
@@ -894,6 +909,34 @@ function createApi(
     },
     registerCustomMessage(definition) {
       return this.registerMessageType(definition);
+    },
+    registerToolTitle(toolName, runningTitle, completedTitle, priority = 100) {
+      const normalizedToolName = toolName.trim();
+      const normalizedRunningTitle = runningTitle.trim();
+      const normalizedCompletedTitle = completedTitle.trim();
+      if (!normalizedToolName) throw new Error("Aether tool titles require a tool name.");
+      if (!normalizedRunningTitle) throw new Error("Aether tool titles require a running title.");
+      if (!normalizedCompletedTitle) throw new Error("Aether tool titles require a completed title.");
+      const normalizedPriority = Number.isFinite(priority)
+        ? Math.trunc(Number(priority))
+        : 100;
+      const sequence = runtimeState.toolTitleSequence + 1;
+      runtimeState.toolTitleSequence = sequence;
+      const localId = `${normalizedToolName}-${sequence}`;
+      const id = scopedId(extension.id, localId);
+      runtimeState.toolTitles.set(id, {
+        id,
+        extension,
+        toolName: normalizedToolName,
+        runningTitle: normalizedRunningTitle,
+        completedTitle: normalizedCompletedTitle,
+        priority: normalizedPriority,
+        sequence,
+      });
+      invalidate();
+      return () => {
+        if (runtimeState.toolTitles.delete(id)) invalidate();
+      };
     },
     registerAction(id, handler) {
       const localId = id.trim();
@@ -1233,6 +1276,10 @@ async function aetherAppExtensionSnapshotUnlocked(
       subtitle: item.definition.subtitle ?? "",
       icon: item.definition.icon ?? "settings",
       order: Number.isFinite(item.definition.order) ? Number(item.definition.order) : 0,
+      trailing_icon: item.definition.trailingIcon ?? "",
+      trailing_action: item.definition.trailingAction ?? "",
+      trailing_category: item.definition.trailingCategory ?? "",
+      trailing_args: item.definition.trailingArgs ?? {},
       sections: (item.definition.sections ?? []).map((section) => ({
         ...cloneJson(section),
         settings: section.settings.map((setting) => ({
@@ -1246,6 +1293,11 @@ async function aetherAppExtensionSnapshotUnlocked(
       })),
       categories: (item.definition.categories ?? []).map((category) => ({
         ...cloneJson(category),
+        trailing_icon: category.trailingIcon ?? "",
+        trailing_action: category.trailingAction ?? "",
+        trailing_category: category.trailingCategory ?? "",
+        trailing_args: category.trailingArgs ?? {},
+        hidden: category.hidden === true,
         sections: category.sections.map((section) => ({
           ...cloneJson(section),
           settings: section.settings.map((setting) => ({
@@ -1264,6 +1316,22 @@ async function aetherAppExtensionSnapshotUnlocked(
       extension_name: item.extension.name,
       title: item.title,
       icon: item.icon,
+    }));
+  const toolTitles = [...runtime.toolTitles.values()]
+    .sort((left, right) =>
+      left.priority - right.priority ||
+      left.sequence - right.sequence ||
+      left.id.localeCompare(right.id)
+    )
+    .map((item) => ({
+      id: item.id,
+      extension_id: item.extension.id,
+      extension_name: item.extension.name,
+      tool_name: item.toolName,
+      running_title: item.runningTitle,
+      completed_title: item.completedTitle,
+      priority: item.priority,
+      sequence: item.sequence,
     }));
   const customMessages = [];
   const contextMessages = Array.isArray(hostContext.custom_messages)
@@ -1294,6 +1362,7 @@ async function aetherAppExtensionSnapshotUnlocked(
     settings,
     composer_menu_items: composerMenuItems,
     message_types: messageTypes,
+    tool_titles: toolTitles,
     custom_messages: customMessages,
     event_names: [...runtime.events.keys()].sort(),
     errors: runtime.errors,

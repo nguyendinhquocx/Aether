@@ -3,6 +3,8 @@ package com.zhousl.aether.data.pi
 import com.zhousl.aether.data.AppLanguage
 import com.zhousl.aether.data.AppSettings
 import com.zhousl.aether.data.AppThemeMode
+import com.zhousl.aether.data.SharedAetherExtensionSettingsPage
+import com.zhousl.aether.data.SharedAetherExtensionSnapshot
 import com.zhousl.aether.data.SharedInstalledSkill
 import com.zhousl.aether.data.SharedSkillManager
 import com.zhousl.aether.data.normalizeLlmInactivityReconnectTimeoutSeconds
@@ -11,6 +13,7 @@ import com.zhousl.aether.runtime.MultiplatformLocalRuntime
 import com.zhousl.aether.runtime.SharedPiBridgeClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -30,6 +33,13 @@ class SharedAgentManagementTools(
     private val settings: suspend () -> AppSettings,
     private val updateSettings: suspend (AppSettings) -> Unit,
     private val currentSessionId: suspend () -> String,
+    private val extensionSettings: suspend () -> SharedAetherExtensionSnapshot,
+    private val updateExtensionSetting: suspend (
+        extensionId: String,
+        settingsId: String,
+        settingId: String,
+        value: JsonElement,
+    ) -> SharedAetherExtensionSnapshot,
 ) : SharedSessionAwareHostToolExecutor {
     override val definitions: JsonArray = buildJsonArray {
         addSelfManagementDefinitions()
@@ -77,6 +87,7 @@ class SharedAgentManagementTools(
                         put("old_command_history_retention_hours", current.oldCommandHistoryRetentionHours)
                     })
                     "agent_skills" -> put("agent_skills", skillsJson(skillManager.list()))
+                    "extensions" -> put("extensions", extensionSettingsJson(extensionSettings()))
                     "developer" -> put("developer", buildJsonObject {
                         put("runtime_home", runtime.homeDirectory)
                         put("workspace", runtime.workspaceRoot)
@@ -91,6 +102,7 @@ class SharedAgentManagementTools(
     private suspend fun setConfiguration(arguments: JsonObject): SharedHostToolResult {
         val category = arguments.string("category").trim().lowercase()
         val patch = arguments["settings"] as? JsonObject ?: error("settings must be an object.")
+        if (category == "extensions") return setExtensionConfiguration(patch)
         val current = settings()
         val updated = when (category) {
             "general" -> current.copy(
@@ -116,6 +128,41 @@ class SharedAgentManagementTools(
         }
         updateSettings(updated)
         return agentToolSuccess("Updated Aether $category settings.") { put("category", category) }
+    }
+
+    private suspend fun setExtensionConfiguration(patch: JsonObject): SharedHostToolResult {
+        val extensionId = patch.string("extension_id").trim()
+        val settingsId = patch.string("settings_id").trim()
+        val values = patch["values"] as? JsonObject ?: error("settings.values must be an object.")
+        require(extensionId.isNotBlank()) { "settings.extension_id is required." }
+        require(settingsId.isNotBlank()) { "settings.settings_id is required." }
+        require(values.isNotEmpty()) { "settings.values must contain at least one setting." }
+
+        var snapshot = extensionSettings()
+        val page = snapshot.extensionSettingsPage(extensionId, settingsId)
+        val validatedValues = values.map { (settingId, value) ->
+            val setting = page.setting(settingId)
+                ?: error("Unknown setting '$settingId' in '$extensionId/$settingsId'.")
+            val type = setting.string("type").ifBlank { "text" }
+            require(type in WritableExtensionSettingTypes) {
+                "Extension setting '$settingId' has non-writable type '$type'."
+            }
+            require(value is JsonPrimitive && value.contentOrNull != null) {
+                "Extension setting '$settingId' requires a string, number, or boolean value."
+            }
+            settingId to value
+        }
+        validatedValues.forEach { (settingId, value) ->
+            snapshot = updateExtensionSetting(extensionId, settingsId, settingId, value)
+        }
+
+        val updatedPage = snapshot.extensionSettingsPage(extensionId, settingsId)
+        return agentToolSuccess("Updated ${values.size} setting(s) in $extensionId/$settingsId.") {
+            put("category", "extensions")
+            put("extension_id", extensionId)
+            put("settings_id", settingsId)
+            put("values", updatedPage.valuesJson())
+        }
     }
 
     private suspend fun manageSkills(arguments: JsonObject): SharedHostToolResult {
@@ -185,17 +232,17 @@ class SharedAgentManagementTools(
 private fun kotlinx.serialization.json.JsonArrayBuilder.addSelfManagementDefinitions() {
     add(agentToolDefinition(
         "aether_config_get",
-        "Read Aether general, reliability, Agent Skills, and developer configuration.",
+        "Read Aether general, reliability, Agent Skills, native extension Settings Pages, and developer configuration.",
         "parallel",
         properties = mapOf("categories" to agentStringArraySchema("Optional categories to read.")),
     ))
     add(agentToolDefinition(
         "aether_config_set",
-        "Modify allowed Aether general or reliability settings.",
+        "Modify allowed Aether general, reliability, or native extension settings. For extensions, pass extension_id, settings_id, and a values object inside settings.",
         "sequential",
         listOf("category", "settings"),
         mapOf(
-            "category" to agentStringSchema("One of general, reliability."),
+            "category" to agentStringSchema("One of general, reliability, extensions."),
             "settings" to buildJsonObject {
                 put("type", "object")
                 put("additionalProperties", true)
@@ -311,6 +358,68 @@ private fun skillsJson(skills: List<SharedInstalledSkill>): JsonArray = buildJso
         })
     }
 }
+
+private val WritableExtensionSettingTypes = setOf(
+    "text",
+    "password",
+    "textarea",
+    "number",
+    "toggle",
+    "select",
+    "dropdown",
+    "segmented",
+    "tab",
+    "tabs",
+    "slider",
+)
+
+private fun extensionSettingsJson(snapshot: SharedAetherExtensionSnapshot): JsonArray = buildJsonArray {
+    snapshot.settings.forEach { page ->
+        add(buildJsonObject {
+            put("extension_id", page.extensionId)
+            put("extension_name", page.extensionName)
+            put("settings_id", page.localId)
+            put("title", page.title)
+            put("subtitle", page.subtitle)
+            put("sections", JsonArray(page.sections))
+            put("categories", buildJsonArray {
+                page.categories.forEach { category ->
+                    add(buildJsonObject {
+                        put("id", category.id)
+                        put("title", category.title)
+                        put("subtitle", category.subtitle)
+                        put("sections", JsonArray(category.sections))
+                    })
+                }
+            })
+        })
+    }
+}
+
+private fun SharedAetherExtensionSnapshot.extensionSettingsPage(
+    extensionId: String,
+    settingsId: String,
+): SharedAetherExtensionSettingsPage = settings.firstOrNull {
+    it.extensionId == extensionId && it.localId == settingsId
+} ?: error("Unknown native extension Settings Page '$extensionId/$settingsId'.")
+
+private fun SharedAetherExtensionSettingsPage.setting(settingId: String): JsonObject? =
+    allSettings().firstOrNull { it.string("id") == settingId }
+
+private fun SharedAetherExtensionSettingsPage.valuesJson(): JsonObject = buildJsonObject {
+    allSettings().forEach { setting ->
+        val id = setting.string("id")
+        val type = setting.string("type").ifBlank { "text" }
+        if (id.isNotBlank() && type in WritableExtensionSettingTypes) {
+            setting["value"]?.let { put(id, it) }
+        }
+    }
+}
+
+private fun SharedAetherExtensionSettingsPage.allSettings(): List<JsonObject> =
+    (sections + categories.flatMap { it.sections }).flatMap { section ->
+        (section["settings"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+    }
 
 private fun JsonObject.string(name: String): String =
     get(name)?.jsonPrimitive?.contentOrNull.orEmpty()

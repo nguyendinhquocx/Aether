@@ -184,6 +184,7 @@ class AetherAppRuntime(
         bridge = piKernelBridge,
         scope = appScope,
         diagnosticLogger = diagnosticLogger,
+        modKernel = modKernel,
         loadOptionsProvider = piExtensionStateRepository::loadOptions,
     )
     val piAgentRunner = PiAgentRunner(

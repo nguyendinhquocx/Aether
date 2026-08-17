@@ -23,6 +23,7 @@ const factory = defineAetherExtension((aether) => {
   });
   aether.registerComposerMenuItem({ id: "run", title: "Run", action: "run" });
   aether.registerMessageType({ type: "demo", render: ({ message }) => ui.text(String(message.text ?? "")) });
+  aether.registerToolTitle("demo_search", "Searching demos", "Searched demos", 200);
   aether.registerAction("message", () => aether.messages.append("demo", { text: "hello" }));
 });
 

@@ -421,6 +421,7 @@ internal fun SettingsActionButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isLoading: Boolean = false,
+    icon: ImageVector? = null,
 ) {
     Button(
         onClick = onClick,
@@ -440,6 +441,10 @@ internal fun SettingsActionButton(
             )
             Spacer(Modifier.width(8.dp))
         }
+        if (icon != null) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
         Text(text = label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -450,6 +455,7 @@ internal fun SettingsSubtleActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    icon: ImageVector? = null,
 ) {
     Button(
         onClick = onClick,
@@ -463,6 +469,10 @@ internal fun SettingsSubtleActionButton(
             disabledContentColor = AetherOnSurfaceVariant,
         ),
     ) {
+        if (icon != null) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,

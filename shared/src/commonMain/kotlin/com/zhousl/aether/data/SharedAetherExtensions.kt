@@ -68,6 +68,10 @@ data class SharedAetherExtensionSettingsPage(
     val subtitle: String,
     val icon: String,
     val order: Int,
+    val trailingIcon: String = "",
+    val trailingAction: String = "",
+    val trailingCategory: String = "",
+    val trailingArgs: JsonObject = JsonObject(emptyMap()),
     val sections: List<JsonObject>,
     val categories: List<SharedAetherExtensionSettingsCategory> = emptyList(),
 )
@@ -78,6 +82,11 @@ data class SharedAetherExtensionSettingsCategory(
     val subtitle: String,
     val icon: String,
     val order: Int,
+    val trailingIcon: String = "",
+    val trailingAction: String = "",
+    val trailingCategory: String = "",
+    val trailingArgs: JsonObject = JsonObject(emptyMap()),
+    val hidden: Boolean = false,
     val sections: List<JsonObject>,
 )
 
@@ -372,6 +381,11 @@ internal fun parseSharedAetherExtensionSnapshot(
                 subtitle = item.string("subtitle"),
                 icon = item.string("icon").ifBlank { "settings" },
                 order = item.int("order") ?: 0,
+                trailingIcon = item.string("trailing_icon").ifBlank { item.string("trailingIcon") },
+                trailingAction = item.string("trailing_action").ifBlank { item.string("trailingAction") },
+                trailingCategory = item.string("trailing_category").ifBlank { item.string("trailingCategory") },
+                trailingArgs = item["trailing_args"] as? JsonObject
+                    ?: item["trailingArgs"] as? JsonObject ?: JsonObject(emptyMap()),
                 sections = item.objects("sections"),
                 categories = item.objects("categories").map { category ->
                     SharedAetherExtensionSettingsCategory(
@@ -380,6 +394,12 @@ internal fun parseSharedAetherExtensionSnapshot(
                         subtitle = category.string("subtitle"),
                         icon = category.string("icon").ifBlank { "settings" },
                         order = category.int("order") ?: 0,
+                        trailingIcon = category.string("trailing_icon").ifBlank { category.string("trailingIcon") },
+                        trailingAction = category.string("trailing_action").ifBlank { category.string("trailingAction") },
+                        trailingCategory = category.string("trailing_category").ifBlank { category.string("trailingCategory") },
+                        trailingArgs = category["trailing_args"] as? JsonObject
+                            ?: category["trailingArgs"] as? JsonObject ?: JsonObject(emptyMap()),
+                        hidden = category["hidden"]?.jsonPrimitive?.booleanOrNull ?: false,
                         sections = category.objects("sections"),
                     )
                 }.sortedWith(compareBy<SharedAetherExtensionSettingsCategory> { it.order }.thenBy { it.id }),

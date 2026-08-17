@@ -112,6 +112,12 @@ interface AetherExtensionAPI {
   registerSettings(definition: SettingsDefinition): () => void;
   registerComposerMenuItem(definition: ComposerMenuItemDefinition): () => void;
   registerMessageType(definition: MessageTypeDefinition): () => void;
+  registerToolTitle(
+    toolName: string,
+    runningTitle: string,
+    completedTitle: string,
+    priority?: number,
+  ): () => void;
   registerAction(id: string, handler: ActionHandler): () => void;
   on(event: string, handler: EventHandler): () => void;
   intercept(operation: string, handler: EventHandler): () => void;
@@ -171,6 +177,28 @@ export const activateAether = defineAetherExtension((aether) => {
   );
 });
 ```
+
+## Tool titles
+
+Script Mods can provide the user-facing title shown on a Pi tool card while
+the tool is running and after it completes. Tool-name matching is
+case-insensitive, and script-registered titles share the same priority-ordered
+registry as Native Mod titles. A higher `priority` wins; for equal priorities
+the latest script registration wins.
+
+```ts
+aether.registerToolTitle(
+  "web_search",
+  "Searching the web",
+  "Searched the web",
+  200,
+);
+```
+
+`priority` defaults to `100`. The returned cleanup function removes the title
+mapping. Tool names, running titles, and completed titles must be non-blank.
+Script title registrations hot-reload with the extension and are automatically
+removed when the extension is reloaded, disabled, or uninstalled.
 
 ## UI surfaces
 
@@ -353,6 +381,30 @@ aether.registerSettings({
 });
 ```
 
+The Aether Agent can inspect these native Settings Pages with
+`aether_config_get({ categories: ["extensions"] })`. It can update value
+controls through the same registered settings actions used by the native UI:
+
+```json
+{
+  "category": "extensions",
+  "settings": {
+    "extension_id": "my-extension",
+    "settings_id": "preferences",
+    "values": {
+      "enabled": true,
+      "mode": "quality"
+    }
+  }
+}
+```
+
+Pass that payload to `aether_config_set`. Text, password, textarea, number,
+toggle, selection, tab, and slider values are writable. Buttons, links, labels,
+dividers, and spacers are not treated as setting values. This interface only
+covers Settings Pages registered through `aether.extensions`; compatible Pi
+Extension configuration files remain regular files managed by the Agent.
+
 Extensions have exactly one native page registration API: `registerSettings`.
 There is no `registerPage`, `registerSettingsPage`, drawer-page, or full-screen
 page API. Extensions cannot create pages outside the native Settings flow.
@@ -517,13 +569,10 @@ Use `"*"` to observe/intercept every operation exposed through the registry.
 
 ### Native tool titles
 
-Native Mods can provide the user-facing title shown while a registered Pi tool
-is running and after it completes. The mapping is case-insensitive and applies
-to both pending and completed tool cards. A higher `priority` wins when more
-than one Mod registers the same tool; otherwise the last registration wins.
-When a Native mapping exists it takes precedence over the built-in title; tools
-without a mapping keep the built-in title or the existing `Using ...` / `Used ...`
-fallback.
+Native Mods can also provide tool-card titles. Prefer
+`aether.registerToolTitle()` in Script Mods unless the mapping must be loaded
+before the Script runtime starts or needs to coexist with another Native-only
+feature. Native and Script registrations share one priority-ordered registry.
 
 ```kotlin
 context.registerToolTitle(

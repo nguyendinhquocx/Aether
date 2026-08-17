@@ -66,6 +66,10 @@ data class AetherAppExtensionSettingsPage(
     val subtitle: String,
     val icon: String,
     val order: Int,
+    val trailingIcon: String = "",
+    val trailingAction: String = "",
+    val trailingCategory: String = "",
+    val trailingArgs: JSONObject = JSONObject(),
     val sections: List<JSONObject>,
     val categories: List<AetherAppExtensionSettingsCategory> = emptyList(),
 )
@@ -76,6 +80,11 @@ data class AetherAppExtensionSettingsCategory(
     val subtitle: String,
     val icon: String,
     val order: Int,
+    val trailingIcon: String = "",
+    val trailingAction: String = "",
+    val trailingCategory: String = "",
+    val trailingArgs: JSONObject = JSONObject(),
+    val hidden: Boolean = false,
     val sections: List<JSONObject>,
 )
 
@@ -86,6 +95,17 @@ data class AetherAppExtensionMessageType(
     val extensionName: String,
     val title: String,
     val icon: String,
+)
+
+data class AetherAppExtensionToolTitle(
+    val id: String,
+    val extensionId: String,
+    val extensionName: String,
+    val toolName: String,
+    val runningTitle: String,
+    val completedTitle: String,
+    val priority: Int,
+    val sequence: Long = 0L,
 )
 
 data class AetherAppExtensionError(
@@ -104,6 +124,7 @@ data class AetherAppExtensionSnapshot(
     val composerMenuItems: List<AetherAppExtensionComposerMenuItem> = emptyList(),
     val settings: List<AetherAppExtensionSettingsPage> = emptyList(),
     val messageTypes: List<AetherAppExtensionMessageType> = emptyList(),
+    val toolTitles: List<AetherAppExtensionToolTitle> = emptyList(),
     val eventNames: Set<String> = emptySet(),
     val errors: List<AetherAppExtensionError> = emptyList(),
 ) {
@@ -149,6 +170,7 @@ class AetherAppExtensionManager(
     private val bridge: PiKernelBridge,
     private val scope: CoroutineScope,
     private val diagnosticLogger: AetherDiagnosticLogger = AetherDiagnosticLogger.NoOp,
+    private val modKernel: AetherModKernel? = null,
     private val loadOptionsProvider: suspend () -> PiExtensionLoadOptions = {
         PiExtensionLoadOptions()
     },
@@ -179,6 +201,19 @@ class AetherAppExtensionManager(
 
     fun clearHostHandler() {
         hostHandler = null
+    }
+
+    private fun publishSnapshot(
+        snapshot: AetherAppExtensionSnapshot,
+        isLoading: Boolean = false,
+        error: String = "",
+    ) {
+        modKernel.syncScriptToolTitles(snapshot.toolTitles)
+        _state.value = AetherAppExtensionState(
+            snapshot = snapshot,
+            isLoading = isLoading,
+            error = error,
+        )
     }
 
     fun start(context: JSONObject = JSONObject()) {
@@ -230,10 +265,7 @@ class AetherAppExtensionManager(
                 )
                 val snapshot = parseSnapshot(response.optJSONObject("snapshot"))
                 val reloadError = response.extensionReloadError()
-                _state.value = AetherAppExtensionState(
-                    snapshot = snapshot,
-                    error = reloadError,
-                )
+                publishSnapshot(snapshot, error = reloadError)
                 if (!response.optBoolean("reloaded", true)) {
                     error(reloadError.ifBlank { "Aether extensions rejected the reload." })
                 }
@@ -250,7 +282,7 @@ class AetherAppExtensionManager(
                     onEvent = ::handleBridgeEvent,
                 )
                 val snapshot = parseSnapshot(response.optJSONObject("snapshot"))
-                _state.value = _state.value.copy(snapshot = snapshot, isLoading = false, error = "")
+                publishSnapshot(snapshot)
                 snapshot
             }
         }.onFailure(::recordFailure)
@@ -272,7 +304,7 @@ class AetherAppExtensionManager(
                 )
                 parseSnapshot(response.optJSONObject("snapshot"))
             }.onSuccess { snapshot ->
-                _state.value = _state.value.copy(snapshot = snapshot, error = "")
+                publishSnapshot(snapshot)
             }.onFailure(::recordFailure)
         }
     }
@@ -300,7 +332,7 @@ class AetherAppExtensionManager(
                 onEvent = ::handleBridgeEvent,
             )
             response.optJSONObject("snapshot")?.let(::parseSnapshot)?.let { snapshot ->
-                _state.value = _state.value.copy(snapshot = snapshot, error = "")
+                publishSnapshot(snapshot)
             }
             AetherAppExtensionEventResult(
                 handled = response.optBoolean("handled"),
@@ -522,6 +554,10 @@ internal fun parseAetherAppExtensionSnapshot(json: JSONObject?): AetherAppExtens
                 subtitle = item.optString("subtitle"),
                 icon = item.optString("icon").ifBlank { "settings" },
                 order = item.optInt("order"),
+                trailingIcon = item.optString("trailing_icon").ifBlank { item.optString("trailingIcon") },
+                trailingAction = item.optString("trailing_action").ifBlank { item.optString("trailingAction") },
+                trailingCategory = item.optString("trailing_category").ifBlank { item.optString("trailingCategory") },
+                trailingArgs = item.optJSONObject("trailing_args") ?: item.optJSONObject("trailingArgs") ?: JSONObject(),
                 sections = item.optJSONArray("sections").objects(),
                 categories = item.optJSONArray("categories").objects().map { category ->
                     AetherAppExtensionSettingsCategory(
@@ -530,6 +566,11 @@ internal fun parseAetherAppExtensionSnapshot(json: JSONObject?): AetherAppExtens
                         subtitle = category.optString("subtitle"),
                         icon = category.optString("icon").ifBlank { "settings" },
                         order = category.optInt("order"),
+                        trailingIcon = category.optString("trailing_icon").ifBlank { category.optString("trailingIcon") },
+                        trailingAction = category.optString("trailing_action").ifBlank { category.optString("trailingAction") },
+                        trailingCategory = category.optString("trailing_category").ifBlank { category.optString("trailingCategory") },
+                        trailingArgs = category.optJSONObject("trailing_args") ?: category.optJSONObject("trailingArgs") ?: JSONObject(),
+                        hidden = category.optBoolean("hidden", false),
                         sections = category.optJSONArray("sections").objects(),
                     )
                 }.sortedWith(compareBy<AetherAppExtensionSettingsCategory> { it.order }.thenBy { it.id }),
@@ -545,6 +586,22 @@ internal fun parseAetherAppExtensionSnapshot(json: JSONObject?): AetherAppExtens
                 icon = item.optString("icon").ifBlank { "extension" },
             )
         },
+        toolTitles = json.optJSONArray("tool_titles").objects().map { item ->
+            AetherAppExtensionToolTitle(
+                id = item.optString("id"),
+                extensionId = item.optString("extension_id"),
+                extensionName = item.optString("extension_name"),
+                toolName = item.optString("tool_name"),
+                runningTitle = item.optString("running_title"),
+                completedTitle = item.optString("completed_title"),
+                priority = item.optInt("priority", 100),
+                sequence = item.optLong("sequence"),
+            )
+        }.sortedWith(
+            compareBy<AetherAppExtensionToolTitle> { it.priority }
+                .thenBy { it.sequence }
+                .thenBy { it.id },
+        ),
         eventNames = json.optJSONArray("event_names").strings().toSet(),
         errors = json.optJSONArray("errors").objects().map { item ->
             AetherAppExtensionError(
@@ -559,6 +616,30 @@ internal fun parseAetherAppExtensionSnapshot(json: JSONObject?): AetherAppExtens
 
 private fun parseSnapshot(json: JSONObject?): AetherAppExtensionSnapshot =
     parseAetherAppExtensionSnapshot(json)
+
+private const val ScriptToolTitleOwner = "aether-script-extensions"
+
+private fun AetherModKernel?.syncScriptToolTitles(
+    toolTitles: List<AetherAppExtensionToolTitle>,
+) {
+    this ?: return
+    this.toolTitles.unregisterOwner(ScriptToolTitleOwner)
+    toolTitles
+        .filter { title ->
+            title.toolName.isNotBlank() &&
+                title.runningTitle.isNotBlank() &&
+                title.completedTitle.isNotBlank()
+        }
+        .forEach { title ->
+            this.toolTitles.register(
+                toolName = title.toolName,
+                runningTitle = title.runningTitle,
+                completedTitle = title.completedTitle,
+                owner = ScriptToolTitleOwner,
+                priority = title.priority,
+            )
+        }
+}
 
 private fun JSONArray?.objects(): List<JSONObject> {
     if (this == null) return emptyList()

@@ -54,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
@@ -434,11 +435,12 @@ class ProviderFormState constructor(
 @Composable
 fun rememberProviderFormState(
     existingConfig: LlmProviderConfig?,
-): ProviderFormState = rememberSaveable(
-    existingConfig?.id,
-    saver = providerFormStateSaver(existingConfig),
-) {
-    ProviderFormState.fromConfig(existingConfig)
+): ProviderFormState = key(existingConfig?.id) {
+    rememberSaveable(
+        saver = providerFormStateSaver(existingConfig),
+    ) {
+        ProviderFormState.fromConfig(existingConfig)
+    }
 }
 
 @Composable

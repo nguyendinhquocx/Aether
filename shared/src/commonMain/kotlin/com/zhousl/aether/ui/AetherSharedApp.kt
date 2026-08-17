@@ -294,6 +294,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -354,6 +355,22 @@ private data class SharedReasoningSummary(
 
 private class SharedNonSnapshotJobSlot {
     var job: Job? = null
+}
+
+private class SharedAgentExtensionSettingsAccess {
+    var readHandler: (suspend () -> SharedAetherExtensionSnapshot)? = null
+    var updateHandler: (suspend (String, String, String, JsonElement) -> SharedAetherExtensionSnapshot)? = null
+
+    suspend fun snapshot(): SharedAetherExtensionSnapshot =
+        readHandler?.invoke() ?: error("Native extension settings are not ready yet.")
+
+    suspend fun update(
+        extensionId: String,
+        settingsId: String,
+        settingId: String,
+        value: JsonElement,
+    ): SharedAetherExtensionSnapshot = updateHandler?.invoke(extensionId, settingsId, settingId, value)
+        ?: error("Native extension settings are not ready yet.")
 }
 
 private object SharedModelLogoPathCache {
@@ -1063,6 +1080,7 @@ fun AetherSharedApp(
         var awaitingFollowUpTour by remember { mutableStateOf(false) }
         var alpineSetupPreviewVisible by remember { mutableStateOf(false) }
         var extensionManagerRef by remember { mutableStateOf<SharedAetherExtensionManager?>(null) }
+        val agentExtensionSettingsAccess = remember { SharedAgentExtensionSettingsAccess() }
         val backgroundExecutionManager = remember(platformServices) {
             createBackgroundExecutionManager(platformServices)
         }
@@ -1103,6 +1121,8 @@ fun AetherSharedApp(
                     }
                 },
                 currentSessionId = { withContext(Dispatchers.Main) { currentSession.id } },
+                extensionSettings = agentExtensionSettingsAccess::snapshot,
+                updateExtensionSetting = agentExtensionSettingsAccess::update,
             )
         }
         val hostToolRegistry = remember(managementTools, chromeManager) {
@@ -2516,6 +2536,33 @@ fun AetherSharedApp(
 
         val extensionManager = remember(bridgeClient) {
             SharedAetherExtensionManager(bridgeClient, ::handleSharedExtensionHostCall)
+        }
+        agentExtensionSettingsAccess.readHandler = {
+            val current = withContext(Dispatchers.Main) {
+                extensionSnapshot.takeIf { extensionSnapshotResolved }
+            }
+            current ?: extensionManager.refresh(extensionContext()).also { refreshed ->
+                withContext(Dispatchers.Main) {
+                    extensionSnapshot = refreshed
+                    extensionSnapshotResolved = true
+                }
+            }
+        }
+        agentExtensionSettingsAccess.updateHandler = { extensionId, settingsId, settingId, value ->
+            extensionManager.invokeAction(
+                extensionId = extensionId,
+                action = "settings:$settingsId:$settingId",
+                args = buildJsonObject {
+                    put("setting", settingId)
+                    put("value", value)
+                },
+                context = withContext(Dispatchers.Main) { extensionContext() },
+            ).also { updated ->
+                withContext(Dispatchers.Main) {
+                    extensionSnapshot = updated
+                    extensionSnapshotResolved = true
+                }
+            }
         }
         val piExtensionUiRequest by extensionManager.piUiRequest.collectAsState()
         val extensionDraftRefreshJob = remember(extensionManager) { SharedNonSnapshotJobSlot() }
@@ -8097,14 +8144,27 @@ private fun SharedSettingsScreen(
                 val page = registeredExtensionSettings.firstOrNull { it.id == selected.extensionSettingsId }
                 val category = page?.categories?.firstOrNull { it.id == selected.extensionSettingsCategoryId }
                 if (page != null && category != null) {
-                    SharedAetherExtensionSettingsDetail(page = page, category = category, onBack = {
-                        destination = SettingsDestination(
-                            title = page.title,
-                            subtitle = page.subtitle,
-                            kind = SharedSettingsKind.ExtensionSettings,
-                            extensionSettingsId = page.id,
-                        )
-                    })
+                    SharedAetherExtensionSettingsDetail(
+                        page = page,
+                        category = category,
+                        onCategorySelected = { categoryId ->
+                            destination = SettingsDestination(
+                                title = page.title,
+                                subtitle = page.subtitle,
+                                kind = SharedSettingsKind.ExtensionSettingsCategory,
+                                extensionSettingsId = page.id,
+                                extensionSettingsCategoryId = categoryId,
+                            )
+                        },
+                        onBack = {
+                            destination = SettingsDestination(
+                                title = page.title,
+                                subtitle = page.subtitle,
+                                kind = SharedSettingsKind.ExtensionSettings,
+                                extensionSettingsId = page.id,
+                            )
+                        },
+                    )
                 }
             }
             SharedSettingsKind.Skills -> SharedSkillsSettingsDetail(

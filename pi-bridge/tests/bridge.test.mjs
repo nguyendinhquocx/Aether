@@ -301,6 +301,8 @@ test("loads Aether UI extensions, renders native trees, runs actions, and interc
     `
 import { defineAetherExtension, ui } from "@aether/extension-api";
 
+let removeFetchToolTitle = () => {};
+
 export default defineAetherExtension((aether) => {
   aether.registerAction("increment", async () => {
     const count = aether.storage.get("count", 0) + 1;
@@ -347,6 +349,12 @@ export default defineAetherExtension((aether) => {
   });
   aether.registerComposerMenuItem({ id: "run", title: "Run demo", action: "run" });
   aether.registerMessageType({ type: "demo", render: ({ message }) => ui.text(String(message.text ?? "")) });
+  aether.registerToolTitle("web_search", "Searching the web", "Searched the web", 200);
+  removeFetchToolTitle = aether.registerToolTitle("fetch_content", "Fetching content", "Fetched content");
+  aether.registerAction("remove-fetch-title", () => {
+    removeFetchToolTitle();
+    return { removed: true };
+  });
   aether.registerAction("list-skills", async () =>
     aether.services.invoke("skills", "list"));
   aether.on("before_send", ({ text }) => ({ text: "[ext] " + text }));
@@ -376,6 +384,18 @@ export default defineAetherExtension((aether) => {
     assert.equal(loaded.snapshot.settings[1].title, "Secondary");
     assert.equal(loaded.snapshot.composer_menu_items[0].title, "Run demo");
     assert.equal(loaded.snapshot.message_types[0].type, "demo");
+    assert.deepEqual(
+      loaded.snapshot.tool_titles.map(({ tool_name, running_title, completed_title, priority }) => ({
+        tool_name,
+        running_title,
+        completed_title,
+        priority,
+      })),
+      [
+        { tool_name: "fetch_content", running_title: "Fetching content", completed_title: "Fetched content", priority: 100 },
+        { tool_name: "web_search", running_title: "Searching the web", completed_title: "Searched the web", priority: 200 },
+      ],
+    );
     assert.deepEqual(loaded.snapshot.event_names, ["before_send", "operation:chat.new"]);
 
     const settingsResult = await client.request(
@@ -392,12 +412,29 @@ export default defineAetherExtension((aether) => {
     assert.equal(settingsResult.snapshot.settings[0].sections[0].settings[0].value, false);
     assert.equal(settingsResult.snapshot.settings[1].sections[0].settings[0].value, true);
 
+    const removedTitle = await client.request(
+      "aether-remove-title-action",
+      "invoke_aether_extension_action",
+      {
+        extension_id: loaded.snapshot.extensions[0].id,
+        action: "remove-fetch-title",
+        args: {},
+        context: {},
+      },
+    );
+    assert.equal(removedTitle.result.removed, true);
+    assert.deepEqual(
+      removedTitle.snapshot.tool_titles.map(({ tool_name }) => tool_name),
+      ["web_search"],
+    );
+
     const disabled = await client.request("aether-disabled", "reload_aether_extensions", {
       disabled_extension_paths: [extensionDirectory],
       context: { draft_input: "hello" },
     });
     assert.deepEqual(disabled.snapshot.extensions, []);
     assert.deepEqual(disabled.snapshot.surfaces, []);
+    assert.deepEqual(disabled.snapshot.tool_titles, []);
 
     await client.request("aether-reenabled", "reload_aether_extensions", {
       disabled_extension_paths: [],
