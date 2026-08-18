@@ -243,6 +243,32 @@ class SharedProviderModelCatalogClientTest {
         assertTrue(cacheKey in levels)
         assertEquals(emptyList(), levels[cacheKey])
     }
+
+    @Test
+    fun codexCatalogReturnsThinkingLevelMapWithOffMappedToNone() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"providers":{"openai":{"models":{"gpt-5.3-codex-spark":{"id":"gpt-5.3-codex-spark","reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val config = customConfig(
+            piProviderId = "openai-codex",
+            baseUrl = "https://chatgpt.com/backend-api",
+            authMethod = ProviderAuthMethod.OAuth,
+        ).copy(
+            modelId = "gpt-5.3-codex-spark",
+            cachedModels = listOf("gpt-5.3-codex-spark"),
+            enabledModelIds = listOf("gpt-5.3-codex-spark"),
+        )
+        val option = listOf(config).availableModelOptions().single()
+
+        val catalog = SharedProviderModelCatalogClient(engine).fetchThinkingCatalog(listOf(option))
+        val key = sharedThinkingCatalogKey("openai-codex", "gpt-5.3-codex-spark")
+
+        assertEquals(listOf("off", "low", "medium", "high", "xhigh"), catalog.levelsByProviderModel[key])
+        assertEquals(mapOf("off" to "none"), catalog.levelMapsByProviderModel[key])
+    }
 }
 
 private fun customConfig(

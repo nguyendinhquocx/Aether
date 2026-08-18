@@ -57,6 +57,8 @@ class PiAgentRunner(
         chromeEnabled: Boolean = false,
         sessionId: String = "",
         sessionFile: String = "",
+        thinkingLevelMap: Map<String, String> = emptyMap(),
+        isReasoningModel: Boolean = true,
         onToolEvent: suspend (AgentToolEvent) -> Unit = {},
         onToolProgress: (suspend (AgentToolEvent) -> Unit)? = null,
         onAssistantTextDelta: suspend (String) -> Unit = {},
@@ -102,7 +104,7 @@ class PiAgentRunner(
                 }
                 val payload = JSONObject().apply {
                     val extensionLoadOptions = piExtensionStateRepository?.loadOptions()
-                    put("model_config", settings.toPiModelConfig().toJson())
+                    put("model_config", settings.toPiModelConfig(thinkingLevelMap, isReasoningModel).toJson())
                     put("session_id", resolvedSessionId)
                     if (sessionFile.isNotBlank()) put("session_file", sessionFile)
                     put("system_prompt", prompt())

@@ -417,9 +417,15 @@ class PiExtensionManager(
                 }
             }
             skillManager.syncPiPackageSkills(packageSkills).getOrThrow()
+            val disabledOptions = stateRepository.loadOptions()
             (installedPackages + listImportedExtensions())
                 .map { extension ->
-                    extension.copy(isEnabled = extension.id !in disabledIds)
+                    val baseName = extension.installedPath.substringAfterLast('/')
+                    val isExplicitlyDisabled = extension.id in disabledIds ||
+                        extension.installedPath in disabledOptions.disabledExtensionPaths ||
+                        disabledIds.any { it.substringAfterLast('/') == baseName } ||
+                        disabledOptions.disabledExtensionPaths.any { it.substringAfterLast('/') == baseName }
+                    extension.copy(isEnabled = !isExplicitlyDisabled)
                 }
                 .distinctBy(InstalledPiExtension::id)
                 .sortedBy { it.name.lowercase(Locale.US) }
@@ -528,6 +534,7 @@ class PiExtensionManager(
     }
 
     private fun listImportedExtensions(): List<InstalledPiExtension> {
+        runCatching { alpineRuntime.installPreinstalledExtensionsSync() }
         val roots = listOf(
             "aether" to alpineRuntime.resolveManagedGuestPath(AetherExtensionGuestDirectory),
             "pi" to alpineRuntime.resolveManagedGuestPath(PiUserExtensionGuestDirectory),

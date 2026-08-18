@@ -223,4 +223,22 @@ class PiProviderMapperTest {
         assertEquals("resp-1", wrapped.getString("responseId"))
         assertEquals(5L, wrapped.getJSONObject("usage").getLong("total_tokens"))
     }
+
+    @Test
+    fun customModelEnablesReasoningWhenThinkingLevelMapMapsOffToNone() {
+        val config = AppSettings(
+            piProviderId = "openai-compatible",
+            providerConfigId = "custom-provider-id",
+            baseUrl = "https://example.test/v1",
+            modelId = "gpt-5.3-codex-spark",
+            reasoningEffort = "off",
+        ).toPiModelConfig(
+            thinkingLevelMap = mapOf("off" to "none"),
+            isReasoningModel = true,
+        )
+
+        assertTrue(config.reasoning)
+        assertEquals(mapOf("off" to "none"), config.thinkingLevelMap)
+        assertEquals("none", config.toJson().getJSONObject("thinking_level_map").getString("off"))
+    }
 }

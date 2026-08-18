@@ -1122,7 +1122,10 @@ internal fun SharedExtensionsSettingsDetail(
                 extension.copy(isEnabled = extension.source !in options.disabledPackageSources)
             }
             importedExtensions = importedRequest.await().map { extension ->
-                extension.copy(isEnabled = extension.installedPath !in options.disabledExtensionPaths)
+                val baseName = extension.installedPath.substringAfterLast('/')
+                val isExplicitlyDisabled = extension.installedPath in options.disabledExtensionPaths ||
+                    options.disabledExtensionPaths.any { it.substringAfterLast('/') == baseName }
+                extension.copy(isEnabled = !isExplicitlyDisabled)
             }
         }
     }
@@ -1381,7 +1384,15 @@ internal fun SharedExtensionsSettingsDetail(
             SharedExtensionTabs(selectedTab = selectedTab, onSelected = { selectedTab = it })
             Spacer(Modifier.height(18.dp))
             when (selectedTab) {
-                0 -> SharedExtensionDiscoverTab(
+                0 -> SharedExtensionInstalledTab(
+                    extensions = allInstalled,
+                    operationKey = operationKey,
+                    onImport = ::importExtension,
+                    onSetEnabled = ::setExtensionEnabled,
+                    onUpdate = ::updatePackage,
+                    onRemove = ::removeExtension,
+                )
+                else -> SharedExtensionDiscoverTab(
                     search = search,
                     onSearchChanged = { search = it },
                     catalog = visibleCatalog,
@@ -1391,14 +1402,6 @@ internal fun SharedExtensionsSettingsDetail(
                     operationKey = operationKey,
                     onRetry = ::refreshAll,
                     onSelect = { selectedCatalogSource = it.source },
-                )
-                else -> SharedExtensionInstalledTab(
-                    extensions = allInstalled,
-                    operationKey = operationKey,
-                    onImport = ::importExtension,
-                    onSetEnabled = ::setExtensionEnabled,
-                    onUpdate = ::updatePackage,
-                    onRemove = ::removeExtension,
                 )
             }
             Spacer(Modifier.height(32.dp))
@@ -1590,8 +1593,8 @@ private fun SharedExtensionTabs(
     onSelected: (Int) -> Unit,
 ) {
     val labels = listOf(
-        stringResource(Res.string.settings_extension_discover),
         stringResource(Res.string.settings_extension_installed),
+        stringResource(Res.string.settings_extension_discover),
     )
     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
         labels.forEachIndexed { index, label ->

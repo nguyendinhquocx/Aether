@@ -25,6 +25,7 @@ data class PiModelConfig(
     val apiKey: String = "",
     val customHeaders: Map<String, String> = emptyMap(),
     val reasoning: Boolean = true,
+    val thinkingLevelMap: Map<String, String> = emptyMap(),
     val contextWindow: Int = DefaultContextWindow,
     val maxTokens: Int = DefaultMaxTokens,
     val timeoutMillis: Int = 360_000,
@@ -47,6 +48,11 @@ data class PiModelConfig(
             customHeaders.forEach { (name, value) -> put(name, value) }
         })
         put("reasoning", reasoning)
+        if (thinkingLevelMap.isNotEmpty()) {
+            put("thinking_level_map", JSONObject().apply {
+                thinkingLevelMap.forEach { (name, value) -> put(name, value) }
+            })
+        }
         put("context_window", contextWindow)
         put("max_tokens", maxTokens)
         put("timeout_ms", timeoutMillis)
@@ -84,7 +90,10 @@ data class PiCompletionResult(
     val cwd: String = "",
 )
 
-fun AppSettings.toPiModelConfig(): PiModelConfig {
+fun AppSettings.toPiModelConfig(
+    thinkingLevelMap: Map<String, String> = emptyMap(),
+    isReasoningModel: Boolean = true,
+): PiModelConfig {
     val definition = PiProviderCatalog.resolve(piProviderId)
     val effectiveAuthMethod = if (
         providerAuthMethod == ProviderAuthMethod.ApiKey &&
@@ -95,6 +104,8 @@ fun AppSettings.toPiModelConfig(): PiModelConfig {
     } else {
         providerAuthMethod
     }
+    val effort = toPiThinkingLevel()
+    val reasoningEnabled = isReasoningModel && (effort != "off" || thinkingLevelMap["off"] == "none")
     return PiModelConfig(
         providerType = if (definition.isBuiltIn) "builtin" else "custom",
         providerConfigId = providerConfigId.ifBlank {
@@ -115,7 +126,8 @@ fun AppSettings.toPiModelConfig(): PiModelConfig {
         },
         customHeaders = customHeaders.toPiHeaderMap() +
             ("User-Agent" to normalizeLlmUserAgent(userAgent)),
-        reasoning = toPiThinkingLevel() != "off",
+        reasoning = reasoningEnabled,
+        thinkingLevelMap = thinkingLevelMap,
         timeoutMillis = llmInactivityReconnectTimeoutSeconds
             .coerceIn(30, 3_600) * 1_000,
         authMethod = effectiveAuthMethod,

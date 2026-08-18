@@ -30,13 +30,21 @@ class SettingsRepository(
     }
 
     suspend fun loadThinkingCatalogCache(): Map<String, List<String>> = context.dataStore.data.first()
-        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()) }
+        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).first }
 
-    suspend fun saveThinkingCatalogCache(cache: Map<String, List<String>>) {
-        if (cache.isEmpty()) return
+    suspend fun loadThinkingLevelMapsCache(): Map<String, Map<String, String>> = context.dataStore.data.first()
+        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).second }
+
+    suspend fun saveThinkingCatalogCache(
+        cache: Map<String, List<String>>,
+        levelMaps: Map<String, Map<String, String>> = emptyMap(),
+    ) {
+        if (cache.isEmpty() && levelMaps.isEmpty()) return
         context.dataStore.edit { preferences ->
-            val merged = parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()) + cache
-            preferences[THINKING_CATALOG_CACHE_JSON] = serializeThinkingCatalogCache(merged)
+            val (existingLevels, existingLevelMaps) = parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty())
+            val mergedLevels = existingLevels + cache
+            val mergedLevelMaps = existingLevelMaps + levelMaps
+            preferences[THINKING_CATALOG_CACHE_JSON] = serializeThinkingCatalogCache(mergedLevels, mergedLevelMaps)
         }
     }
     suspend fun initializeLanguageIfNeeded() {
@@ -882,29 +890,49 @@ private fun parseModelCatalogCache(raw: String): Map<String, ModelCatalogInfo> =
     }
 }.getOrDefault(emptyMap())
 
-private fun serializeThinkingCatalogCache(cache: Map<String, List<String>>): String = JSONArray().apply {
-    cache.forEach { (key, levels) ->
+private fun serializeThinkingCatalogCache(
+    levels: Map<String, List<String>>,
+    clamps: Map<String, Map<String, String>> = emptyMap(),
+): String = JSONArray().apply {
+    val allKeys = (levels.keys + clamps.keys).distinct()
+    allKeys.forEach { key ->
         put(JSONObject().apply {
             put("key", key)
-            put("levels", JSONArray(levels))
+            levels[key]?.let { put("levels", JSONArray(it)) }
+            clamps[key]?.let { clampMap ->
+                if (clampMap.isNotEmpty()) {
+                    put("clamps", JSONObject().apply {
+                        clampMap.forEach { (k, v) -> put(k, v) }
+                    })
+                }
+            }
         })
     }
 }.toString()
 
-private fun parseThinkingCatalogCache(raw: String): Map<String, List<String>> = runCatching {
+private fun parseThinkingCatalogCache(raw: String): Pair<Map<String, List<String>>, Map<String, Map<String, String>>> = runCatching {
     val array = JSONArray(raw)
-    buildMap {
-        for (index in 0 until array.length()) {
-            val item = array.optJSONObject(index) ?: continue
-            val key = item.optString("key").takeIf(String::isNotBlank) ?: continue
-            val levels = item.optJSONArray("levels")?.let { values ->
-                buildList {
-                    for (i in 0 until values.length()) {
-                        values.optString(i).trim().takeIf(String::isNotBlank)?.let(::add)
-                    }
+    val levelsMap = mutableMapOf<String, List<String>>()
+    val clampsMap = mutableMapOf<String, Map<String, String>>()
+    for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: continue
+        val key = item.optString("key").takeIf(String::isNotBlank) ?: continue
+        item.optJSONArray("levels")?.let { values ->
+            val levels = buildList {
+                for (i in 0 until values.length()) {
+                    values.optString(i).trim().takeIf(String::isNotBlank)?.let(::add)
                 }
-            }.orEmpty()
-            put(key, levels)
+            }
+            levelsMap[key] = levels
+        }
+        item.optJSONObject("clamps")?.let { clampsObj ->
+            val clamps = buildMap {
+                for (k in clampsObj.keys()) {
+                    clampsObj.optString(k).takeIf(String::isNotBlank)?.let { put(k, it) }
+                }
+            }
+            if (clamps.isNotEmpty()) clampsMap[key] = clamps
         }
     }
-}.getOrDefault(emptyMap())
+    levelsMap to clampsMap
+}.getOrDefault(emptyMap<String, List<String>>() to emptyMap<String, Map<String, String>>())

@@ -606,6 +606,11 @@ class SessionExecutionManager(
                     "message_count" to request.requestMessages.size,
                 ),
             )
+            val modelKey = thinkingCatalogKey(request.settings.piProviderId, request.settings.modelId)
+            val cachedThinkingLevels = settingsRepository.loadThinkingCatalogCache()
+            val cachedThinkingLevelMaps = settingsRepository.loadThinkingLevelMapsCache()
+            val thinkingLevelMap = cachedThinkingLevelMaps[modelKey].orEmpty()
+            val isReasoningModel = cachedThinkingLevels[modelKey].orEmpty().isNotEmpty()
             val result = piAgentRunner.runTurn(
                 settings = request.settings,
                 messages = buildRequestMessages(
@@ -622,6 +627,8 @@ class SessionExecutionManager(
                 sessionId = handle.sessionId,
                 sessionFile = agentSessionMetadata?.jsonlPath.orEmpty(),
                 runtimeId = activeRuntimeId,
+                thinkingLevelMap = thinkingLevelMap,
+                isReasoningModel = isReasoningModel,
                 onToolEvent = emitToolEvent,
                 onToolProgress = emitToolEvent,
                 onAssistantReasoningDelta = { delta ->

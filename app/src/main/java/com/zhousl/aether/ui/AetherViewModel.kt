@@ -419,10 +419,13 @@ class AetherViewModel(
             }
             val cachedThinkingLevels = settingsRepository.loadThinkingCatalogCache()
                 .filterKeys(thinkingCacheKeys::contains)
+            val cachedThinkingLevelMaps = settingsRepository.loadThinkingLevelMapsCache()
+                .filterKeys(thinkingCacheKeys::contains)
             if (cachedThinkingLevels.isNotEmpty() && requestKey == lastModelCatalogRequestKey) {
                 _uiState.update { current ->
                     current.copy(
                         thinkingLevelsByProviderModel = current.thinkingLevelsByProviderModel + cachedThinkingLevels,
+                        thinkingLevelClampsByProviderModel = current.thinkingLevelClampsByProviderModel + cachedThinkingLevelMaps,
                     )
                 }
             }
@@ -437,16 +440,19 @@ class AetherViewModel(
             // Populate the effort cache during startup as well as when the model
             // picker is opened. Cached values are already applied above, so an
             // unavailable network never delays the initial picker state.
-            val publicThinkingLevels = ProviderModelCatalogClient.fetchPublicThinkingLevels(options)
-            if (publicThinkingLevels.isNotEmpty()) {
-                settingsRepository.saveThinkingCatalogCache(publicThinkingLevels)
+            val catalogResult = ProviderModelCatalogClient.fetchPublicThinkingCatalog(options)
+            if (catalogResult.levelsByProviderModel.isNotEmpty()) {
+                settingsRepository.saveThinkingCatalogCache(
+                    catalogResult.levelsByProviderModel,
+                    catalogResult.levelMapsByProviderModel,
+                )
                 if (requestKey == lastModelCatalogRequestKey) {
                     _uiState.update { state ->
                         state.copy(
                             thinkingLevelsByProviderModel =
-                                state.thinkingLevelsByProviderModel + publicThinkingLevels,
+                                state.thinkingLevelsByProviderModel + catalogResult.levelsByProviderModel,
                             thinkingLevelClampsByProviderModel =
-                                state.thinkingLevelClampsByProviderModel - publicThinkingLevels.keys,
+                                state.thinkingLevelClampsByProviderModel + catalogResult.levelMapsByProviderModel,
                         )
                     }
                 }
@@ -2364,7 +2370,10 @@ class AetherViewModel(
                     put("runtime", metadata?.runtime ?: settings.defaultRuntimeId?.storageValue.orEmpty())
                     put("platform", "android")
                     put("workspace_trusted", true)
-                    put("model_config", settings.toPiModelConfig().toJson())
+                    val modelKey = thinkingCatalogKey(settings.piProviderId, settings.modelId)
+                    val thinkingLevelMap = _uiState.value.thinkingLevelClampsByProviderModel[modelKey].orEmpty()
+                    val isReasoningModel = _uiState.value.thinkingLevelsByProviderModel[modelKey].orEmpty().isNotEmpty()
+                    put("model_config", settings.toPiModelConfig(thinkingLevelMap, isReasoningModel).toJson())
                     put("system_prompt", "")
                     put("host_tools", JSONArray())
                 },
@@ -5552,7 +5561,10 @@ class AetherViewModel(
                         put("termux_workspace_directory", workspaceFileBridge.workspaceDirectory(sessionId, settings.agentWorkspaceMode))
                         put("runtime", metadata?.runtime ?: settings.defaultRuntimeId?.storageValue.orEmpty())
                         put("platform", "android")
-                        put("model_config", settings.toPiModelConfig().toJson())
+                        val modelKey = thinkingCatalogKey(settings.piProviderId, settings.modelId)
+                        val thinkingLevelMap = _uiState.value.thinkingLevelClampsByProviderModel[modelKey].orEmpty()
+                        val isReasoningModel = _uiState.value.thinkingLevelsByProviderModel[modelKey].orEmpty().isNotEmpty()
+                        put("model_config", settings.toPiModelConfig(thinkingLevelMap, isReasoningModel).toJson())
                         put("system_prompt", "")
                         put("host_tools", JSONArray())
                     },

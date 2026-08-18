@@ -12,6 +12,21 @@ import kotlinx.coroutines.test.runTest
 
 class SharedExtensionStateStoreTest {
     @Test
+    fun defaultsToDisablingPreinstalledExtensionsWhenNotConfigured() = runTest {
+        val runtime = ExtensionStateFakeRuntime()
+        val store = SharedExtensionStateStore(runtime)
+        val initial = store.load()
+        assertEquals(
+            setOf(
+                "/root/.aether/extensions/pi-web-access",
+                "/root/.aether/extensions/pi-mcp-adapter",
+                "/root/.aether/extensions/pi-subagents",
+            ),
+            initial.disabledExtensionPaths,
+        )
+    }
+
+    @Test
     fun persistsPackageAndImportedExtensionEnableState() = runTest {
         val runtime = ExtensionStateFakeRuntime()
         val store = SharedExtensionStateStore(runtime)
@@ -22,12 +37,20 @@ class SharedExtensionStateStoreTest {
         val restored = SharedExtensionStateStore(runtime).load()
         assertEquals(setOf("npm:sample"), restored.disabledPackageSources)
         assertEquals(
-            setOf("/root/.aether/extensions/sample.ts"),
+            setOf(
+                "/root/.aether/extensions/pi-web-access",
+                "/root/.aether/extensions/pi-mcp-adapter",
+                "/root/.aether/extensions/pi-subagents",
+                "/root/.aether/extensions/sample.ts",
+            ),
             restored.disabledExtensionPaths,
         )
 
         store.setPackageEnabled("npm:sample", true)
         store.setImportedExtensionEnabled("/root/.aether/extensions/sample.ts", true)
+        store.setImportedExtensionEnabled("/root/.aether/extensions/pi-web-access", true)
+        store.setImportedExtensionEnabled("/root/.aether/extensions/pi-mcp-adapter", true)
+        store.setImportedExtensionEnabled("/root/.aether/extensions/pi-subagents", true)
         val enabled = store.load()
         assertTrue(enabled.disabledPackageSources.isEmpty())
         assertTrue(enabled.disabledExtensionPaths.isEmpty())

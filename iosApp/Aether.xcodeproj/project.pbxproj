@@ -10,6 +10,7 @@
 		07AEC078B1B8425CB1626CF8 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2BD629A3C6EC0E3B2B729E35 /* JetBrainsMono-Regular.ttf */; };
 		08CF4E928C8BE1C146193EAC /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */; };
 		0A37C59A2026072700010001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A37C59A2026072700010002 /* Assets.xcassets */; };
+		AE0000012026072700010001 /* extensions in Resources */ = {isa = PBXBuildFile; fileRef = AE0000012026072700010002 /* extensions */; };
 		0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3727F800A2CD973EBC5B5911 /* libiconv.tbd */; };
 		1E011A81B7404737A35E9B0E /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */; };
 		24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */; };
@@ -78,6 +79,7 @@
 /* Begin PBXFileReference section */
 		093ABAAD7B72B9ED74843F83 /* libarchive */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libarchive; path = "../third_party/ish-arm64/deps/libarchive.xcodeproj"; sourceTree = "<group>"; };
 		0E52DE9EBE0E6EC3717F15B4 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		AE0000012026072700010002 /* extensions */ = {isa = PBXFileReference; lastKnownFileType = folder; path = extensions; sourceTree = "<group>"; };
 		0A37C59A2026072700010002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1106FBE367ED336302C5A936 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Aether-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -194,6 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				0E52DE9EBE0E6EC3717F15B4 /* .gitkeep */,
+				AE0000012026072700010002 /* extensions */,
 				7FC3C7F439C89DFF299C3D94 /* bridge.mjs */,
 				95EE05EFD4A21740A10B6F14 /* root.tar.gz */,
 			);
@@ -431,6 +434,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0A37C59A2026072700010001 /* Assets.xcassets in Resources */,
+				AE0000012026072700010001 /* extensions in Resources */,
 				37B3E506D9D519C3E2362C26 /* .gitkeep in Resources */,
 				07AEC078B1B8425CB1626CF8 /* JetBrainsMono-Regular.ttf in Resources */,
 				8C67241097C756D2BC0EBD70 /* LICENSE in Resources */,

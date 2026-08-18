@@ -20,12 +20,24 @@ data class PiExtensionLoadOptions(
         disabledExtensionPaths.toList() to disabledPackageSources.toList()
 }
 
+internal val DefaultDisabledPreinstalledExtensionPaths: Set<String> = setOf(
+    "/root/.aether/extensions/pi-web-access",
+    "/root/.aether/extensions/pi-mcp-adapter",
+    "/root/.aether/extensions/pi-subagents",
+)
+
+internal val DefaultDisabledPreinstalledExtensionIds: Set<String> = setOf(
+    "import:aether:/root/.aether/extensions/pi-web-access",
+    "import:aether:/root/.aether/extensions/pi-mcp-adapter",
+    "import:aether:/root/.aether/extensions/pi-subagents",
+)
+
 class PiExtensionStateRepository(
     private val context: Context,
 ) {
     val disabledExtensionIds: Flow<Set<String>> =
         context.piExtensionStateDataStore.data.map { preferences ->
-            preferences[DISABLED_EXTENSION_IDS].orEmpty()
+            preferences[DISABLED_EXTENSION_IDS] ?: DefaultDisabledPreinstalledExtensionIds
         }
 
     suspend fun setEnabled(
@@ -34,18 +46,16 @@ class PiExtensionStateRepository(
     ) {
         val normalizedId = extensionId.trim()
         if (normalizedId.isBlank()) return
+        val baseName = normalizedId.substringAfterLast('/')
         context.piExtensionStateDataStore.edit { preferences ->
-            val disabledIds = preferences[DISABLED_EXTENSION_IDS].orEmpty().toMutableSet()
+            val disabledIds = (preferences[DISABLED_EXTENSION_IDS] ?: DefaultDisabledPreinstalledExtensionIds).toMutableSet()
             if (enabled) {
                 disabledIds.remove(normalizedId)
+                disabledIds.removeAll { it.substringAfterLast('/') == baseName }
             } else {
                 disabledIds.add(normalizedId)
             }
-            if (disabledIds.isEmpty()) {
-                preferences.remove(DISABLED_EXTENSION_IDS)
-            } else {
-                preferences[DISABLED_EXTENSION_IDS] = disabledIds
-            }
+            preferences[DISABLED_EXTENSION_IDS] = disabledIds
         }
     }
 
@@ -78,6 +88,10 @@ internal fun loadOptionsForIds(
                     .trim()
                     .takeIf(String::isNotBlank)
                     ?.let(disabledExtensionPaths::add)
+            }
+
+            id.startsWith("/") -> {
+                disabledExtensionPaths.add(id)
             }
         }
     }

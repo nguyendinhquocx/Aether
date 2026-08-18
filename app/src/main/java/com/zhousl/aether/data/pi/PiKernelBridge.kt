@@ -725,6 +725,7 @@ class PiKernelBridge(
                 guestPath = PiBridgeGuestPath,
                 executable = false,
             )
+            alpineRuntime.installPreinstalledExtensions()
             onSetupProgress(PiCoreSetupUpdate(PiCoreSetupPhase.StartingBridge))
             diagnosticLogger.event(
                 category = "pi_bridge",

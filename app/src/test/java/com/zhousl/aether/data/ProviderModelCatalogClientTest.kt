@@ -169,4 +169,29 @@ class ProviderModelCatalogClientTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun publicCatalogReturnsThinkingLevelMapWithOffMappedToNone() {
+        val config = LlmProviderConfig(
+            providerId = "openai-custom",
+            name = "OpenAI",
+            piProviderId = "openai-codex",
+            apiKey = "test-key",
+            baseUrl = "https://chatgpt.com/backend-api",
+            modelId = "gpt-5.3-codex-spark",
+            cachedModels = listOf("gpt-5.3-codex-spark"),
+            enabledModelIds = listOf("gpt-5.3-codex-spark"),
+            authMethod = ProviderAuthMethod.OAuth,
+        )
+        val option = listOf(config).availableModelOptions().single()
+        val catalog = JSONObject(
+            """{"providers":{"openai":{"models":{"gpt-5.3-codex-spark":{"id":"gpt-5.3-codex-spark","reasoning":true,"reasoning_options":[{"type":"effort","values":["none","low","medium","high","xhigh"]}]}}}}}""",
+        )
+
+        val result = publicCatalogThinkingResult(catalog, listOf(option))
+        val key = thinkingCatalogKey("openai-codex", "gpt-5.3-codex-spark")
+
+        assertEquals(listOf("off", "low", "medium", "high", "xhigh"), result.levelsByProviderModel[key])
+        assertEquals(mapOf("off" to "none"), result.levelMapsByProviderModel[key])
+    }
 }

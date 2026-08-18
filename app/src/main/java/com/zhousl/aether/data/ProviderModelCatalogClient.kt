@@ -53,41 +53,62 @@ private fun JSONObject.findPublicCatalogModelAcrossProviders(option: ProviderMod
     }.firstOrNull()
 }
 
-internal fun publicCatalogThinkingLevels(
+data class PublicCatalogThinkingResult(
+    val levelsByProviderModel: Map<String, List<String>> = emptyMap(),
+    val levelMapsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
+)
+
+internal fun publicCatalogThinkingResult(
     catalog: JSONObject,
     options: List<ProviderModelOption>,
-): Map<String, List<String>> {
-    val providers = catalog.optJSONObject("providers") ?: return emptyMap()
-    return buildMap {
-        options.forEach { option ->
-            val model = providers.findPublicCatalogModelAcrossProviders(option)
-            val levels = model?.takeIf { it.optBoolean("reasoning") }?.let { definition ->
-                buildList {
-                    val reasoningOptions = definition.optJSONArray("reasoning_options")
-                    if ((0 until (reasoningOptions?.length() ?: 0)).any {
-                            reasoningOptions?.optJSONObject(it)?.optString("type") == "toggle"
-                        }
-                    ) {
-                        add("off")
-                    }
-                    for (index in 0 until (reasoningOptions?.length() ?: 0)) {
-                        val effort = reasoningOptions?.optJSONObject(index) ?: continue
-                        if (effort.optString("type") != "effort") continue
-                        val values = effort.optJSONArray("values") ?: continue
-                        for (valueIndex in 0 until values.length()) {
-                            val value = values.optString(valueIndex).trim()
-                            val normalizedValue = if (value == "none") "off" else value
-                            if (normalizedValue in ThinkingLevels && normalizedValue !in this) {
-                                add(normalizedValue)
-                            }
+): PublicCatalogThinkingResult {
+    val providers = catalog.optJSONObject("providers") ?: return PublicCatalogThinkingResult()
+    val levelsMap = mutableMapOf<String, List<String>>()
+    val levelMapsMap = mutableMapOf<String, Map<String, String>>()
+    options.forEach { option ->
+        val model = providers.findPublicCatalogModelAcrossProviders(option)
+        if (model?.optBoolean("reasoning") == true) {
+            val reasoningOptions = model.optJSONArray("reasoning_options")
+            val hasToggle = (0 until (reasoningOptions?.length() ?: 0)).any {
+                reasoningOptions?.optJSONObject(it)?.optString("type") == "toggle"
+            }
+            var hasNone = false
+            val levels = buildList {
+                if (hasToggle) add("off")
+                for (index in 0 until (reasoningOptions?.length() ?: 0)) {
+                    val effort = reasoningOptions?.optJSONObject(index) ?: continue
+                    if (effort.optString("type") != "effort") continue
+                    val values = effort.optJSONArray("values") ?: continue
+                    for (valueIndex in 0 until values.length()) {
+                        val value = values.optString(valueIndex).trim()
+                        if (value == "none") {
+                            hasNone = true
+                            if ("off" !in this) add("off")
+                        } else if (value in ThinkingLevels && value !in this) {
+                            add(value)
                         }
                     }
                 }
-            }.orEmpty()
-            put(thinkingCatalogKey(option.piProviderId, option.modelId), levels)
+                if (isEmpty()) addAll(listOf("off", "medium"))
+            }
+            val levelMap = buildMap<String, String> {
+                if (hasNone) put("off", "none")
+            }
+            val key = thinkingCatalogKey(option.piProviderId, option.modelId)
+            levelsMap[key] = levels
+            if (levelMap.isNotEmpty()) levelMapsMap[key] = levelMap
+        } else if (model != null) {
+            val key = thinkingCatalogKey(option.piProviderId, option.modelId)
+            levelsMap[key] = emptyList()
         }
     }
+    return PublicCatalogThinkingResult(levelsMap, levelMapsMap)
 }
+
+internal fun publicCatalogThinkingLevels(
+    catalog: JSONObject,
+    options: List<ProviderModelOption>,
+): Map<String, List<String>> = publicCatalogThinkingResult(catalog, options).levelsByProviderModel
 
 object ProviderModelCatalogClient {
 
@@ -123,7 +144,7 @@ object ProviderModelCatalogClient {
         }
     }
 
-    suspend fun fetchPublicThinkingLevels(options: List<ProviderModelOption>): Map<String, List<String>> =
+    suspend fun fetchPublicThinkingCatalog(options: List<ProviderModelOption>): PublicCatalogThinkingResult =
         withContext(Dispatchers.IO) {
             runCatching {
                 val connection = URL("https://models.dev/catalog.json").openConnection() as HttpURLConnection
@@ -131,16 +152,19 @@ object ProviderModelCatalogClient {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 20_000
                 try {
-                    if (connection.responseCode != 200) return@runCatching emptyMap()
-                    publicCatalogThinkingLevels(
+                    if (connection.responseCode != 200) return@runCatching PublicCatalogThinkingResult()
+                    publicCatalogThinkingResult(
                         JSONObject(connection.inputStream.bufferedReader().readText()),
                         options,
                     )
                 } finally {
                     connection.disconnect()
                 }
-            }.getOrDefault(emptyMap())
+            }.getOrDefault(PublicCatalogThinkingResult())
         }
+
+    suspend fun fetchPublicThinkingLevels(options: List<ProviderModelOption>): Map<String, List<String>> =
+        fetchPublicThinkingCatalog(options).levelsByProviderModel
 
     private fun fetchModelsDevModels(
         definition: PiProviderDefinition,

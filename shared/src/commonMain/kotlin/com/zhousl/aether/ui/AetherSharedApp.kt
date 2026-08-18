@@ -1431,10 +1431,10 @@ fun AetherSharedApp(
             options: List<ProviderModelOption> = modelOptions,
         ): Boolean = thinkingCatalogRefreshMutex.withLock {
             runSharedAppCatching {
-                val publicLevels = modelCatalogClient.fetchThinkingLevels(options)
-                if (publicLevels.isNotEmpty()) {
-                    thinkingLevelsByProviderModel = thinkingLevelsByProviderModel + publicLevels
-                    thinkingLevelClampsByProviderModel = emptyMap()
+                val result = modelCatalogClient.fetchThinkingCatalog(options)
+                if (result.levelsByProviderModel.isNotEmpty()) {
+                    thinkingLevelsByProviderModel = thinkingLevelsByProviderModel + result.levelsByProviderModel
+                    thinkingLevelClampsByProviderModel = result.levelMapsByProviderModel
                     persistThinkingCatalogCache()
                 }
                 true
@@ -1850,6 +1850,11 @@ fun AetherSharedApp(
                 val mappedPiEntryId = resolvedPiBranchMessageId?.let { messageId ->
                     historyStore?.getAgentMessageEntryIds(target.id, messageId)?.lastOrNull()
                 }
+                val modelKey = sharedThinkingCatalogKey(config.piProviderId, config.modelId)
+                val thinkingLevelMap = thinkingLevelClampsByProviderModel[modelKey].orEmpty()
+                val isReasoningModel = thinkingLevelsByProviderModel[modelKey].orEmpty().isNotEmpty()
+                val reasoningEffort = sharedAppSettings.reasoningEffort
+                val reasoningEnabled = isReasoningModel && (reasoningEffort != "off" || thinkingLevelMap["off"] == "none")
                 if (mappedPiEntryId != null || shouldResetPiBranch) {
                     runSharedAppCatching {
                         bridgeClient.navigateSession(
@@ -1859,7 +1864,8 @@ fun AetherSharedApp(
                             modelConfig = config.toSharedPiModelConfig(
                                 timeoutMillis = sharedAppSettings.llmInactivityReconnectTimeoutSeconds
                                     .coerceIn(30, 3_600) * 1_000,
-                                reasoningEnabled = sharedAppSettings.reasoningEffort != "off",
+                                reasoningEnabled = reasoningEnabled,
+                                thinkingLevelMap = thinkingLevelMap,
                             ),
                             workspaceDirectory = runtime.workspaceRoot,
                             systemPrompt = sharedAppSettings.systemPrompt,
@@ -1922,6 +1928,7 @@ fun AetherSharedApp(
                         reasoning = sharedAppSettings.reasoningEffort,
                         timeoutMillis = sharedAppSettings.llmInactivityReconnectTimeoutSeconds
                             .coerceIn(30, 3_600) * 1_000,
+                        thinkingLevelMap = thinkingLevelMap,
                         onAssistantTextDelta = { delta ->
                             backgroundLeases[target.id]?.update("Writing response")
                             reasoningTracker.finishDirectSummaryChunk()

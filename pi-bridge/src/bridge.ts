@@ -118,6 +118,7 @@ interface ModelConfig {
   api_key?: string;
   custom_headers?: Record<string, string>;
   reasoning?: boolean;
+  thinking_level_map?: Record<string, string | null>;
   context_window?: number;
   max_tokens?: number;
   timeout_ms?: number;
@@ -676,6 +677,20 @@ function normalizeHeaders(value: unknown): Record<string, string> {
   return headers;
 }
 
+function normalizeThinkingLevelMap(rawValue: unknown): Record<string, string | null> | undefined {
+  const raw = asObject(rawValue);
+  if (!raw || Object.keys(raw).length === 0) return undefined;
+  const result: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === null) {
+      result[key] = null;
+    } else if (typeof value === "string") {
+      result[key] = value;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 function normalizeModelConfig(rawValue: unknown): ModelConfig {
   const raw = asObject(rawValue);
   const providerType = asString(raw.provider_type).trim();
@@ -717,6 +732,7 @@ function normalizeModelConfig(rawValue: unknown): ModelConfig {
     api_key: asString(raw.api_key),
     custom_headers: normalizeHeaders(raw.custom_headers),
     reasoning: asBoolean(raw.reasoning, false),
+    thinking_level_map: normalizeThinkingLevelMap(raw.thinking_level_map),
     context_window: asNumber(raw.context_window, 128000),
     max_tokens: asNumber(raw.max_tokens, 16384),
     timeout_ms: asNumber(raw.timeout_ms, 360000),
@@ -803,6 +819,7 @@ function createAetherModel(config: ModelConfig): Model<string> {
     provider: config.pi_provider_id,
     baseUrl: config.base_url,
     reasoning: config.reasoning ?? false,
+    thinkingLevelMap: config.thinking_level_map,
     input: ["text", "image"],
     cost: {
       input: 0,
@@ -917,6 +934,14 @@ function buildModels(config: ModelConfig): {
               cacheWrite: 0,
             },
           }),
+      ...(config.thinking_level_map
+        ? {
+            thinkingLevelMap: {
+              ...(builtinModel ? modelTemplate.thinkingLevelMap ?? {} : {}),
+              ...config.thinking_level_map,
+            },
+          }
+        : {}),
       ...customBaseUrlModelOverrides,
       ...(config.base_url ? { baseUrl: config.base_url } : {}),
       headers: {
@@ -1414,10 +1439,11 @@ function promptFromLastUserMessage(messages: Message[]): {
 }
 
 function thinkingLevelFor(payload: JsonObject): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | undefined {
-  const reasoning = asString(payload.reasoning).trim();
+  const reasoning = asString(payload.reasoning).trim().toLowerCase();
   if (!reasoning) return undefined;
-  if (["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(reasoning)) {
-    return reasoning as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  const normalized = reasoning === "none" ? "off" : reasoning;
+  if (["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(normalized)) {
+    return normalized as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   }
   return undefined;
 }

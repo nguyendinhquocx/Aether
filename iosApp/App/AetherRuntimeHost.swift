@@ -246,6 +246,7 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
                 try guestCreateDirectories("/opt/aether/chromium-deps")
                 try guestBind(hostPath: chromeDependencies.path, guestPath: "/opt/aether/chromium-deps")
                 try installBridgeAsset()
+                try installPreinstalledExtensions()
                 try installNodeCompatibilityAssets()
             } catch {
                 onMain { listener.onError(message: error.localizedDescription) }
@@ -1121,6 +1122,37 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
             data: bytes,
             executable: false
         )
+    }
+
+    private func installPreinstalledExtensions() throws {
+        let candidates = [
+            Bundle.main.url(forResource: "extensions", withExtension: nil),
+            Bundle.main.resourceURL?.appendingPathComponent("extensions", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("Runtime/extensions", isDirectory: true),
+        ].compactMap { $0 }
+        guard let sourceDir = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            return
+        }
+        let guestBase = "/root/.aether/extensions"
+        try guestCreateDirectories(guestBase)
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(at: sourceDir, includingPropertiesForKeys: [.isDirectoryKey]) else {
+            return
+        }
+        while let fileURL = enumerator.nextObject() as? URL {
+            let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
+            let relativePath = fileURL.path.replacingOccurrences(of: sourceDir.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !relativePath.isEmpty else { continue }
+            let targetGuestPath = "\(guestBase)/\(relativePath)"
+            if resourceValues.isDirectory == true {
+                try guestCreateDirectories(targetGuestPath)
+            } else {
+                let parentGuestDir = (targetGuestPath as NSString).deletingLastPathComponent
+                try guestCreateDirectories(parentGuestDir)
+                let data = try Data(contentsOf: fileURL)
+                try runtime.writeFile(targetGuestPath, data: data, executable: false)
+            }
+        }
     }
 
     private func installNodeCompatibilityAssets() throws {

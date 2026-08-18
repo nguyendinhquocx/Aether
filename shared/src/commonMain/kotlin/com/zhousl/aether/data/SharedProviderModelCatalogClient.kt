@@ -28,6 +28,11 @@ data class SharedProviderModelsResult(
     val error: String? = null,
 )
 
+data class SharedThinkingCatalogResult(
+    val levelsByProviderModel: Map<String, List<String>> = emptyMap(),
+    val levelMapsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
+)
+
 @Serializable
 data class SharedModelCatalogInfo(
     val displayName: String,
@@ -94,47 +99,64 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
         }.getOrDefault(emptyMap())
     }
 
-    suspend fun fetchThinkingLevels(
+    suspend fun fetchThinkingCatalog(
         options: List<ProviderModelOption>,
-    ): Map<String, List<String>> = runCatching {
-        val providers = fetchPublicCatalog()?.get("providers") as? JsonObject ?: return@runCatching emptyMap()
+    ): SharedThinkingCatalogResult = runCatching {
+        val providers = fetchPublicCatalog()?.get("providers") as? JsonObject ?: return@runCatching SharedThinkingCatalogResult()
         withContext(Dispatchers.Default) {
             val fallbackModels = providers.sharedPublicCatalogModelIndex()
-            buildMap {
-                options.forEach { option ->
-                    val model = option.publicCatalogProviderIds()
-                        .firstNotNullOfOrNull { providerId ->
-                            ((providers[providerId] as? JsonObject)?.get("models") as? JsonObject)
-                                ?.findSharedPublicCatalogModel(option)
-                        }
-                        ?: option.sharedPublicCatalogModelKeys()
-                            .firstNotNullOfOrNull { fallbackModels[it.lowercase()] }
-                    val levels = if (model?.get("reasoning")?.jsonPrimitive?.booleanOrNull == true) {
-                        buildList {
-                            val optionsArray = model["reasoning_options"] as? JsonArray
-                            val hasToggle = optionsArray.orEmpty().any { entry ->
-                                (entry as? JsonObject)?.stringValue("type") == "toggle"
-                            }
-                            if (hasToggle) add("off")
-                            optionsArray.orEmpty().forEach { entry ->
-                                val reasoningOption = entry as? JsonObject ?: return@forEach
-                                if (reasoningOption.stringValue("type") != "effort") return@forEach
-                                (reasoningOption["values"] as? JsonArray).orEmpty()
-                                    .mapNotNull { it.jsonPrimitive.contentOrNull }
-                                    .map { if (it == "none") "off" else it }
-                                    .filter { it in SharedThinkingLevels }
-                                    .forEach { if (it !in this) add(it) }
-                            }
-                            if (isEmpty()) addAll(listOf("off", "medium"))
-                        }
-                    } else {
-                        emptyList()
+            val levelsMap = mutableMapOf<String, List<String>>()
+            val levelMapsMap = mutableMapOf<String, Map<String, String>>()
+            options.forEach { option ->
+                val model = option.publicCatalogProviderIds()
+                    .firstNotNullOfOrNull { providerId ->
+                        ((providers[providerId] as? JsonObject)?.get("models") as? JsonObject)
+                            ?.findSharedPublicCatalogModel(option)
                     }
-                    put(sharedThinkingCatalogKey(option.piProviderId, option.modelId), levels)
+                    ?: option.sharedPublicCatalogModelKeys()
+                        .firstNotNullOfOrNull { fallbackModels[it.lowercase()] }
+                val key = sharedThinkingCatalogKey(option.piProviderId, option.modelId)
+                if (model?.get("reasoning")?.jsonPrimitive?.booleanOrNull == true) {
+                    val optionsArray = model["reasoning_options"] as? JsonArray
+                    val hasToggle = optionsArray.orEmpty().any { entry ->
+                        (entry as? JsonObject)?.stringValue("type") == "toggle"
+                    }
+                    var hasNone = false
+                    val levels = buildList {
+                        if (hasToggle) add("off")
+                        optionsArray.orEmpty().forEach { entry ->
+                            val reasoningOption = entry as? JsonObject ?: return@forEach
+                            if (reasoningOption.stringValue("type") != "effort") return@forEach
+                            (reasoningOption["values"] as? JsonArray).orEmpty()
+                                .mapNotNull { it.jsonPrimitive.contentOrNull }
+                                .forEach { raw ->
+                                    val trimmed = raw.trim()
+                                    if (trimmed == "none") {
+                                        hasNone = true
+                                        if ("off" !in this) add("off")
+                                    } else if (trimmed in SharedThinkingLevels && trimmed !in this) {
+                                        add(trimmed)
+                                    }
+                                }
+                        }
+                        if (isEmpty()) addAll(listOf("off", "medium"))
+                    }
+                    val levelMap = buildMap<String, String> {
+                        if (hasNone) put("off", "none")
+                    }
+                    levelsMap[key] = levels
+                    if (levelMap.isNotEmpty()) levelMapsMap[key] = levelMap
+                } else {
+                    levelsMap[key] = emptyList()
                 }
             }
+            SharedThinkingCatalogResult(levelsMap, levelMapsMap)
         }
-    }.getOrDefault(emptyMap())
+    }.getOrDefault(SharedThinkingCatalogResult())
+
+    suspend fun fetchThinkingLevels(
+        options: List<ProviderModelOption>,
+    ): Map<String, List<String>> = fetchThinkingCatalog(options).levelsByProviderModel
 
     suspend fun fetchModels(
         config: LlmProviderConfig,

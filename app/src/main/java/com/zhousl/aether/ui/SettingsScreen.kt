@@ -4275,8 +4275,8 @@ private fun PiExtensionsPage(
         Spacer(Modifier.height(16.dp))
 
         val tabs = listOf(
-            stringResource(R.string.settings_extension_discover),
             stringResource(R.string.settings_extension_installed),
+            stringResource(R.string.settings_extension_discover),
         )
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             tabs.forEachIndexed { index, label ->
@@ -4300,6 +4300,66 @@ private fun PiExtensionsPage(
 
         when (selectedTab) {
             0 -> {
+                if (!hasLoadedInstalledExtensions) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = AetherPrimary,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            stringResource(R.string.settings_loading_installed_extensions),
+                            color = AetherOnSurfaceVariant,
+                        )
+                    }
+                } else if (installedExtensions.isEmpty()) {
+                    SettingsCardGroup {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                stringResource(R.string.settings_no_extensions_installed),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = AetherOnSurface,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                stringResource(R.string.settings_install_or_import_extension),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = AetherOnSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            SettingsActionButton(
+                                label = stringResource(R.string.settings_import_extension),
+                                onClick = onImport,
+                                enabled = operationSource.isBlank(),
+                                isLoading = operationSource == "import",
+                            )
+                        }
+                    }
+                } else {
+                    installedExtensions.forEach { extension ->
+                        InstalledPiExtensionCard(
+                            extension = extension,
+                            isOperating = operationSource == extension.id ||
+                                operationSource == extension.source,
+                            actionsEnabled = operationSource.isBlank(),
+                            onUpdate = { onUpdate(extension.source) },
+                            onRemove = { onRemove(extension) },
+                            onSetEnabled = { enabled -> onSetEnabled(extension, enabled) },
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+            }
+
+            else -> {
                 SettingsCardGroup {
                     ChatGptTextField(
                         label = stringResource(R.string.settings_search_extensions),
@@ -4360,66 +4420,6 @@ private fun PiExtensionsPage(
                             entry = entry,
                             installed = installedSources.contains(entry.source),
                             onClick = { onSelectPackage(entry) },
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
-                }
-            }
-
-            else -> {
-                if (!hasLoadedInstalledExtensions) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = AetherPrimary,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            stringResource(R.string.settings_loading_installed_extensions),
-                            color = AetherOnSurfaceVariant,
-                        )
-                    }
-                } else if (installedExtensions.isEmpty()) {
-                    SettingsCardGroup {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(
-                                stringResource(R.string.settings_no_extensions_installed),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = AetherOnSurface,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                stringResource(R.string.settings_install_or_import_extension),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = AetherOnSurfaceVariant,
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            SettingsActionButton(
-                                label = stringResource(R.string.settings_import_extension),
-                                onClick = onImport,
-                                enabled = operationSource.isBlank(),
-                                isLoading = operationSource == "import",
-                            )
-                        }
-                    }
-                } else {
-                    installedExtensions.forEach { extension ->
-                        InstalledPiExtensionCard(
-                            extension = extension,
-                            isOperating = operationSource == extension.id ||
-                                operationSource == extension.source,
-                            actionsEnabled = operationSource.isBlank(),
-                            onUpdate = { onUpdate(extension.source) },
-                            onRemove = { onRemove(extension) },
-                            onSetEnabled = { enabled -> onSetEnabled(extension, enabled) },
                         )
                         Spacer(Modifier.height(10.dp))
                     }

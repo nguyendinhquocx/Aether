@@ -1633,6 +1633,82 @@ test("maps a custom OpenAI-compatible provider through Pi", async (t) => {
   assert.equal(receivedRequest.body.model, "custom-model");
 });
 
+test("passes reasoning_effort none when off is selected for a model with thinkingLevelMap off: none", async (t) => {
+  let receivedRequest;
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      receivedRequest = {
+        url: request.url,
+        authorization: request.headers.authorization,
+        body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+      };
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(
+        `data: ${JSON.stringify({
+          id: "chatcmpl-pi-none-test",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "reasoning-model",
+          choices: [
+            {
+              index: 0,
+              delta: { role: "assistant", content: "NONE_OK" },
+              finish_reason: null,
+            },
+          ],
+        })}\n\n`,
+      );
+      response.write(
+        `data: ${JSON.stringify({
+          id: "chatcmpl-pi-none-test",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "reasoning-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: {
+            prompt_tokens: 4,
+            completion_tokens: 2,
+            total_tokens: 6,
+          },
+        })}\n\n`,
+      );
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request(
+    "custom-reasoning-none",
+    "complete_once",
+    {
+      model_config: {
+        provider_type: "openai_compatible",
+        provider_config_id: "custom-reasoning-none",
+        pi_provider_id: "aether-test-reasoning",
+        pi_api: "openai-completions",
+        model_id: "reasoning-model",
+        base_url: `http://127.0.0.1:${address.port}/v1`,
+        api_key: "secret-key",
+        reasoning: true,
+        thinking_level_map: { off: "none" },
+      },
+      reasoning: "off",
+      system_prompt: "Reply briefly.",
+      messages: [userMessage("hello")],
+      stream: false,
+    },
+  );
+
+  assert.equal(result.assistant_text, "NONE_OK", JSON.stringify(result));
+  assert.equal(receivedRequest.body.reasoning_effort, "none");
+});
+
 test("accepts arbitrary manual model IDs for a built-in provider", async (t) => {
   let receivedRequest;
   const server = createServer((request, response) => {

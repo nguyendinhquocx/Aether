@@ -32,9 +32,16 @@ class SharedExtensionStateStore(
 
     suspend fun setImportedExtensionEnabled(path: String, enabled: Boolean): SharedExtensionLoadOptions =
         update { current ->
+            val normalizedPath = path.trim()
+            val baseName = normalizedPath.substringAfterLast('/')
             current.copy(
                 disabledExtensionPaths = current.disabledExtensionPaths.toMutableSet().apply {
-                    if (enabled) remove(path) else add(path)
+                    if (enabled) {
+                        remove(normalizedPath)
+                        removeAll { it.substringAfterLast('/') == baseName }
+                    } else {
+                        add(normalizedPath)
+                    }
                 }
             )
         }
@@ -67,14 +74,25 @@ class SharedExtensionStateStore(
     }
 
     private suspend fun loadUnlocked(): SharedExtensionLoadOptions {
-        if (!runtime.fileSystem.exists(statePath)) return SharedExtensionLoadOptions()
+        if (!runtime.fileSystem.exists(statePath)) return defaultExtensionLoadOptions()
         return runCatching {
             val state = Json.parseToJsonElement(runtime.fileSystem.read(statePath).decodeToString()) as JsonObject
             SharedExtensionLoadOptions(
                 disabledExtensionPaths = state.stringSet("disabled_extension_paths"),
                 disabledPackageSources = state.stringSet("disabled_package_sources"),
             )
-        }.getOrDefault(SharedExtensionLoadOptions())
+        }.getOrDefault(defaultExtensionLoadOptions())
+    }
+
+    private fun defaultExtensionLoadOptions(): SharedExtensionLoadOptions {
+        val base = runtime.homeDirectory.trimEnd('/')
+        return SharedExtensionLoadOptions(
+            disabledExtensionPaths = setOf(
+                "$base/.aether/extensions/pi-web-access",
+                "$base/.aether/extensions/pi-mcp-adapter",
+                "$base/.aether/extensions/pi-subagents",
+            ),
+        )
     }
 }
 

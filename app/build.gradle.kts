@@ -41,9 +41,11 @@ val appVersionName = providers.gradleProperty("aether.versionName")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "2.1.2"
+    ?: "2.1.3"
 val piBridgeProjectDir = rootProject.layout.projectDirectory.dir("pi-bridge")
 val piBridgeGeneratedAssetsDir = layout.buildDirectory.dir("generated/assets/piBridge")
+val preinstalledExtensionsDir = rootProject.layout.projectDirectory.dir("extensions")
+val preinstalledExtensionsGeneratedAssetsDir = layout.buildDirectory.dir("generated/assets/preinstalledExtensions")
 val piProviderIconsGeneratedResDir = layout.buildDirectory.dir("generated/res/piProviderIcons")
 // Make shared Compose resources available to Android resource APIs.
 val sharedComposeResourcesDir = rootProject.project(":shared").projectDir.resolve(
@@ -342,10 +344,22 @@ val copyPiBridgeAsset = tasks.register<SyncGeneratedSourceDirectory>("copyPiBrid
     includeEmptyDirs = false
 }
 
+val copyPreinstalledExtensions = tasks.register<SyncGeneratedSourceDirectory>("copyPreinstalledExtensions") {
+    outputDirectory.set(preinstalledExtensionsGeneratedAssetsDir)
+    from(preinstalledExtensionsDir) {
+        into("extensions")
+    }
+    includeEmptyDirs = false
+}
+
 androidComponents {
     onVariants(selector().all()) { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(
             copyPiBridgeAsset,
+            SyncGeneratedSourceDirectory::outputDirectory,
+        )
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            copyPreinstalledExtensions,
             SyncGeneratedSourceDirectory::outputDirectory,
         )
         variant.sources.res?.addGeneratedSourceDirectory(

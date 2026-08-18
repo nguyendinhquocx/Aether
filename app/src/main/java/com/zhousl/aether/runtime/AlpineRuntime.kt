@@ -241,6 +241,32 @@ class AlpineRuntime(
         target
     }
 
+    suspend fun installPreinstalledExtensions(): Unit = withContext(Dispatchers.IO) {
+        installAssetDirectoryRecursively("extensions", "/root/.aether/extensions")
+    }
+
+    internal fun installPreinstalledExtensionsSync() {
+        installAssetDirectoryRecursively("extensions", "/root/.aether/extensions")
+    }
+
+    private fun installAssetDirectoryRecursively(assetDir: String, guestTargetDir: String) {
+        val list = runCatching { appContext.assets.list(assetDir) }.getOrNull() ?: return
+        if (list.isEmpty()) return
+        for (item in list) {
+            val childAssetPath = "$assetDir/$item"
+            val childGuestPath = "$guestTargetDir/$item"
+            val subList = runCatching { appContext.assets.list(childAssetPath) }.getOrNull()
+            if (subList != null && subList.isNotEmpty()) {
+                installAssetDirectoryRecursively(childAssetPath, childGuestPath)
+            } else {
+                runCatching {
+                    val target = guestPathToHostFile(normalizePath(childGuestPath))
+                    copyAsset(childAssetPath, target, executable = false)
+                }
+            }
+        }
+    }
+
     internal suspend fun ensureGuestDirectory(guestPath: String): File = withContext(Dispatchers.IO) {
         requireReady()
         guestPathToHostFile(normalizePath(guestPath)).apply {
@@ -790,6 +816,7 @@ class AlpineRuntime(
         }
         ensureWorkspace()
         ensureGuestNetworkConfig()
+        installPreinstalledExtensionsSync()
         refreshApkRepositoriesForCurrentNetwork(onProgress)
         onProgress(AlpineSetupProgress(output = "Alpine runtime files are ready.\n"))
     }
