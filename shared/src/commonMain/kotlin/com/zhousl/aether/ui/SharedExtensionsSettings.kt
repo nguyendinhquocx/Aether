@@ -873,6 +873,10 @@ private suspend fun replaceSharedImportedPath(
         )
         check(moveResult.exitCode == 0) { moveResult.stderr.ifBlank { "Unable to store the extension." } }
         reload()
+        val marker = sharedRemovedPreinstalledExtensionMarker(runtime, destination)
+        if (marker != null && runtime.fileSystem.exists(marker)) {
+            runtime.fileSystem.remove(marker)
+        }
         if (hadExisting) runtime.fileSystem.remove(backup, recursive = true)
     } catch (error: Throwable) {
         withContext(NonCancellable) {
@@ -911,6 +915,20 @@ internal suspend fun removeSharedImportedExtension(
     }
     require(runtime.fileSystem.exists(installedPath)) { "The imported extension no longer exists." }
     runtime.fileSystem.remove(installedPath, recursive = true)
+    sharedRemovedPreinstalledExtensionMarker(runtime, installedPath)?.let { marker ->
+        runtime.fileSystem.createDirectories(marker.substringBeforeLast('/'))
+        runtime.fileSystem.write(marker, "removed\n".encodeToByteArray())
+    }
+}
+
+private fun sharedRemovedPreinstalledExtensionMarker(
+    runtime: MultiplatformLocalRuntime,
+    installedPath: String,
+): String? {
+    val root = sharedExtensionImportRoot(runtime).trimEnd('/')
+    val name = installedPath.removePrefix("$root/")
+    if (name.isBlank() || '/' in name || installedPath != "$root/$name") return null
+    return runtime.homeDirectory.trimEnd('/') + "/.aether/.removed-preinstalled-extensions/$name"
 }
 
 private fun sharedExtensionImportRoot(runtime: MultiplatformLocalRuntime): String =
@@ -1092,6 +1110,7 @@ internal fun SharedExtensionsSettingsDetail(
     var detailsError by remember { mutableStateOf("") }
     var detailsReloadToken by remember { mutableIntStateOf(0) }
     var importedExtensionName by remember { mutableStateOf("") }
+    var installedLoadGeneration by remember { mutableStateOf(0L) }
 
     val updatedMessage = stringResource(Res.string.message_pi_extension_updated)
     val importedNamePlaceholder = "{extension_name}"
@@ -1113,19 +1132,24 @@ internal fun SharedExtensionsSettingsDetail(
     }
 
     suspend fun loadInstalledState() {
+        val generation = ++installedLoadGeneration
         coroutineScope {
             val packageRequest = async { bridgeClient.listExtensionPackages() }
             val importedRequest = async { listSharedImportedExtensions(runtime) }
             val optionsRequest = async { extensionStateStore.load() }
             val options = optionsRequest.await()
-            installedPackages = parseSharedInstalledPackages(packageRequest.await()).map { extension ->
+            val loadedPackages = parseSharedInstalledPackages(packageRequest.await()).map { extension ->
                 extension.copy(isEnabled = extension.source !in options.disabledPackageSources)
             }
-            importedExtensions = importedRequest.await().map { extension ->
+            val loadedImports = importedRequest.await().map { extension ->
                 val baseName = extension.installedPath.substringAfterLast('/')
                 val isExplicitlyDisabled = extension.installedPath in options.disabledExtensionPaths ||
                     options.disabledExtensionPaths.any { it.substringAfterLast('/') == baseName }
                 extension.copy(isEnabled = !isExplicitlyDisabled)
+            }
+            if (generation == installedLoadGeneration) {
+                installedPackages = loadedPackages
+                importedExtensions = loadedImports
             }
         }
     }
@@ -1136,15 +1160,9 @@ internal fun SharedExtensionsSettingsDetail(
     }
 
     suspend fun refreshExtensionRuntime(reload: Boolean, reloadAgentSessions: Boolean = false) {
-        val sessionErrors = if (reloadAgentSessions) {
-            bridgeClient.reloadAllExtensions().sharedSessionReloadErrors()
-        } else {
-            emptyList()
-        }
+        if (reloadAgentSessions) bridgeClient.reloadAllExtensions()
         val refreshed = if (reload) extensionManager.reload() else extensionManager.refresh()
         publishSnapshot(refreshed)
-        val errors = mergeSharedExtensionErrors(sessionErrors, extensionManager.error)
-        check(errors.isEmpty()) { errors.take(3).joinToString("; ") }
     }
 
     fun userFacingError(error: Throwable): String =
@@ -1182,20 +1200,16 @@ internal fun SharedExtensionsSettingsDetail(
 
     fun installPackage(source: String) {
         runOperation(source, { updatedMessage }) {
-            val response = bridgeClient.installExtensionPackage(source)
+            bridgeClient.installExtensionPackage(source)
             refreshExtensionRuntime(reload = true)
-            val errors = (response["reload"] as? JsonObject)?.sharedSessionReloadErrors().orEmpty()
-            check(errors.isEmpty()) { errors.take(3).joinToString("; ") }
             true
         }
     }
 
     fun updatePackage(extension: SharedInstalledExtension) {
         runOperation(extension.source, { updatedMessage }) {
-            val response = bridgeClient.updateExtensionPackage(extension.source)
+            bridgeClient.updateExtensionPackage(extension.source)
             refreshExtensionRuntime(reload = true)
-            val errors = (response["reload"] as? JsonObject)?.sharedSessionReloadErrors().orEmpty()
-            check(errors.isEmpty()) { errors.take(3).joinToString("; ") }
             true
         }
     }
@@ -1225,6 +1239,19 @@ internal fun SharedExtensionsSettingsDetail(
     }
 
     fun setExtensionEnabled(extension: SharedInstalledExtension, enabled: Boolean) {
+        installedLoadGeneration += 1
+        when (extension.kind) {
+            SharedExtensionInstallKind.Package -> {
+                installedPackages = installedPackages.map { installed ->
+                    if (installed.id == extension.id) installed.copy(isEnabled = enabled) else installed
+                }
+            }
+            SharedExtensionInstallKind.Imported -> {
+                importedExtensions = importedExtensions.map { installed ->
+                    if (installed.id == extension.id) installed.copy(isEnabled = enabled) else installed
+                }
+            }
+        }
         runOperation(extension.id, { updatedMessage }) {
             when (extension.kind) {
                 SharedExtensionInstallKind.Package ->

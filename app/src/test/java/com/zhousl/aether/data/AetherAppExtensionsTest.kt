@@ -34,6 +34,21 @@ class AetherAppExtensionsTest {
     }
 
     @Test
+    fun migratesAndroidHostPathsToStableGuestPaths() {
+        val hostPath = "/data/user/0/com.baimoqilin.aether/files/runtimes/alpine/rootfs" +
+            "/root/.aether/extensions/pi-mcp-adapter"
+
+        assertEquals(
+            "import:aether:/root/.aether/extensions/pi-mcp-adapter",
+            normalizeExtensionStateId("import:aether:$hostPath"),
+        )
+        assertEquals(
+            setOf("/root/.aether/extensions/pi-mcp-adapter"),
+            loadOptionsForIds(setOf("import:aether:$hostPath")).disabledExtensionPaths,
+        )
+    }
+
+    @Test
     fun parsesExtensionSnapshotAndOrdersSlots() {
         val snapshot = parseAetherAppExtensionSnapshot(
             JSONObject(

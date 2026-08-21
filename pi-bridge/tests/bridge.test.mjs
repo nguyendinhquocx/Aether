@@ -580,6 +580,108 @@ export default defineAetherExtension((aether) => {
   }
 });
 
+test("installs dependencies for bundled Aether packages before loading them", async () => {
+  const home = await mkdtemp(join(tmpdir(), "aether-preinstalled-deps-"));
+  const packageDirectory = join(home, ".aether", "extensions", "dependency-test");
+  const binDirectory = join(home, "bin");
+  const npmLog = join(home, "npm.log");
+  await mkdir(packageDirectory, { recursive: true });
+  await mkdir(binDirectory, { recursive: true });
+  await writeFile(
+    join(packageDirectory, "package.json"),
+    JSON.stringify({
+      name: "dependency-test",
+      version: "1.0.0",
+      dependencies: { "fixture-dependency": "1.0.0" },
+      aether: { extensions: ["./index.ts"] },
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(packageDirectory, "index.ts"),
+    `export default (aether) => aether.registerAction("loaded", () => ({ loaded: true }));\n`,
+    "utf8",
+  );
+  // Simulate an interrupted install. A bare node_modules directory must not be
+  // mistaken for a complete dependency tree.
+  await mkdir(join(packageDirectory, "node_modules"), { recursive: true });
+  await writeFile(
+    join(binDirectory, "npm"),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$AETHER_TEST_NPM_LOG"\nmkdir -p node_modules\n`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const client = new BridgeClient({
+    HOME: home,
+    USERPROFILE: home,
+    PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+    AETHER_TEST_NPM_LOG: npmLog,
+  });
+  try {
+    const first = await client.request("dependency-load", "reload_aether_extensions");
+    assert.equal(first.reloaded, true);
+    assert.equal(first.snapshot.extensions.length, 1);
+    assert.match(await readFile(npmLog, "utf8"), /^install /m);
+    assert.ok(await readFile(join(packageDirectory, "node_modules", ".aether-install-complete"), "utf8"));
+
+    await client.request("dependency-reload", "reload_aether_extensions");
+    assert.equal((await readFile(npmLog, "utf8")).trim().split("\n").length, 1);
+
+    const manifestPath = join(packageDirectory, "package.json");
+    const updatedManifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    updatedManifest.dependencies["second-fixture-dependency"] = "2.0.0";
+    await writeFile(manifestPath, JSON.stringify(updatedManifest), "utf8");
+    await client.request("dependency-update", "reload_aether_extensions");
+    assert.equal((await readFile(npmLog, "utf8")).trim().split("\n").length, 2);
+  } finally {
+    await client.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("does not let one broken Aether extension block unrelated reload operations", async () => {
+  const home = await mkdtemp(join(tmpdir(), "aether-broken-extension-"));
+  const root = join(home, ".aether", "extensions");
+  const broken = join(root, "broken");
+  const healthy = join(root, "healthy");
+  await mkdir(broken, { recursive: true });
+  await writeFile(
+    join(broken, "package.json"),
+    JSON.stringify({ name: "broken", aether: { extensions: ["./index.ts"] } }),
+    "utf8",
+  );
+  await writeFile(join(broken, "index.ts"), `export default () => { throw new Error("broken extension"); };\n`, "utf8");
+
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  try {
+    const blocked = await client.request("broken-only", "reload_all_extensions");
+    assert.equal(blocked.succeeded, true);
+    assert.equal(blocked.aether_reload.reloaded, false);
+    assert.match(blocked.aether_reload.errors[0].error, /broken extension/);
+
+    await mkdir(healthy, { recursive: true });
+    await writeFile(
+      join(healthy, "package.json"),
+      JSON.stringify({ name: "healthy", aether: { extensions: ["./index.ts"] } }),
+      "utf8",
+    );
+    await writeFile(
+      join(healthy, "index.ts"),
+      `import { ui } from "@aether/extension-api"; export default (aether) => aether.registerSurface("chat.composer.top", ui.text("healthy"));\n`,
+      "utf8",
+    );
+
+    const recovered = await client.request("broken-with-healthy", "reload_all_extensions");
+    assert.equal(recovered.succeeded, true);
+    assert.equal(recovered.aether_reload.reloaded, true);
+    assert.deepEqual(recovered.aether.extensions.map(({ name }) => name), ["healthy"]);
+    assert.match(recovered.aether_reload.errors[0].error, /broken extension/);
+  } finally {
+    await client.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("enforces Aether Script API compatibility ranges", async () => {
   const home = await mkdtemp(join(tmpdir(), "aether-api-range-"));
   const extensionDirectory = join(home, ".aether", "extensions", "api-range");
@@ -1121,6 +1223,57 @@ export default function (pi: ExtensionAPI) {
     command: "/extension-version",
   });
   assert.equal(invoked.invoked, true);
+});
+
+test("recreates existing sessions after disabling a Pi extension", async (t) => {
+  const workspace = await mkdtemp(join(tmpdir(), "aether-pi-disable-"));
+  t.after(() => rm(workspace, { recursive: true, force: true }));
+  const extensionDirectory = join(workspace, ".pi", "extensions");
+  await mkdir(extensionDirectory, { recursive: true });
+  await writeFile(
+    join(extensionDirectory, "disable-me.ts"),
+    `
+export default function (pi) {
+  pi.registerCommand("disable-me", { description: "Disable me", async handler() {} });
+}
+`,
+    "utf8",
+  );
+
+  const client = new BridgeClient();
+  await client.request(
+    "disable-create",
+    "run_turn",
+    {
+      ...turnPayload("session-disable", [userMessage("start")]),
+      workspace_directory: workspace,
+    },
+  );
+  const before = await client.request("disable-list-before", "list_extensions", {
+    session_id: "session-disable",
+  });
+  assert.ok(before.commands.some((command) => command.name === "disable-me"));
+
+  const reload = await client.request("disable-reload", "reload_all_extensions", {
+    disabled_extension_paths: [extensionDirectory],
+    disabled_package_sources: [],
+  });
+  assert.equal(reload.sessions[0].recreated_on_next_use, true);
+
+  await client.request(
+    "disable-recreate",
+    "run_turn",
+    {
+      ...turnPayload("session-disable", [userMessage("continue")]),
+      workspace_directory: workspace,
+      disabled_extension_paths: [extensionDirectory],
+      disabled_package_sources: [],
+    },
+  );
+  const after = await client.request("disable-list-after", "list_extensions", {
+    session_id: "session-disable",
+  });
+  assert.ok(after.commands.every((command) => command.name !== "disable-me"));
 });
 
 test("recreates a reused session when a new Pi extension becomes discoverable", async (t) => {

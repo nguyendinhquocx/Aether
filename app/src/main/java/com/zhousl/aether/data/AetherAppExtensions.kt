@@ -266,9 +266,6 @@ class AetherAppExtensionManager(
                 val snapshot = parseSnapshot(response.optJSONObject("snapshot"))
                 val reloadError = response.extensionReloadError()
                 publishSnapshot(snapshot, error = reloadError)
-                if (!response.optBoolean("reloaded", true)) {
-                    error(reloadError.ifBlank { "Aether extensions rejected the reload." })
-                }
                 snapshot
             }
         }.onFailure(::recordFailure)

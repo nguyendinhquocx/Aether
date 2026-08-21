@@ -196,13 +196,16 @@ static void AetherISHDie(const char *message) {
 
 - (NSURL *)prepareRootFileSystemWithProgress:(AetherISHProgressBlock)progress
                                        error:(NSError **)error {
-    NSURL *applicationSupport = [NSFileManager.defaultManager URLForDirectory:NSApplicationSupportDirectory
-                                                                     inDomain:NSUserDomainMask
-                                                            appropriateForURL:nil
-                                                                       create:YES
-                                                                        error:error];
-    if (!applicationSupport) return nil;
-    NSURL *rootURL = [applicationSupport URLByAppendingPathComponent:@"AetherAlpine" isDirectory:YES];
+    NSURL *container = [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:@"group.com.baimoqilin.aether"];
+    NSURL *legacySupport = [NSFileManager.defaultManager URLForDirectory:NSApplicationSupportDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:nil];
+    NSURL *rootURL = container ? [container URLByAppendingPathComponent:@"AetherAlpine" isDirectory:YES] : (legacySupport ? [legacySupport URLByAppendingPathComponent:@"AetherAlpine" isDirectory:YES] : nil);
+    if (!rootURL) { if (error) *error = AetherISHError(2, @"Storage unavailable."); return nil; }
+    if (container && legacySupport) {
+        NSURL *legacyRoot = [legacySupport URLByAppendingPathComponent:@"AetherAlpine" isDirectory:YES];
+        if (![NSFileManager.defaultManager fileExistsAtPath:rootURL.path] && [NSFileManager.defaultManager fileExistsAtPath:legacyRoot.path]) {
+            [NSFileManager.defaultManager moveItemAtURL:legacyRoot toURL:rootURL error:nil];
+        }
+    }
     NSURL *dataURL = [rootURL URLByAppendingPathComponent:@"data" isDirectory:YES];
     NSURL *databaseURL = [rootURL URLByAppendingPathComponent:@"meta.db"];
     if ([NSFileManager.defaultManager fileExistsAtPath:dataURL.path] &&

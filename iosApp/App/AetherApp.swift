@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import UIKit
 import AetherShared
+import FileProvider
 
 private final class AetherAppDelegate: NSObject, UIApplicationDelegate {
     private let internetPermissionRequester = AetherInternetPermissionRequester()
@@ -11,6 +12,19 @@ private final class AetherAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         AetherRuntimeHost.shared.registerBackgroundExecution()
+        let domain = NSFileProviderDomain(identifier: NSFileProviderDomainIdentifier("com.baimoqilin.aether"), displayName: "Aether")
+        NSFileProviderManager.add(domain) { error in
+            if let error = error as NSError? {
+                NSLog(
+                    "Aether File Provider registration failed (%@ %ld): %@",
+                    error.domain,
+                    error.code,
+                    error.localizedDescription
+                )
+            } else {
+                NSLog("Aether File Provider domain registered")
+            }
+        }
         AetherRuntimeHost.shared.refreshApkRepositoriesForCurrentNetwork()
         internetPermissionRequester.requestAccess()
         return true

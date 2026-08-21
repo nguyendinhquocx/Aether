@@ -7,42 +7,38 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		07AEC078B1B8425CB1626CF8 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2BD629A3C6EC0E3B2B729E35 /* JetBrainsMono-Regular.ttf */; };
 		08CF4E928C8BE1C146193EAC /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */; };
-		0A37C59A2026072700010001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A37C59A2026072700010002 /* Assets.xcassets */; };
-		AE0000012026072700010001 /* extensions in Resources */ = {isa = PBXBuildFile; fileRef = AE0000012026072700010002 /* extensions */; };
 		0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3727F800A2CD973EBC5B5911 /* libiconv.tbd */; };
 		1E011A81B7404737A35E9B0E /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */; };
 		24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */; };
 		29422E116B5D611E33AB0B9D /* wasm-polyfill.js in Resources */ = {isa = PBXBuildFile; fileRef = F66BF0C15BAA8020F92F7D0D /* wasm-polyfill.js */; };
 		2A8EED7E02AB8DCCD1890366 /* AetherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */; };
+		30AD3919E04F3E59C61327F4 /* extensions in Resources */ = {isa = PBXBuildFile; fileRef = 87E4E38C502B9B9B1C85857F /* extensions */; };
 		30C81A227B16D6CABAF7BAF3 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B57B4E3EEEFF797875CB6F3D /* PrivacyInfo.xcprivacy */; };
 		3573907620374C94427D23CD /* LICENSE.IOS in Resources */ = {isa = PBXBuildFile; fileRef = E48205C39A16D1BC63209CA5 /* LICENSE.IOS */; };
-		37B3E506D9D519C3E2362C26 /* .gitkeep in Resources */ = {isa = PBXBuildFile; fileRef = 0E52DE9EBE0E6EC3717F15B4 /* .gitkeep */; };
 		4ABD7AA1799D98A805AC8334 /* AetherUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4A84D8FFFDC6934C5070EA /* AetherUITests.swift */; };
+		5260EA11AA36045B2165C752 /* TerminalTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */; };
 		53F71DB8B4F7DFC9DDF96CDB /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		635948EDA8718FF3FF408733 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B7445370C9B563C2B17DA6E1 /* libarchive.a */; };
-		6BE12262DD755897AF043F37 /* hterm_all.js in Resources */ = {isa = PBXBuildFile; fileRef = 3F9CE49F90FFFE2756A65915 /* hterm_all.js */; };
-		6E6AF72DF4299C5E11F94B95 /* term.html in Resources */ = {isa = PBXBuildFile; fileRef = D2CEF5D43AF93EE3708D9567 /* term.html */; };
+		7906FB3BC2C49CBFD7B2F794 /* TerminalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */; };
 		7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */ = {isa = PBXBuildFile; fileRef = 95EE05EFD4A21740A10B6F14 /* root.tar.gz */; };
 		7D2F37B739B9ED878ED6F0DA /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1106FBE367ED336302C5A936 /* SystemConfiguration.framework */; };
 		8C67241097C756D2BC0EBD70 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 307932EC76CB1B3E8230BE0B /* LICENSE */; };
-		AED5FAD36A0258C86E33BFB8 /* term.css in Resources */ = {isa = PBXBuildFile; fileRef = DFA930739D10E3CD3E0B3416 /* term.css */; };
+		A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */; };
+		A9AB37A3710FCA053173B163 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */; };
+		B05361F1AB399DF92E555253 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D06A95D54E8485E5FDA7F0BB /* Assets.xcassets */; };
 		B0C7744DFFD5B0D7FF572295 /* fetch-polyfill.js in Resources */ = {isa = PBXBuildFile; fileRef = A28E41D7474D6ABA5E0A522A /* fetch-polyfill.js */; };
+		B2E17E11F6C45D8C09220AAB /* TerminalInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0908A05CCEDE326A36B151FC /* TerminalInputView.swift */; };
 		B4115544917270FECC7DD257 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = DF450430A92471EB5F32CDDE /* THIRD_PARTY_NOTICES.md */; };
+		BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509AFB124196AC221A86909F /* ANSIParser.swift */; };
 		BB61528BEE299540B5A3DEA8 /* AetherRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */; };
 		BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 7FC3C7F439C89DFF299C3D94 /* bridge.mjs */; };
 		C95A4D5886956E5801C13DA5 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D05C334CA852B14A36093D07 /* libbz2.tbd */; };
 		CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D8ECFC71EF1A7DF279E9E95 /* AetherISHRuntime.m */; };
-		D12A679DA1625C631D2A725D /* term.js in Resources */ = {isa = PBXBuildFile; fileRef = 29B6EB078F2DEC7743342A7D /* term.js */; };
 		D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D7AE7614B5115E8BA325D41F /* libresolv.tbd */; };
-		A10000000000000000000001 /* AetherTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AetherTerminalView.swift */; };
-		A10000000000000000000002 /* ANSIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ANSIParser.swift */; };
-		A10000000000000000000003 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* TerminalBuffer.swift */; };
-		A10000000000000000000004 /* TerminalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* TerminalCanvasView.swift */; };
-		A10000000000000000000005 /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* TerminalEmulator.swift */; };
-		A10000000000000000000006 /* TerminalInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* TerminalInputView.swift */; };
-		A10000000000000000000007 /* TerminalTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* TerminalTypes.swift */; };
+		DD8DCE33CB9622BA5C1E8CF3 /* AetherFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 464A524053D09517D505CABA /* AetherFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EC617B7B7015EAFA12902F19 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C144E2F3F6163FCD6F4E718F /* TerminalBuffer.swift */; };
+		FE54CAF7EED3E1E804AED26F /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +48,13 @@
 			proxyType = 2;
 			remoteGlobalIDString = BB10E0D6248DA67B009C7A74;
 			remoteInfo = libarchive;
+		};
+		4AC5583727C608F170DC357C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E7C705F7C33D8C121C974109 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 21E9AEFD17387AFE377254C5;
+			remoteInfo = AetherFileProvider;
 		};
 		AB994626F6F1C26CD4F28C45 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -76,50 +79,61 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		2930A8D5A641B26201087C41 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DD8DCE33CB9622BA5C1E8CF3 /* AetherFileProvider.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0908A05CCEDE326A36B151FC /* TerminalInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputView.swift; sourceTree = "<group>"; };
 		093ABAAD7B72B9ED74843F83 /* libarchive */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libarchive; path = "../third_party/ish-arm64/deps/libarchive.xcodeproj"; sourceTree = "<group>"; };
-		0E52DE9EBE0E6EC3717F15B4 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
-		AE0000012026072700010002 /* extensions */ = {isa = PBXFileReference; lastKnownFileType = folder; path = extensions; sourceTree = "<group>"; };
-		0A37C59A2026072700010002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1106FBE367ED336302C5A936 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Aether-Bridging-Header.h"; sourceTree = "<group>"; };
 		1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fakefs.c; path = "../third_party/ish-arm64/tools/fakefs.c"; sourceTree = "<group>"; };
-		29B6EB078F2DEC7743342A7D /* term.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = term.js; path = "../../third_party/ish-arm64/app/terminal/term.js"; sourceTree = "<group>"; };
+		1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherTerminalView.swift; sourceTree = "<group>"; };
 		2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeHost.swift; sourceTree = "<group>"; };
-		2BD629A3C6EC0E3B2B729E35 /* JetBrainsMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "JetBrainsMono-Regular.ttf"; path = "../../app/src/main/assets/fonts/JetBrainsMono-Regular.ttf"; sourceTree = "<group>"; };
-		307932EC76CB1B3E8230BE0B /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
+		307932EC76CB1B3E8230BE0B /* LICENSE */ = {isa = PBXFileReference; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
 		3727F800A2CD973EBC5B5911 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
-		3F9CE49F90FFFE2756A65915 /* hterm_all.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = hterm_all.js; path = "../../third_party/ish-arm64/deps/libapps/hterm/dist/js/hterm_all.js"; sourceTree = "<group>"; };
+		3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
+		3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTypes.swift; sourceTree = "<group>"; };
+		464A524053D09517D505CABA /* AetherFileProvider.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AetherFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		509AFB124196AC221A86909F /* ANSIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSIParser.swift; sourceTree = "<group>"; };
+		6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
 		6D191CEE5D2F1B07416BE0FC /* AetherISHRuntime.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AetherISHRuntime.h; sourceTree = "<group>"; };
 		6D8ECFC71EF1A7DF279E9E95 /* AetherISHRuntime.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AetherISHRuntime.m; sourceTree = "<group>"; };
 		6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = LICENSE.md; path = "../third_party/ish-arm64/LICENSE.md"; sourceTree = "<group>"; };
 		7C4A84D8FFFDC6934C5070EA /* AetherUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherUITests.swift; sourceTree = "<group>"; };
-		7FC3C7F439C89DFF299C3D94 /* bridge.mjs */ = {isa = PBXFileReference; lastKnownFileType = text; path = bridge.mjs; sourceTree = "<group>"; };
+		7FC3C7F439C89DFF299C3D94 /* bridge.mjs */ = {isa = PBXFileReference; path = bridge.mjs; sourceTree = "<group>"; };
+		87E4E38C502B9B9B1C85857F /* extensions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = extensions; path = Resources/Runtime/extensions; sourceTree = SOURCE_ROOT; };
 		95EE05EFD4A21740A10B6F14 /* root.tar.gz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = root.tar.gz; sourceTree = "<group>"; };
-		96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AetherUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCanvasView.swift; sourceTree = "<group>"; };
 		A28E41D7474D6ABA5E0A522A /* fetch-polyfill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "fetch-polyfill.js"; path = "../../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/fetch-polyfill.js"; sourceTree = "<group>"; };
-		AF079DE4E9E495EEF6637D03 /* Aether.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B57B4E3EEEFF797875CB6F3D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AF079DE4E9E495EEF6637D03 /* Aether.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B57B4E3EEEFF797875CB6F3D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeTests.swift; sourceTree = "<group>"; };
-		CE1755BDDA0F604686B21930 /* AetherRuntimeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AetherRuntimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C144E2F3F6163FCD6F4E718F /* TerminalBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBuffer.swift; sourceTree = "<group>"; };
+		CAD911AAED3C27F2179F6997 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		CE1755BDDA0F604686B21930 /* AetherRuntimeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherRuntimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D05C334CA852B14A36093D07 /* libbz2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
-		D2CEF5D43AF93EE3708D9567 /* term.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = term.html; path = "../../third_party/ish-arm64/app/terminal/term.html"; sourceTree = "<group>"; };
+		D06A95D54E8485E5FDA7F0BB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D7AE7614B5115E8BA325D41F /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = usr/lib/libresolv.tbd; sourceTree = SDKROOT; };
 		D926BFE20D8045848B67FED8 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		DF450430A92471EB5F32CDDE /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = THIRD_PARTY_NOTICES.md; path = ../THIRD_PARTY_NOTICES.md; sourceTree = "<group>"; };
-		DFA930739D10E3CD3E0B3416 /* term.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = term.css; path = "../../third_party/ish-arm64/app/terminal/term.css"; sourceTree = "<group>"; };
-		E48205C39A16D1BC63209CA5 /* LICENSE.IOS */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE.IOS; path = "../third_party/ish-arm64/LICENSE.IOS"; sourceTree = "<group>"; };
+		E48205C39A16D1BC63209CA5 /* LICENSE.IOS */ = {isa = PBXFileReference; name = LICENSE.IOS; path = "../third_party/ish-arm64/LICENSE.IOS"; sourceTree = "<group>"; };
 		E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherApp.swift; sourceTree = "<group>"; };
 		EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		EF75C9934FCC6B20C304F550 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		F66BF0C15BAA8020F92F7D0D /* wasm-polyfill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "wasm-polyfill.js"; path = "../../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/wasm-polyfill.js"; sourceTree = "<group>"; };
-		A20000000000000000000001 /* AetherTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherTerminalView.swift; sourceTree = "<group>"; };
-		A20000000000000000000002 /* ANSIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSIParser.swift; sourceTree = "<group>"; };
-		A20000000000000000000003 /* TerminalBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBuffer.swift; sourceTree = "<group>"; };
-		A20000000000000000000004 /* TerminalCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCanvasView.swift; sourceTree = "<group>"; };
-		A20000000000000000000005 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
-		A20000000000000000000006 /* TerminalInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputView.swift; sourceTree = "<group>"; };
-		A20000000000000000000007 /* TerminalTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTypes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -179,14 +193,9 @@
 		6CB5B6ED690A319EE33626D7 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				0A37C59A2026072700010002 /* Assets.xcassets */,
 				6F2AD441F3F77B9427B06061 /* Runtime */,
+				D06A95D54E8485E5FDA7F0BB /* Assets.xcassets */,
 				A28E41D7474D6ABA5E0A522A /* fetch-polyfill.js */,
-				3F9CE49F90FFFE2756A65915 /* hterm_all.js */,
-				2BD629A3C6EC0E3B2B729E35 /* JetBrainsMono-Regular.ttf */,
-				DFA930739D10E3CD3E0B3416 /* term.css */,
-				D2CEF5D43AF93EE3708D9567 /* term.html */,
-				29B6EB078F2DEC7743342A7D /* term.js */,
 				F66BF0C15BAA8020F92F7D0D /* wasm-polyfill.js */,
 			);
 			path = Resources;
@@ -195,9 +204,8 @@
 		6F2AD441F3F77B9427B06061 /* Runtime */ = {
 			isa = PBXGroup;
 			children = (
-				0E52DE9EBE0E6EC3717F15B4 /* .gitkeep */,
-				AE0000012026072700010002 /* extensions */,
 				7FC3C7F439C89DFF299C3D94 /* bridge.mjs */,
+				87E4E38C502B9B9B1C85857F /* extensions */,
 				95EE05EFD4A21740A10B6F14 /* root.tar.gz */,
 			);
 			path = Runtime;
@@ -208,6 +216,7 @@
 			children = (
 				AEE74072359394A69EA78B41 /* App */,
 				F7E839E68AD64850B05EA791 /* Configuration */,
+				A391CBC571938BB3B0B64268 /* FileProvider */,
 				CA431338623A2DF9DA2FB118 /* iSH Runtime */,
 				DE96BC7960A59B0D9D94C61A /* Licenses */,
 				6CB5B6ED690A319EE33626D7 /* Resources */,
@@ -232,10 +241,34 @@
 			isa = PBXGroup;
 			children = (
 				AF079DE4E9E495EEF6637D03 /* Aether.app */,
+				464A524053D09517D505CABA /* AetherFileProvider.appex */,
 				CE1755BDDA0F604686B21930 /* AetherRuntimeTests.xctest */,
 				96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A1E0705F9D47931E8FA0E150 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */,
+				509AFB124196AC221A86909F /* ANSIParser.swift */,
+				C144E2F3F6163FCD6F4E718F /* TerminalBuffer.swift */,
+				9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */,
+				6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */,
+				0908A05CCEDE326A36B151FC /* TerminalInputView.swift */,
+				3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
+		A391CBC571938BB3B0B64268 /* FileProvider */ = {
+			isa = PBXGroup;
+			children = (
+				3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */,
+				CAD911AAED3C27F2179F6997 /* Info.plist */,
+			);
+			path = FileProvider;
 			sourceTree = "<group>";
 		};
 		A8ECB5526B0054EB6D7EDAB9 /* Tests */ = {
@@ -247,24 +280,10 @@
 			path = Tests;
 			sourceTree = "<group>";
 		};
-		A30000000000000000000001 /* Terminal */ = {
-			isa = PBXGroup;
-			children = (
-				A20000000000000000000001 /* AetherTerminalView.swift */,
-				A20000000000000000000002 /* ANSIParser.swift */,
-				A20000000000000000000003 /* TerminalBuffer.swift */,
-				A20000000000000000000004 /* TerminalCanvasView.swift */,
-				A20000000000000000000005 /* TerminalEmulator.swift */,
-				A20000000000000000000006 /* TerminalInputView.swift */,
-				A20000000000000000000007 /* TerminalTypes.swift */,
-			);
-			path = Terminal;
-			sourceTree = "<group>";
-		};
 		AEE74072359394A69EA78B41 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				A30000000000000000000001 /* Terminal */,
+				A1E0705F9D47931E8FA0E150 /* Terminal */,
 				136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */,
 				E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */,
 				2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */,
@@ -329,6 +348,23 @@
 			productReference = 96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		21E9AEFD17387AFE377254C5 /* AetherFileProvider */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C52A0DE7402EF41F2116C21B /* Build configuration list for PBXNativeTarget "AetherFileProvider" */;
+			buildPhases = (
+				C4E8966130DD8F201DF4B86C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AetherFileProvider;
+			packageProductDependencies = (
+			);
+			productName = AetherFileProvider;
+			productReference = 464A524053D09517D505CABA /* AetherFileProvider.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		D59EF0ACCA124A422E890B70 /* Aether */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1098AD2A372F4DD2918AFFA /* Build configuration list for PBXNativeTarget "Aether" */;
@@ -339,10 +375,12 @@
 				E885CAA05B4AF3999B54E2C7 /* Sources */,
 				54FC1522C074745B3897AA41 /* Resources */,
 				5046DF9BFF3D37DCD73624CE /* Frameworks */,
+				2930A8D5A641B26201087C41 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				F6BB9361879DC745F7810BFF /* PBXTargetDependency */,
 				A219C6C364CF9DCC2B5715BB /* PBXTargetDependency */,
 			);
 			name = Aether;
@@ -383,6 +421,9 @@
 						ProvisioningStyle = Automatic;
 						TestTargetID = D59EF0ACCA124A422E890B70;
 					};
+					21E9AEFD17387AFE377254C5 = {
+						ProvisioningStyle = Automatic;
+					};
 					D59EF0ACCA124A422E890B70 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -412,6 +453,7 @@
 			projectRoot = "";
 			targets = (
 				D59EF0ACCA124A422E890B70 /* Aether */,
+				21E9AEFD17387AFE377254C5 /* AetherFileProvider */,
 				E6EE86DC0266969D1D3A888C /* AetherRuntimeTests */,
 				1BF8446A0AAC14E6D852F186 /* AetherUITests */,
 			);
@@ -433,22 +475,16 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0A37C59A2026072700010001 /* Assets.xcassets in Resources */,
-				AE0000012026072700010001 /* extensions in Resources */,
-				37B3E506D9D519C3E2362C26 /* .gitkeep in Resources */,
-				07AEC078B1B8425CB1626CF8 /* JetBrainsMono-Regular.ttf in Resources */,
+				B05361F1AB399DF92E555253 /* Assets.xcassets in Resources */,
 				8C67241097C756D2BC0EBD70 /* LICENSE in Resources */,
 				3573907620374C94427D23CD /* LICENSE.IOS in Resources */,
 				08CF4E928C8BE1C146193EAC /* LICENSE.md in Resources */,
 				30C81A227B16D6CABAF7BAF3 /* PrivacyInfo.xcprivacy in Resources */,
 				B4115544917270FECC7DD257 /* THIRD_PARTY_NOTICES.md in Resources */,
 				BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */,
+				30AD3919E04F3E59C61327F4 /* extensions in Resources */,
 				B0C7744DFFD5B0D7FF572295 /* fetch-polyfill.js in Resources */,
-				6BE12262DD755897AF043F37 /* hterm_all.js in Resources */,
 				7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */,
-				AED5FAD36A0258C86E33BFB8 /* term.css in Resources */,
-				6E6AF72DF4299C5E11F94B95 /* term.html in Resources */,
-				D12A679DA1625C631D2A725D /* term.js in Resources */,
 				29422E116B5D611E33AB0B9D /* wasm-polyfill.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -532,20 +568,28 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C4E8966130DD8F201DF4B86C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A9AB37A3710FCA053173B163 /* FileProviderExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E885CAA05B4AF3999B54E2C7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000001 /* AetherTerminalView.swift in Sources */,
-				A10000000000000000000002 /* ANSIParser.swift in Sources */,
-				A10000000000000000000003 /* TerminalBuffer.swift in Sources */,
-				A10000000000000000000004 /* TerminalCanvasView.swift in Sources */,
-				A10000000000000000000005 /* TerminalEmulator.swift in Sources */,
-				A10000000000000000000006 /* TerminalInputView.swift in Sources */,
-				A10000000000000000000007 /* TerminalTypes.swift in Sources */,
+				BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */,
 				2A8EED7E02AB8DCCD1890366 /* AetherApp.swift in Sources */,
 				CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */,
 				24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */,
+				A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */,
+				EC617B7B7015EAFA12902F19 /* TerminalBuffer.swift in Sources */,
+				7906FB3BC2C49CBFD7B2F794 /* TerminalCanvasView.swift in Sources */,
+				FE54CAF7EED3E1E804AED26F /* TerminalEmulator.swift in Sources */,
+				B2E17E11F6C45D8C09220AAB /* TerminalInputView.swift in Sources */,
+				5260EA11AA36045B2165C752 /* TerminalTypes.swift in Sources */,
 				1E011A81B7404737A35E9B0E /* fakefs.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -568,6 +612,11 @@
 			target = D59EF0ACCA124A422E890B70 /* Aether */;
 			targetProxy = D8ACF056F0E6CA5EBDE26FEF /* PBXContainerItemProxy */;
 		};
+		F6BB9361879DC745F7810BFF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 21E9AEFD17387AFE377254C5 /* AetherFileProvider */;
+			targetProxy = 4AC5583727C608F170DC357C /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -575,16 +624,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				OTHER_LDFLAGS = (
-					"-framework",
-					AetherShared,
-				);
+				OTHER_LDFLAGS = "-framework AetherShared";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.baimoqilin.aether.runtime-tests";
 				PRODUCT_MODULE_NAME = AetherRuntimeTests;
 				PRODUCT_NAME = AetherRuntimeTests;
@@ -646,13 +693,53 @@
 			};
 			name = Release;
 		};
+		7BD3D181666CF87AECBB4D62 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Aether.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = FileProvider/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = com.baimoqilin.aether.fileprovider;
+				PRODUCT_MODULE_NAME = AetherFileProvider;
+				PRODUCT_NAME = AetherFileProvider;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		83691E831D91778C803ADD73 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Aether.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = FileProvider/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = com.baimoqilin.aether.fileprovider;
+				PRODUCT_MODULE_NAME = AetherFileProvider;
+				PRODUCT_NAME = AetherFileProvider;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
 		8F65DEFA5F0FDB923D7B6E4B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Aether.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = Info.plist;
@@ -673,16 +760,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				OTHER_LDFLAGS = (
-					"-framework",
-					AetherShared,
-				);
+				OTHER_LDFLAGS = "-framework AetherShared";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.baimoqilin.aether.runtime-tests";
 				PRODUCT_MODULE_NAME = AetherRuntimeTests;
 				PRODUCT_NAME = AetherRuntimeTests;
@@ -696,6 +781,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -718,7 +804,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Aether.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = Info.plist;
@@ -794,6 +882,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -836,6 +925,15 @@
 			buildConfigurations = (
 				D31BFB8E8805FFAB029AB03F /* Debug */,
 				535B5BBD68E34C96ECFC5644 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C52A0DE7402EF41F2116C21B /* Build configuration list for PBXNativeTarget "AetherFileProvider" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83691E831D91778C803ADD73 /* Debug */,
+				7BD3D181666CF87AECBB4D62 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

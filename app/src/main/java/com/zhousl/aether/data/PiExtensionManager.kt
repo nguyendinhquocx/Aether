@@ -515,6 +515,7 @@ class PiExtensionManager(
                         "The imported source did not contain a loadable Aether or Pi extension."
                     )
                 transaction.commit()
+                alpineRuntime.clearPreinstalledExtensionRemoved(transaction.destination.name)
                 installed
             } catch (throwable: Throwable) {
                 val rollbackFailure = runCatching {
@@ -573,8 +574,13 @@ class PiExtensionManager(
             aetherEntryCount == 0 &&
             nativeEntrypointCount == 0
         ) return null
+        val guestRoot = if (scope == "pi") {
+            PiUserExtensionGuestDirectory
+        } else {
+            AetherExtensionGuestDirectory
+        }
         return InstalledPiExtension(
-            id = "import:$scope:${file.canonicalPath}",
+            id = "import:$scope:$guestRoot/${file.name}",
             name = manifest?.optString("name").orEmpty().ifBlank { file.nameWithoutExtension },
             source = if (scope == "pi") "Pi user directory" else "Imported",
             version = manifest?.optString("version").orEmpty(),
@@ -818,6 +824,9 @@ class PiExtensionManager(
         }
         require(target.exists()) { "The imported extension no longer exists." }
         require(target.deleteRecursively()) { "Unable to remove the imported extension." }
+        if (target.parentFile == allowedRoots.first()) {
+            alpineRuntime.markPreinstalledExtensionRemoved(target.name)
+        }
     }
 
     private fun queryDisplayName(uri: Uri): String {

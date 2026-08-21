@@ -253,8 +253,18 @@ class AlpineRuntime(
         val list = runCatching { appContext.assets.list(assetDir) }.getOrNull() ?: return
         if (list.isEmpty()) return
         for (item in list) {
+            if (
+                assetDir == "extensions" &&
+                guestPathToHostFile("/root/.aether/.removed-preinstalled-extensions/$item").existsNoFollow()
+            ) {
+                continue
+            }
             val childAssetPath = "$assetDir/$item"
             val childGuestPath = "$guestTargetDir/$item"
+            // Aether extensions are shared with user imports. Once a user owns a
+            // top-level entry, never merge or overwrite it with bundled files.
+            val existingTarget = guestPathToHostFile(normalizePath(childGuestPath))
+            if (existingTarget.existsNoFollow()) continue
             val subList = runCatching { appContext.assets.list(childAssetPath) }.getOrNull()
             if (subList != null && subList.isNotEmpty()) {
                 installAssetDirectoryRecursively(childAssetPath, childGuestPath)
@@ -264,6 +274,25 @@ class AlpineRuntime(
                     copyAsset(childAssetPath, target, executable = false)
                 }
             }
+        }
+    }
+
+    internal fun markPreinstalledExtensionRemoved(name: String) {
+        val safeName = name.trim()
+        require(safeName.isNotBlank() && '/' !in safeName && '\\' !in safeName) {
+            "Invalid preinstalled extension name."
+        }
+        val marker = guestPathToHostFile("/root/.aether/.removed-preinstalled-extensions/$safeName")
+        require(marker.parentFile?.mkdirs() != false || marker.parentFile?.isDirectory == true) {
+            "Unable to store the removed preinstalled extension state."
+        }
+        marker.writeText("removed\n")
+    }
+
+    internal fun clearPreinstalledExtensionRemoved(name: String) {
+        val marker = guestPathToHostFile("/root/.aether/.removed-preinstalled-extensions/$name")
+        if (marker.existsNoFollow()) require(marker.delete()) {
+            "Unable to restore the preinstalled extension state."
         }
     }
 
@@ -898,8 +927,7 @@ class AlpineRuntime(
 
     private fun guestPathToHostFile(guestPath: String): File {
         val relativePath = guestPath.trim().trimStart('/')
-        require(relativePath.isNotBlank()) { "Guest path must not be blank." }
-        val target = File(rootfsDir, relativePath).canonicalFile
+        val target = if (relativePath.isBlank()) rootfsDir.canonicalFile else File(rootfsDir, relativePath).canonicalFile
         val canonicalRoot = rootfsDir.canonicalFile
         require(target.path == canonicalRoot.path || target.path.startsWith(canonicalRoot.path + File.separator)) {
             "Refusing to write outside Alpine rootfs: $guestPath"

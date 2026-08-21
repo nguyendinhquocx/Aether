@@ -10,6 +10,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 class SharedExtensionsSettingsTest {
@@ -93,7 +94,13 @@ class SharedExtensionsSettingsTest {
         removeSharedImportedExtension(runtime, installedPath)
 
         assertFalse(installedPath in runtime.files)
-        assertEquals(listOf(installedPath to true), runtime.removals)
+        assertEquals(
+            listOf(installedPath to true),
+            runtime.removals.filter { it.second },
+        )
+        assertTrue(
+            "/root/.aether/.removed-preinstalled-extensions/legacy-extension" in runtime.files,
+        )
     }
 }
 

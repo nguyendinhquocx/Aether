@@ -37,7 +37,9 @@ class PiExtensionStateRepository(
 ) {
     val disabledExtensionIds: Flow<Set<String>> =
         context.piExtensionStateDataStore.data.map { preferences ->
-            preferences[DISABLED_EXTENSION_IDS] ?: DefaultDisabledPreinstalledExtensionIds
+            (preferences[DISABLED_EXTENSION_IDS] ?: DefaultDisabledPreinstalledExtensionIds)
+                .map(::normalizeExtensionStateId)
+                .toSet()
         }
 
     suspend fun setEnabled(
@@ -46,14 +48,16 @@ class PiExtensionStateRepository(
     ) {
         val normalizedId = extensionId.trim()
         if (normalizedId.isBlank()) return
-        val baseName = normalizedId.substringAfterLast('/')
+        val stableId = normalizeExtensionStateId(normalizedId)
+        val baseName = stableId.substringAfterLast('/')
         context.piExtensionStateDataStore.edit { preferences ->
-            val disabledIds = (preferences[DISABLED_EXTENSION_IDS] ?: DefaultDisabledPreinstalledExtensionIds).toMutableSet()
+            val disabledIds = (preferences[DISABLED_EXTENSION_IDS] ?: DefaultDisabledPreinstalledExtensionIds)
+                .mapTo(mutableSetOf(), ::normalizeExtensionStateId)
             if (enabled) {
-                disabledIds.remove(normalizedId)
+                disabledIds.remove(stableId)
                 disabledIds.removeAll { it.substringAfterLast('/') == baseName }
             } else {
-                disabledIds.add(normalizedId)
+                disabledIds.add(stableId)
             }
             preferences[DISABLED_EXTENSION_IDS] = disabledIds
         }
@@ -87,11 +91,12 @@ internal fun loadOptionsForIds(
                     .substringAfter(':', "")
                     .trim()
                     .takeIf(String::isNotBlank)
+                    ?.let(::normalizeImportedExtensionPath)
                     ?.let(disabledExtensionPaths::add)
             }
 
             id.startsWith("/") -> {
-                disabledExtensionPaths.add(id)
+                disabledExtensionPaths.add(normalizeImportedExtensionPath(id))
             }
         }
     }
@@ -99,4 +104,26 @@ internal fun loadOptionsForIds(
         disabledExtensionPaths = disabledExtensionPaths,
         disabledPackageSources = disabledPackageSources,
     )
+}
+
+internal fun normalizeExtensionStateId(rawId: String): String {
+    val id = rawId.trim()
+    if (!id.startsWith("import:")) return id
+    val scope = id.substringAfter(':', "").substringBefore(':', "").trim()
+    val importedPath = id.substringAfter(':', "").substringAfter(':', "").trim()
+    if (scope.isBlank() || importedPath.isBlank()) return id
+    return "import:$scope:${normalizeImportedExtensionPath(importedPath)}"
+}
+
+internal fun normalizeImportedExtensionPath(rawPath: String): String {
+    val path = rawPath.trim()
+    val guestRoots = listOf(
+        "/root/.aether/extensions",
+        "/root/.pi/agent/extensions",
+    )
+    guestRoots.forEach { guestRoot ->
+        val rootIndex = path.lastIndexOf(guestRoot)
+        if (rootIndex >= 0) return path.substring(rootIndex)
+    }
+    return path
 }

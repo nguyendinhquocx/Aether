@@ -714,7 +714,8 @@ class AetherNativeModManager(
             .distinctBy { it.canonicalPath }
             .sortedBy { it.name.lowercase(Locale.US) }
             .forEach { packageRoot ->
-                if (packageRoot.canonicalPath in disabledPaths) return@forEach
+                val guestPath = "$AetherNativeExtensionGuestDirectory/${packageRoot.name}"
+                if (guestPath in disabledPaths) return@forEach
                 val manifestFile = File(packageRoot, "package.json")
                 if (!manifestFile.isFile) return@forEach
                 runCatching {

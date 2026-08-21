@@ -131,6 +131,7 @@ import com.zhousl.aether.platform.LocalReduceMotion
 import com.zhousl.aether.mod.AetherNativeModState
 import com.zhousl.aether.runtime.LocalRuntimeIssue
 import com.zhousl.aether.runtime.LocalRuntimeSetupState
+import com.zhousl.aether.runtime.AndroidAlpineFileManagerRuntime
 import com.zhousl.aether.termux.TermuxContract
 import com.zhousl.aether.termux.TermuxSetupIssue
 import com.zhousl.aether.termux.TermuxSetupState
@@ -443,6 +444,9 @@ private fun AetherAppContent(
         (context.applicationContext as AetherApplication).runtime
     }
     val workspaceFileBridge = appRuntime.workspaceFileBridge
+    val alpineFileManagerRuntime = remember(appRuntime.alpineRuntime) {
+        AndroidAlpineFileManagerRuntime(appRuntime.alpineRuntime)
+    }
     val runtimeWorkspaceFileBridge = appRuntime.runtimeWorkspaceFileBridge
     val activeSession = uiState.sessions.firstOrNull { it.id == uiState.currentSessionId }
     val activeProviderConfig = uiState.providerConfigs.firstOrNull { it.isEnabled }
@@ -1083,6 +1087,7 @@ private fun AetherAppContent(
                     defaultRuntimeId = uiState.settings.defaultRuntimeId,
                     alpinePackageProfiles = uiState.settings.alpinePackageProfiles,
                     alpinePackageInstallProgress = uiState.alpinePackageInstallProgress,
+                    alpineFileManagerRuntime = alpineFileManagerRuntime,
                     developerTermuxReadyOverride = uiState.developerTermuxReadyOverride,
                     installedSkills = uiState.installedSkills,
                     installedPiExtensions = uiState.installedPiExtensions,

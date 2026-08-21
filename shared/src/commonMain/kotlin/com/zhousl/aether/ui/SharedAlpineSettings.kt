@@ -21,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -247,6 +248,7 @@ internal fun SharedAlpineSettingsDetailPage(
     onSettingsSaved: (AppSettings) -> Unit,
     onResetSettingsSaved: suspend (AppSettings) -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenFiles: () -> Unit,
     onTransientMessage: (String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -622,6 +624,10 @@ internal fun SharedAlpineSettingsDetailPage(
             trailingEnabled = ready,
             trailingContentDescription = stringResource(Res.string.settings_open_terminal),
             onTrailingAction = onOpenTerminal,
+            secondaryTrailingIcon = Icons.Rounded.Folder,
+            secondaryTrailingEnabled = ready,
+            secondaryTrailingContentDescription = stringResource(Res.string.file_manager_title),
+            onSecondaryTrailingAction = onOpenFiles,
         )
     }
 }

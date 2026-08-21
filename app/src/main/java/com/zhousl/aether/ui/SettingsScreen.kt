@@ -188,6 +188,7 @@ import com.zhousl.aether.runtime.LocalRuntimeSetupState
 import com.zhousl.aether.runtime.AlpineSetupActivity
 import com.zhousl.aether.runtime.AlpineSetupProgress
 import com.zhousl.aether.runtime.AlpineTerminalLaunchSpec
+import com.zhousl.aether.runtime.MultiplatformLocalRuntime
 import com.zhousl.aether.termux.TermuxSetupState
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnPrimary
@@ -233,6 +234,7 @@ private enum class SettingsPage {
     Termux,
     Alpine,
     AlpineTerminal,
+    AlpineFiles,
     AlpineChrome,
     RuntimeDefaults,
     AgentMode,
@@ -273,6 +275,7 @@ private fun SettingsPage.depth(): Int = when (this) {
     SettingsPage.AddScheduledTask,
     SettingsPage.EditScheduledTask,
     SettingsPage.AlpineTerminal,
+    SettingsPage.AlpineFiles,
     SettingsPage.AlpineChrome,
     SettingsPage.RootSetupProgress -> 2
     SettingsPage.ExtensionSettingsCategory -> 2
@@ -445,6 +448,7 @@ fun SettingsScreen(
     defaultRuntimeId: LocalRuntimeId?,
     alpinePackageProfiles: Map<String, PackageProfileState>,
     alpinePackageInstallProgress: Map<String, AlpineSetupProgress>,
+    alpineFileManagerRuntime: MultiplatformLocalRuntime,
     developerTermuxReadyOverride: Boolean?,
     installedSkills: List<com.zhousl.aether.data.InstalledSkill>,
     installedPiExtensions: List<InstalledPiExtension>,
@@ -728,6 +732,7 @@ fun SettingsScreen(
         SettingsPage.AddMcpServer, SettingsPage.EditMcpServer -> SettingsPage.McpServers
         SettingsPage.AddScheduledTask, SettingsPage.EditScheduledTask -> SettingsPage.ScheduledTasks
         SettingsPage.AlpineTerminal,
+        SettingsPage.AlpineFiles,
         SettingsPage.AlpineChrome -> SettingsPage.Alpine
         SettingsPage.RootSetupProgress -> rootSetupReturnPageValue()
         else -> SettingsPage.Hub
@@ -1235,6 +1240,7 @@ fun SettingsScreen(
                 onInstallPackageProfile = onInstallAlpinePackageProfile,
                 onSetDefault = { onSetDefaultRuntime(LocalRuntimeId.Alpine) },
                 onOpenTerminal = { currentPage = SettingsPage.AlpineTerminal.name },
+                onOpenFiles = { currentPage = SettingsPage.AlpineFiles.name },
                 onOpenChrome = { currentPage = SettingsPage.AlpineChrome.name },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
@@ -1243,6 +1249,20 @@ fun SettingsScreen(
                 createLaunchSpec = onCreateAlpineTerminalLaunchSpec,
                 onBack = { currentPage = SettingsPage.Alpine.name },
             )
+
+            SettingsPage.AlpineFiles -> {
+                val fileManagerState = rememberSharedFileManagerState()
+                BackHandler {
+                    if (!fileManagerState.navigateBack()) {
+                        currentPage = SettingsPage.Alpine.name
+                    }
+                }
+                SharedFileManagerScreen(
+                    runtime = alpineFileManagerRuntime,
+                    onBack = { currentPage = SettingsPage.Alpine.name },
+                    state = fileManagerState,
+                )
+            }
 
             SettingsPage.AlpineChrome -> AlpineChromeScreen(
                 onStart = onStartAlpineChrome,
@@ -5897,6 +5917,7 @@ private fun AlpineSettingsPage(
     onInstallPackageProfile: (String) -> Unit,
     onSetDefault: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenFiles: () -> Unit,
     onOpenChrome: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -5910,10 +5931,14 @@ private fun AlpineSettingsPage(
         trailingEnabled = setupState.isReady,
         trailingContentDescription = stringResource(R.string.settings_open_terminal),
         onTrailingAction = onOpenTerminal,
-        secondaryTrailingIcon = Icons.Rounded.Public,
-        secondaryTrailingEnabled = packageProfiles["chrome"]?.installed == true,
-        secondaryTrailingContentDescription = stringResource(R.string.settings_open_chrome),
-        onSecondaryTrailingAction = onOpenChrome,
+        secondaryTrailingIcon = Icons.Rounded.Folder,
+        secondaryTrailingEnabled = setupState.isReady,
+        secondaryTrailingContentDescription = "Open files",
+        onSecondaryTrailingAction = onOpenFiles,
+        tertiaryTrailingIcon = Icons.Rounded.Public,
+        tertiaryTrailingEnabled = packageProfiles["chrome"]?.installed == true,
+        tertiaryTrailingContentDescription = stringResource(R.string.settings_open_chrome),
+        onTertiaryTrailingAction = onOpenChrome,
     ) {
         Text(
             text = stringResource(R.string.settings_alpine_description),
@@ -7294,6 +7319,10 @@ private fun SubPageScaffold(
     secondaryTrailingEnabled: Boolean = true,
     secondaryTrailingContentDescription: String = title,
     onSecondaryTrailingAction: (() -> Unit)? = null,
+    tertiaryTrailingIcon: ImageVector? = null,
+    tertiaryTrailingEnabled: Boolean = true,
+    tertiaryTrailingContentDescription: String = title,
+    onTertiaryTrailingAction: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     var topBarBodyHeightPx by remember { mutableIntStateOf(0) }
@@ -7341,6 +7370,10 @@ private fun SubPageScaffold(
                 secondaryTrailingEnabled = secondaryTrailingEnabled,
                 secondaryTrailingContentDescription = secondaryTrailingContentDescription,
                 onSecondaryTrailingAction = onSecondaryTrailingAction,
+                tertiaryTrailingIcon = tertiaryTrailingIcon,
+                tertiaryTrailingEnabled = tertiaryTrailingEnabled,
+                tertiaryTrailingContentDescription = tertiaryTrailingContentDescription,
+                onTertiaryTrailingAction = onTertiaryTrailingAction,
                 onBodyHeightChanged = { topBarBodyHeightPx = it },
             )
         }
@@ -7363,6 +7396,10 @@ private fun SettingsTopBarOverlay(
     secondaryTrailingEnabled: Boolean = true,
     secondaryTrailingContentDescription: String = title,
     onSecondaryTrailingAction: (() -> Unit)? = null,
+    tertiaryTrailingIcon: ImageVector? = null,
+    tertiaryTrailingEnabled: Boolean = true,
+    tertiaryTrailingContentDescription: String = title,
+    onTertiaryTrailingAction: (() -> Unit)? = null,
     onBodyHeightChanged: (Int) -> Unit,
 ) {
     Column(
@@ -7386,6 +7423,10 @@ private fun SettingsTopBarOverlay(
                 secondaryTrailingEnabled = secondaryTrailingEnabled,
                 secondaryTrailingContentDescription = secondaryTrailingContentDescription,
                 onSecondaryTrailingAction = onSecondaryTrailingAction,
+                tertiaryTrailingIcon = tertiaryTrailingIcon,
+                tertiaryTrailingEnabled = tertiaryTrailingEnabled,
+                tertiaryTrailingContentDescription = tertiaryTrailingContentDescription,
+                onTertiaryTrailingAction = onTertiaryTrailingAction,
             )
         }
         Spacer(
@@ -7410,6 +7451,10 @@ private fun SettingsTopBar(
     secondaryTrailingEnabled: Boolean = true,
     secondaryTrailingContentDescription: String = title,
     onSecondaryTrailingAction: (() -> Unit)? = null,
+    tertiaryTrailingIcon: ImageVector? = null,
+    tertiaryTrailingEnabled: Boolean = true,
+    tertiaryTrailingContentDescription: String = title,
+    onTertiaryTrailingAction: (() -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -7427,13 +7472,23 @@ private fun SettingsTopBar(
             text = title,
             style = MaterialTheme.typography.titleMedium,
             color = AetherOnSurface,
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(x = if (tertiaryTrailingIcon != null) (-48).dp else 0.dp),
         )
         Row(
             modifier = Modifier.align(Alignment.CenterEnd),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (tertiaryTrailingIcon != null && onTertiaryTrailingAction != null) {
+                SettingsCircleButton(
+                    icon = tertiaryTrailingIcon,
+                    contentDescription = tertiaryTrailingContentDescription,
+                    enabled = tertiaryTrailingEnabled,
+                    onClick = onTertiaryTrailingAction,
+                )
+            }
             if (secondaryTrailingIcon != null && onSecondaryTrailingAction != null) {
                 SettingsCircleButton(
                     icon = secondaryTrailingIcon,

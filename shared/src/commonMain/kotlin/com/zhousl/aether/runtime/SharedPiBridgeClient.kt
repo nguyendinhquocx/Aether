@@ -516,6 +516,10 @@ class SharedPiBridgeClient(
         scope.cancel()
     }
 
+    fun dispose() {
+        scope.launch { close() }
+    }
+
     private suspend fun ensureStarted(
         onStarting: () -> Unit = {},
     ): RuntimeProcess {

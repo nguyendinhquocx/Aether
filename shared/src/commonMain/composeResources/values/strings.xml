@@ -1081,4 +1081,15 @@
     <string name="runtime_setup_message">Let&apos;s prepare the Alpine workspace used by Aether&apos;s local tools.</string>
     <string name="runtime_setup_ready_message">Alpine, Node 22, and the local workspace are ready.</string>
     <string name="common_stop">Stop</string>
+    <string name="file_manager_title">Files</string>
+    <string name="file_manager_open">Open</string>
+    <string name="file_manager_create_file">New file</string>
+    <string name="file_manager_create_folder">New folder</string>
+    <string name="file_manager_rename">Rename</string>
+    <string name="file_manager_delete">Delete</string>
+    <string name="file_manager_new_name">Name</string>
+    <string name="file_manager_empty">This folder is empty</string>
+    <string name="file_manager_view_grid">Grid view</string>
+    <string name="file_manager_view_list">List view</string>
+    <string name="common_confirm">Confirm</string>
 </resources>

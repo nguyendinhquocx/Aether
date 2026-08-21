@@ -58,6 +58,8 @@ import com.zhousl.aether.platform.PlatformTerminalSurface
 import com.zhousl.aether.platform.PlatformTerminalInputEvent
 import com.zhousl.aether.platform.PlatformTerminalKey
 import com.zhousl.aether.platform.platformNativeTerminalAvailable
+import com.zhousl.aether.platform.NoOpPlatformServices
+import com.zhousl.aether.platform.createBackgroundExecutionManager
 import com.zhousl.aether.shared.resources.Res
 import com.zhousl.aether.shared.resources.back_label
 import com.zhousl.aether.shared.resources.common_send
@@ -82,6 +84,17 @@ fun SharedTerminalScreen(
     runtime: MultiplatformLocalRuntime,
     onBack: () -> Unit,
 ) {
+    val platformServices = LocalPlatformServices.current ?: NoOpPlatformServices
+    val backgroundExecutionManager = remember(platformServices) {
+        createBackgroundExecutionManager(platformServices)
+    }
+    val terminalBackgroundLease = remember(backgroundExecutionManager) {
+        backgroundExecutionManager.begin("Aether Alpine Terminal") {}
+    }
+    DisposableEffect(terminalBackgroundLease) {
+        onDispose { terminalBackgroundLease.end() }
+    }
+
     if (platformNativeTerminalAvailable) {
         var inputSequence by remember { mutableStateOf(0) }
         var inputEvent by remember { mutableStateOf<PlatformTerminalInputEvent?>(null) }

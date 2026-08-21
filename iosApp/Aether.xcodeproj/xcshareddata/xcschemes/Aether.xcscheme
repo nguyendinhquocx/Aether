@@ -21,6 +21,20 @@
                ReferencedContainer = "container:Aether.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "21E9AEFD17387AFE377254C5"
+               BuildableName = "AetherFileProvider.appex"
+               BlueprintName = "AetherFileProvider"
+               ReferencedContainer = "container:Aether.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

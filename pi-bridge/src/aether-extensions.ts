@@ -43,6 +43,10 @@ export type {
   AetherUi,
   AetherView,
 } from "../../packages/extension-api/src/index.js";
+import {
+  ensureExtensionPackageDependencies,
+  packageRootForExtensionPath,
+} from "./extension-dependencies.js";
 
 export interface AetherExtensionTransport {
   requestHost(method: string, args: AetherJsonObject): Promise<AetherJsonObject>;
@@ -224,6 +228,69 @@ function createEmptyRuntime(cwd: string): AetherRuntimeState {
     events: new Map(),
     errors: [],
   };
+}
+
+function removeExtensionRegistrations(
+  runtimeState: AetherRuntimeState,
+  extension: LoadedAetherExtension,
+): void {
+  for (const [id, registration] of runtimeState.surfaces) {
+    if (registration.extension === extension) runtimeState.surfaces.delete(id);
+  }
+  for (const [id, registration] of runtimeState.components) {
+    if (registration.extension === extension) runtimeState.components.delete(id);
+  }
+  for (const [id, registration] of runtimeState.settings) {
+    if (registration.extension === extension) runtimeState.settings.delete(id);
+  }
+  for (const [id, registration] of runtimeState.composerMenuItems) {
+    if (registration.extension === extension) runtimeState.composerMenuItems.delete(id);
+  }
+  for (const [id, registration] of runtimeState.messageTypes) {
+    if (registration.extension === extension) runtimeState.messageTypes.delete(id);
+  }
+  for (const [id, registration] of runtimeState.toolTitles) {
+    if (registration.extension === extension) runtimeState.toolTitles.delete(id);
+  }
+  for (const [id, action] of runtimeState.actions) {
+    if (action.extension === extension) runtimeState.actions.delete(id);
+  }
+  for (const [eventName, handlers] of runtimeState.events) {
+    const remaining = handlers.filter((handler) => handler.extension !== extension);
+    if (remaining.length > 0) runtimeState.events.set(eventName, remaining);
+    else runtimeState.events.delete(eventName);
+  }
+}
+
+function retainExtensionRegistrations(
+  target: AetherRuntimeState,
+  source: AetherRuntimeState,
+  extension: LoadedAetherExtension,
+): void {
+  const retain = <T extends { extension: LoadedAetherExtension }>(
+    targetMap: Map<string, T>,
+    sourceMap: Map<string, T>,
+  ) => {
+    for (const [id, registration] of sourceMap) {
+      if (registration.extension === extension) targetMap.set(id, registration);
+    }
+  };
+  retain(target.surfaces, source.surfaces);
+  retain(target.components, source.components);
+  retain(target.settings, source.settings);
+  retain(target.composerMenuItems, source.composerMenuItems);
+  retain(target.messageTypes, source.messageTypes);
+  retain(target.toolTitles, source.toolTitles);
+  for (const [id, action] of source.actions) {
+    if (action.extension === extension) target.actions.set(id, action);
+  }
+  for (const [eventName, handlers] of source.events) {
+    const retained = handlers.filter((handler) => handler.extension === extension);
+    if (retained.length > 0) {
+      target.events.set(eventName, [...(target.events.get(eventName) ?? []), ...retained]);
+    }
+  }
+  target.toolTitleSequence = Math.max(target.toolTitleSequence, source.toolTitleSequence);
 }
 
 function asObject(value: unknown): AetherJsonObject {
@@ -997,8 +1064,10 @@ async function loadFactory(
 async function cleanupRuntime(
   previous: AetherRuntimeState,
   errorTarget: AetherRuntimeState = previous,
+  preservedExtensions: Set<LoadedAetherExtension> = new Set(),
 ): Promise<void> {
   for (const extension of [...previous.extensions].reverse()) {
+    if (preservedExtensions.has(extension)) continue;
     if (!extension.cleanup) continue;
     try {
       await extension.cleanup();
@@ -1106,9 +1175,17 @@ async function loadAetherAppExtensionsUnlocked(
   const previous = runtime;
   const candidate = createEmptyRuntime(cwd);
   const descriptors = await discoverAetherExtensionEntries(cwd, loadOptions);
+  const installedDependencyRoots = new Set<string>();
+  const preservedExtensions = new Set<LoadedAetherExtension>();
+  let successfulLoads = 0;
   for (const descriptor of descriptors) {
     const extension: LoadedAetherExtension = { ...descriptor };
     try {
+      const packageRoot = packageRootForExtensionPath(descriptor.path, AETHER_EXTENSION_ROOT);
+      if (packageRoot && !installedDependencyRoots.has(packageRoot)) {
+        installedDependencyRoots.add(packageRoot);
+        await ensureExtensionPackageDependencies(packageRoot);
+      }
       if (descriptor.compatibilityError) {
         throw new Error(descriptor.compatibilityError);
       }
@@ -1117,17 +1194,27 @@ async function loadAetherAppExtensionsUnlocked(
       const cleanup = await factory(createApi(candidate, extension));
       if (typeof cleanup === "function") extension.cleanup = cleanup;
       candidate.extensions.push(extension);
+      successfulLoads += 1;
     } catch (error) {
+      removeExtensionRegistrations(candidate, extension);
       recordRuntimeError(candidate, {
         path: descriptor.path,
         extension_id: descriptor.id,
         phase: "load",
         error: errorMessage(error),
       });
+      const previousExtension = previous.extensions.find((entry) =>
+        path.resolve(entry.path) === path.resolve(descriptor.path)
+      );
+      if (previousExtension) {
+        retainExtensionRegistrations(candidate, previous, previousExtension);
+        candidate.extensions.push(previousExtension);
+        preservedExtensions.add(previousExtension);
+      }
     }
   }
-  if (candidate.errors.length > 0) {
-    await cleanupRuntime(candidate);
+  if (candidate.errors.length > 0 && successfulLoads === 0) {
+    await cleanupRuntime(candidate, candidate, preservedExtensions);
     for (const error of candidate.errors) recordRuntimeError(previous, error);
     bumpVersion();
     return {
@@ -1138,11 +1225,11 @@ async function loadAetherAppExtensionsUnlocked(
   runtime = candidate;
   currentLoadOptions = cloneJson(loadOptions);
   configureExtensionWatchers(candidate);
-  await cleanupRuntime(previous, candidate);
+  await cleanupRuntime(previous, candidate, preservedExtensions);
   bumpVersion();
   return {
     reloaded: true,
-    errors: [],
+    errors: candidate.errors,
   };
 }
 

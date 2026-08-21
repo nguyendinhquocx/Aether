@@ -24,7 +24,14 @@ targets:
       - path: Runtime
       - path: ../third_party/ish-arm64/tools/fakefs.c
         group: iSH Runtime
-      - path: Resources
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      - path: Resources/Runtime/bridge.mjs
+        buildPhase: resources
+      - path: Resources/Runtime/root.tar.gz
+        buildPhase: resources
+      - path: Resources/Runtime/extensions
+        type: folder
         buildPhase: resources
       - path: ../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/wasm-polyfill.js
         group: Resources
@@ -57,6 +64,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Aether accesses local network services only when you connect a self-hosted AI provider or MCP server.
@@ -71,6 +80,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UILaunchScreen: {}
     dependencies:
+      - target: AetherFileProvider
       - target: libarchive/libarchive
       - sdk: SystemConfiguration.framework
       - sdk: libbz2.tbd
@@ -93,11 +103,39 @@ targets:
         basedOnDependencyAnalysis: false
     settings:
       base:
+        CODE_SIGN_ENTITLEMENTS: Aether.entitlements
+        CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
         CLANG_ENABLE_MODULES: YES
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         ONLY_ACTIVE_ARCH: YES
+  AetherFileProvider:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: FileProvider
+    info:
+      path: FileProvider/Info.plist
+      properties:
+        CFBundleDisplayName: Aether File Provider
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionFileProviderDocumentGroup: group.com.baimoqilin.aether
+          NSExtensionFileProviderSupportsEnumeration: true
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.baimoqilin.aether.fileprovider
+        PRODUCT_NAME: AetherFileProvider
+        PRODUCT_MODULE_NAME: AetherFileProvider
+        CODE_SIGN_ENTITLEMENTS: Aether.entitlements
+        CODE_SIGN_STYLE: Automatic
+        OTHER_LDFLAGS: ""
+    dependencies: []
   AetherRuntimeTests:
     type: bundle.unit-test
     platform: iOS
@@ -111,6 +149,7 @@ targets:
         PRODUCT_NAME: AetherRuntimeTests
         PRODUCT_MODULE_NAME: AetherRuntimeTests
         PRODUCT_BUNDLE_IDENTIFIER: com.baimoqilin.aether.runtime-tests
+        CODE_SIGN_STYLE: Automatic
         SWIFT_OBJC_BRIDGING_HEADER: ""
         OTHER_LDFLAGS: -framework AetherShared
         GENERATE_INFOPLIST_FILE: YES
@@ -127,6 +166,7 @@ targets:
         PRODUCT_NAME: AetherUITests
         PRODUCT_MODULE_NAME: AetherUITests
         PRODUCT_BUNDLE_IDENTIFIER: com.baimoqilin.aether.ui-tests
+        CODE_SIGN_STYLE: Automatic
         SWIFT_OBJC_BRIDGING_HEADER: ""
         OTHER_LDFLAGS: ""
         GENERATE_INFOPLIST_FILE: YES
@@ -135,6 +175,7 @@ schemes:
     build:
       targets:
         Aether: all
+        AetherFileProvider: all
     run:
       config: Debug
     test:

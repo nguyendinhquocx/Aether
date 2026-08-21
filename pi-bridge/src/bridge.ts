@@ -178,6 +178,7 @@ interface AgentSessionState {
   settingsManager: SettingsManager;
   configuredExtensionPaths: string[];
   pendingReload: boolean;
+  pendingRecreate: boolean;
   currentRequestId: string;
   turnStartedAtMillis?: number;
   firstAssistantEventAtMillis?: number;
@@ -205,6 +206,11 @@ let currentExtensionLoadOptions = {
   disabledExtensionPaths: [] as string[],
   disabledPackageSources: [] as string[],
 };
+
+interface NativeExtensionLoadOptions {
+  disabledExtensionPaths: string[];
+  disabledPackageSources: string[];
+}
 
 interface SharedCredentialState {
   credential?: Credential;
@@ -2145,7 +2151,13 @@ function emitAgentSessionEvent(state: AgentSessionState, event: AgentSessionEven
       writeEvent(requestId, "session_entry_appended", { entry: event.entry });
       return;
     case "agent_settled":
-      if (state.pendingReload) {
+      if (state.pendingRecreate) {
+        state.pendingRecreate = false;
+        state.pendingReload = false;
+        void closeNativeAgentSession(state.sessionId).catch((error) => {
+          stderr.write(`pi session recreation cleanup failed: ${errorMessageWithCause(error)}\n`);
+        });
+      } else if (state.pendingReload) {
         state.pendingReload = false;
         void state.session.reload().catch((error) => {
           stderr.write(`pi session reload failed: ${errorMessageWithCause(error)}\n`);
@@ -2155,6 +2167,41 @@ function emitAgentSessionEvent(state: AgentSessionState, event: AgentSessionEven
     default:
       return;
   }
+}
+
+function nativeExtensionPathIsDisabled(candidatePath: string, disabledPaths: Set<string>): boolean {
+  const candidate = path.resolve(candidatePath);
+  return [...disabledPaths].some((disabledPath) => {
+    const relative = path.relative(disabledPath, candidate);
+    return relative === "" || (
+      !relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative)
+    );
+  });
+}
+
+async function resolveNativeExtensionSet(
+  workspaceDirectory: string,
+  configuredExtensionPaths: string[],
+  loadOptions: NativeExtensionLoadOptions,
+): Promise<{ extensionPaths: string[]; signature: string }> {
+  const disabledPaths = new Set(
+    loadOptions.disabledExtensionPaths.map((entry) => path.resolve(entry)),
+  );
+  const discoveredPaths = discoverAetherExtensionPaths(
+    workspaceDirectory,
+    configuredExtensionPaths,
+  ).filter((candidate) => !nativeExtensionPathIsDisabled(candidate, disabledPaths));
+  const packagePaths = await discoverPackageExtensionPaths(
+    workspaceDirectory,
+    new Set(loadOptions.disabledPackageSources),
+  );
+  const extensionPaths = [...new Set([...discoveredPaths, ...packagePaths])].sort();
+  return {
+    extensionPaths,
+    signature: JSON.stringify(extensionPaths),
+  };
 }
 
 async function createNativeAgentSession(
@@ -2170,23 +2217,19 @@ async function createNativeAgentSession(
   const built = await buildModelRuntime(config);
   const settingsManager = sessionSettings(payload, config);
   const agentDir = asString(payload.agent_directory, path.join(os.homedir(), ".pi", "agent"));
-  const disabledPaths = stringArray(payload.disabled_extension_paths).map((entry) => path.resolve(entry));
   const configuredExtensionPaths = stringArray(payload.extension_paths);
-  const additionalExtensionPaths = discoverAetherExtensionPaths(workspaceDirectory, configuredExtensionPaths)
-    .filter((candidate) => !disabledPaths.some((disabled) => {
-      const relative = path.relative(disabled, candidate);
-      return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-    }));
   // Extension files are part of the session's tool registry. Include the
   // resolved set in the reuse key so installing/enabling a package cannot
   // leave an existing session with a stale tool list.
-  const packageExtensionPaths = await discoverPackageExtensionPaths(
-    workspaceDirectory,
-    new Set(stringArray(payload.disabled_package_sources)),
-  );
-  const extensionSignature = JSON.stringify(
-    [...new Set([...additionalExtensionPaths, ...packageExtensionPaths])].sort(),
-  );
+  const { extensionPaths: additionalExtensionPaths, signature: extensionSignature } =
+    await resolveNativeExtensionSet(
+      workspaceDirectory,
+      configuredExtensionPaths,
+      {
+        disabledExtensionPaths: stringArray(payload.disabled_extension_paths),
+        disabledPackageSources: stringArray(payload.disabled_package_sources),
+      },
+    );
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspaceDirectory,
     agentDir,
@@ -2229,6 +2272,7 @@ async function createNativeAgentSession(
     settingsManager,
     configuredExtensionPaths,
     pendingReload: false,
+    pendingRecreate: false,
     currentRequestId: "",
     toolArgsById: new Map<string, unknown>(),
     lastAccessedAt: Date.now(),
@@ -2485,21 +2529,15 @@ async function prepareNativeAgentSession(
   if (!sessionId) throw new Error("session_id is required for Pi AgentSession.");
   const platform = platformForPayload(payload);
   const signature = hostToolSignature(allowedHostToolDefinitions(payload.host_tools, platform));
-  const disabledPaths = stringArray(payload.disabled_extension_paths).map((entry) => path.resolve(entry));
   const configuredExtensionPaths = stringArray(payload.extension_paths);
-  const extensionPaths = discoverAetherExtensionPaths(
-    asString(payload.workspace_directory, process.cwd()) || process.cwd(),
+  const workspaceDirectory = asString(payload.workspace_directory, process.cwd()) || process.cwd();
+  const { signature: extensionSignature } = await resolveNativeExtensionSet(
+    workspaceDirectory,
     configuredExtensionPaths,
-  ).filter((candidate) => !disabledPaths.some((disabled) => {
-    const relative = path.relative(disabled, candidate);
-    return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-  }));
-  const packageExtensionPaths = await discoverPackageExtensionPaths(
-    asString(payload.workspace_directory, process.cwd()) || process.cwd(),
-    new Set(stringArray(payload.disabled_package_sources)),
-  );
-  const extensionSignature = JSON.stringify(
-    [...new Set([...extensionPaths, ...packageExtensionPaths])].sort(),
+    {
+      disabledExtensionPaths: stringArray(payload.disabled_extension_paths),
+      disabledPackageSources: stringArray(payload.disabled_package_sources),
+    },
   );
   const skillSignature = JSON.stringify(stringArray(payload.skill_paths).sort());
   const existing = agentSessions.get(sessionId);
@@ -2508,7 +2546,7 @@ async function prepareNativeAgentSession(
     existing.toolSignature === signature &&
     existing.extensionSignature === extensionSignature &&
     existing.skillSignature === skillSignature &&
-    existing.workspaceDirectory === asString(payload.workspace_directory, process.cwd()) &&
+    existing.workspaceDirectory === workspaceDirectory &&
     existing.runtime === runtimeForPayload(payload);
   if (existing && !reusable) await closeNativeAgentSession(sessionId);
   if (!reusable) {
@@ -2869,24 +2907,46 @@ async function reloadAllExtensionSessions(
   payload: JsonObject = {},
 ): Promise<JsonObject> {
   const loadOptions = nativeExtensionLoadOptionsFromPayload(payload);
+  // Preinstalled packages can provide both Pi and Aether entrypoints. Resolve
+  // their npm dependencies before reloading native Pi sessions so both loaders
+  // observe the same ready package tree.
+  const aetherReload = await loadAetherAppExtensions(process.cwd(), loadOptions);
   const results: JsonObject[] = [];
-  for (const state of agentSessions.values()) {
+  for (const state of [...agentSessions.values()]) {
+    const { signature: extensionSignature } = await resolveNativeExtensionSet(
+      state.workspaceDirectory,
+      state.configuredExtensionPaths,
+      loadOptions,
+    );
+    const requiresRecreation = extensionSignature !== state.extensionSignature;
     const scheduled = !state.session.isIdle;
-    if (scheduled) state.pendingReload = true;
-    else await state.session.reload();
+    if (scheduled) {
+      state.pendingReload = true;
+      state.pendingRecreate = requiresRecreation;
+    } else if (requiresRecreation) {
+      await closeNativeAgentSession(state.sessionId);
+    } else {
+      await state.session.reload();
+    }
     results.push({
       session_id: state.sessionId,
       reloaded: !scheduled,
       scheduled,
-      errors: state.resourceLoader.getExtensions().errors,
+      recreated_on_next_use: requiresRecreation,
+      errors: requiresRecreation ? [] : state.resourceLoader.getExtensions().errors,
     });
   }
-  const aetherReload = await loadAetherAppExtensions(process.cwd(), loadOptions);
+  // ResourceLoader keeps healthy extensions active while reporting broken ones as
+  // diagnostics. A diagnostic must not make an unrelated import/enable operation
+  // fail; an actual reload exception is already propagated above.
   const sessionReloadSucceeded = results.every((result) =>
-    Array.isArray(result.errors) && result.errors.length === 0
+    result.reloaded === true || result.scheduled === true
   );
   return {
-    succeeded: sessionReloadSucceeded && aetherReload.reloaded,
+    // Aether Script extensions are reloaded independently. Keep the session
+    // operation usable when one unrelated Aether extension remains broken; its
+    // details are still returned in aether_reload.errors for diagnostics.
+    succeeded: sessionReloadSucceeded,
     session_count: results.length,
     sessions: results,
     aether_reload: aetherReload,

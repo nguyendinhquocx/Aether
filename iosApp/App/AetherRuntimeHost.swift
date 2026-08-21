@@ -58,6 +58,8 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     private let runtime = AetherISHRuntime.shared()
     private let operations = DispatchQueue(label: "com.baimoqilin.aether.runtime-host")
     private var initialized = false
+    private var initializationInProgress = false
+    private var initializationListeners: [NativeRuntimeInitializationListener] = []
     private var filePickerListener: NativePickedFileListener?
     private var filesPickerListener: NativePickedFilesListener?
     private var directoryPickerListener: NativePickedDirectoryListener?
@@ -155,29 +157,43 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
 
     func initialize(listener: NativeRuntimeInitializationListener) {
         operations.async { [self] in
-            do {
-                try purgePendingAlpineReset()
-            } catch {
-                onMain { listener.onError(message: error.localizedDescription) }
-                return
-            }
             if initialized {
                 onMain { listener.onReady() }
                 return
             }
-            onMain { listener.onProgress(phase: "rootfs", detail: "Preparing Alpine", fraction: 0.02) }
+            initializationListeners.append(listener)
+            guard !initializationInProgress else { return }
+            initializationInProgress = true
+
+            do {
+                try purgePendingAlpineReset()
+            } catch {
+                finishInitialization(error: error.localizedDescription)
+                return
+            }
+            reportInitializationProgress(
+                phase: "rootfs",
+                detail: "Preparing Alpine",
+                fraction: 0.02
+            )
             runtime.initialize(
                 progress: { phase, detail, fraction in
-                    self.onMain {
-                        listener.onProgress(phase: phase, detail: detail, fraction: fraction)
+                    self.operations.async {
+                        self.reportInitializationProgress(
+                            phase: phase,
+                            detail: detail,
+                            fraction: fraction
+                        )
                     }
                 },
                 completion: { error in
-                    if let error {
-                        self.onMain { listener.onError(message: error.localizedDescription) }
-                        return
+                    self.operations.async {
+                        if let error {
+                            self.finishInitialization(error: error.localizedDescription)
+                        } else {
+                            self.prepareInitializedRuntime()
+                        }
                     }
-                    self.finishInitialization(listener: listener)
                 }
             )
         }
@@ -232,35 +248,35 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         }
     }
 
-    private func finishInitialization(listener: NativeRuntimeInitializationListener) {
-        operations.async { [self] in
-            do {
-                let workspace = try workspaceURL()
-                let chromeRuntime = try chromeRuntimeURL()
-                let chromeDependencies = try chromeDependenciesURL()
-                try configureApkRepositories(environment: startupNetworkEnvironment ?? .unknown)
-                try guestCreateDirectories("/workspace")
-                try guestBind(hostPath: workspace.path, guestPath: "/workspace")
-                try guestCreateDirectories("/usr/lib/chromium")
-                try guestBind(hostPath: chromeRuntime.path, guestPath: "/usr/lib/chromium")
-                try guestCreateDirectories("/opt/aether/chromium-deps")
-                try guestBind(hostPath: chromeDependencies.path, guestPath: "/opt/aether/chromium-deps")
-                try installBridgeAsset()
-                try installPreinstalledExtensions()
-                try installNodeCompatibilityAssets()
-            } catch {
-                onMain { listener.onError(message: error.localizedDescription) }
-                return
-            }
-
-            checkNode(listener: listener)
+    private func prepareInitializedRuntime() {
+        do {
+            let workspace = try workspaceURL()
+            let chromeRuntime = try chromeRuntimeURL()
+            let chromeDependencies = try chromeDependenciesURL()
+            try configureApkRepositories(environment: startupNetworkEnvironment ?? .unknown)
+            try guestCreateDirectories("/workspace")
+            try guestBind(hostPath: workspace.path, guestPath: "/workspace")
+            try guestCreateDirectories("/usr/lib/chromium")
+            try guestBind(hostPath: chromeRuntime.path, guestPath: "/usr/lib/chromium")
+            try guestCreateDirectories("/opt/aether/chromium-deps")
+            try guestBind(hostPath: chromeDependencies.path, guestPath: "/opt/aether/chromium-deps")
+            try installBridgeAsset()
+            try installPreinstalledExtensions()
+            try installNodeCompatibilityAssets()
+        } catch {
+            finishInitialization(error: error.localizedDescription)
+            return
         }
+
+        checkNode()
     }
 
-    private func checkNode(listener: NativeRuntimeInitializationListener) {
-        onMain {
-            listener.onProgress(phase: "checking_node", detail: "Checking Node 22", fraction: 0.82)
-        }
+    private func checkNode() {
+        reportInitializationProgress(
+            phase: "checking_node",
+            detail: "Checking Node 22",
+            fraction: 0.82
+        )
         let pid = runtime.startExecutable(
             "/bin/sh",
             arguments: ["-c", Self.nodeVerificationCommand],
@@ -271,22 +287,26 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
             standardOutput: { _ in },
             standardError: { _ in },
             exit: { code, _ in
-                if code == 0 {
-                    self.markRuntimeReady(listener: listener)
-                } else {
-                    self.installNode(listener: listener)
+                self.operations.async {
+                    if code == 0 {
+                        self.markRuntimeReady()
+                    } else {
+                        self.installNode()
+                    }
                 }
             }
         )
         if pid < 0 {
-            onMain { listener.onError(message: "Unable to check Node 22 in Alpine (\(pid)).") }
+            finishInitialization(error: "Unable to check Node 22 in Alpine (\(pid)).")
         }
     }
 
-    private func installNode(listener: NativeRuntimeInitializationListener) {
-        onMain {
-            listener.onProgress(phase: "installing_node", detail: "Installing Node 22", fraction: 0.84)
-        }
+    private func installNode() {
+        reportInitializationProgress(
+            phase: "installing_node",
+            detail: "Installing Node 22",
+            fraction: 0.84
+        )
         var installOutput = ""
         let pid = runtime.startExecutable(
             "/bin/sh",
@@ -297,27 +317,27 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
             remoteDebuggingPipe: false,
             standardOutput: { data in
                 installOutput.append(String(decoding: data, as: UTF8.self))
-                self.forwardSetupOutput(data, listener: listener)
+                self.operations.async { self.reportInitializationOutput(data) }
             },
             standardError: { data in
                 installOutput.append(String(decoding: data, as: UTF8.self))
-                self.forwardSetupOutput(data, listener: listener)
+                self.operations.async { self.reportInitializationOutput(data) }
             },
             exit: { code, _ in
-                self.verifyNodeAfterInstall(
-                    listener: listener,
-                    installExitCode: code,
-                    installOutput: installOutput
-                )
+                self.operations.async {
+                    self.verifyNodeAfterInstall(
+                        installExitCode: code,
+                        installOutput: installOutput
+                    )
+                }
             }
         )
         if pid < 0 {
-            onMain { listener.onError(message: "Unable to start Alpine package setup (\(pid)).") }
+            finishInitialization(error: "Unable to start Alpine package setup (\(pid)).")
         }
     }
 
     private func verifyNodeAfterInstall(
-        listener: NativeRuntimeInitializationListener,
         installExitCode: Int32,
         installOutput: String
     ) {
@@ -331,28 +351,28 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
             standardOutput: { _ in },
             standardError: { _ in },
             exit: { code, _ in
-                if code == 0 {
-                    self.markRuntimeReady(listener: listener)
-                    return
-                }
-                let detail = installOutput
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .suffix(2_000)
-                let suffix = detail.isEmpty ? "" : "\n\(detail)"
-                self.onMain {
-                    listener.onError(
-                        message: "Unable to install Node 22 in Alpine (apk exit \(installExitCode), verification exit \(code)).\(suffix)"
+                self.operations.async {
+                    if code == 0 {
+                        self.markRuntimeReady()
+                        return
+                    }
+                    let detail = installOutput
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .suffix(2_000)
+                    let suffix = detail.isEmpty ? "" : "\n\(detail)"
+                    self.finishInitialization(
+                        error: "Unable to install Node 22 in Alpine (apk exit \(installExitCode), verification exit \(code)).\(suffix)"
                     )
                 }
             }
         )
         if pid < 0 {
-            onMain { listener.onError(message: "Unable to verify Node 22 in Alpine (\(pid)).") }
+            finishInitialization(error: "Unable to verify Node 22 in Alpine (\(pid)).")
         }
     }
 
     private static let nodeVerificationCommand =
-        "node --version 2>/dev/null | grep -q '^v22\\.' && npm --version >/dev/null 2>&1"
+        "node --version 2>/dev/null | grep -q '^v22\\.' && command -v npm >/dev/null 2>&1"
 
     private static let nodeInstallCommand = """
         attempt=1
@@ -365,28 +385,50 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         exit 1
         """
 
-    private func markRuntimeReady(listener: NativeRuntimeInitializationListener) {
-        operations.async {
-            do {
-                try Data().write(to: self.alpineSetupCompleteMarkerURL(), options: .atomic)
-                self.initialized = true
-                self.onMain {
-                    listener.onProgress(phase: "ready", detail: "Alpine is ready", fraction: 1.0)
-                    listener.onReady()
-                }
-            } catch {
-                self.onMain { listener.onError(message: error.localizedDescription) }
+    private func markRuntimeReady() {
+        do {
+            try Data().write(to: alpineSetupCompleteMarkerURL(), options: .atomic)
+            initialized = true
+            reportInitializationProgress(
+                phase: "ready",
+                detail: "Alpine is ready",
+                fraction: 1.0
+            )
+            finishInitialization(error: nil)
+        } catch {
+            finishInitialization(error: error.localizedDescription)
+        }
+    }
+
+    private func reportInitializationProgress(phase: String, detail: String, fraction: Double) {
+        let listeners = initializationListeners
+        onMain {
+            listeners.forEach {
+                $0.onProgress(phase: phase, detail: detail, fraction: fraction)
             }
         }
     }
 
-    private func forwardSetupOutput(
-        _ data: Data,
-        listener: NativeRuntimeInitializationListener
-    ) {
+    private func reportInitializationOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         let text = String(decoding: data, as: UTF8.self)
-        onMain { listener.onOutput(text: text) }
+        let listeners = initializationListeners
+        onMain { listeners.forEach { $0.onOutput(text: text) } }
+    }
+
+    private func finishInitialization(error: String?) {
+        let listeners = initializationListeners
+        initializationListeners.removeAll()
+        initializationInProgress = false
+        onMain {
+            listeners.forEach { listener in
+                if let error {
+                    listener.onError(message: error)
+                } else {
+                    listener.onReady()
+                }
+            }
+        }
     }
 
     func startProcess(
@@ -1033,18 +1075,43 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     private func workspaceURL() throws -> URL {
+        let documents = try FileManager.default.url(
+            for: .documentDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+
+        // Keep the system Files location and Alpine's /workspace on the same host
+        // directory. Migrate the pre-file-sharing workspace once without replacing
+        // anything the user already created through Files.
         let support = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
-        let workspace = support.appendingPathComponent("Workspace", isDirectory: true)
-        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        return workspace
+        let legacy = support.appendingPathComponent("Workspace", isDirectory: true)
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            for source in try FileManager.default.contentsOfDirectory(
+                at: legacy,
+                includingPropertiesForKeys: nil
+            ) {
+                let destination = documents.appendingPathComponent(source.lastPathComponent)
+                if !FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.moveItem(at: source, to: destination)
+                }
+            }
+            try? FileManager.default.removeItem(at: legacy)
+        }
+        return documents
     }
 
     private func alpineRuntimeRootURL() throws -> URL {
+        if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.baimoqilin.aether") {
+            return container.appendingPathComponent("AetherAlpine", isDirectory: true)
+        }
         let applicationSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -1143,10 +1210,23 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
             let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
             let relativePath = fileURL.path.replacingOccurrences(of: sourceDir.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !relativePath.isEmpty else { continue }
+            let topLevelName = relativePath.split(separator: "/", maxSplits: 1).first.map(String.init) ?? ""
+            let removalMarker = "/root/.aether/.removed-preinstalled-extensions/\(topLevelName)"
+            if runtime.fileExists(removalMarker) {
+                if resourceValues.isDirectory == true { enumerator.skipDescendants() }
+                continue
+            }
             let targetGuestPath = "\(guestBase)/\(relativePath)"
             if resourceValues.isDirectory == true {
+                // A user import may have the same package directory. Preserve the
+                // complete existing entry instead of merging bundled files into it.
+                if runtime.fileExists(targetGuestPath) {
+                    enumerator.skipDescendants()
+                    continue
+                }
                 try guestCreateDirectories(targetGuestPath)
             } else {
+                if runtime.fileExists(targetGuestPath) { continue }
                 let parentGuestDir = (targetGuestPath as NSString).deletingLastPathComponent
                 try guestCreateDirectories(parentGuestDir)
                 let data = try Data(contentsOf: fileURL)
@@ -1238,8 +1318,8 @@ private final class AetherBackgroundExecutionCoordinator {
 
     private var leases: [String: Lease] = [:]
     private var briefTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
-    private var registrationAttempted = false
     private var continuedTask: AnyObject?
+    private var continuedTaskIdentifier: String?
     private var continuedTaskSubmitted = false
     private var pendingCompletionSuccess: Bool?
     private var progressTimer: DispatchSourceTimer?
@@ -1247,28 +1327,13 @@ private final class AetherBackgroundExecutionCoordinator {
     private var lastProgressUpdate = Date.distantPast
     private var lastProgressAdvance = Date.distantPast
 
-    private var taskIdentifierPattern: String {
-        "\(Bundle.main.bundleIdentifier ?? "com.baimoqilin.aether").agent.*"
+    private var taskIdentifierPrefix: String {
+        "\(Bundle.main.bundleIdentifier ?? "com.baimoqilin.aether").agent"
     }
 
     func register() {
         onMainSync {
-            guard #available(iOS 26.0, *), !registrationAttempted else { return }
-            registrationAttempted = true
-            let registered = BGTaskScheduler.shared.register(
-                forTaskWithIdentifier: taskIdentifierPattern,
-                using: nil
-            ) { [weak self] task in
-                guard let self, let task = task as? BGContinuedProcessingTask else {
-                    task.setTaskCompleted(success: false)
-                    return
-                }
-                self.onMain { self.attach(task) }
-            }
-            guard registered else {
-                NSLog("Aether continued-processing task handler was not registered for %@", self.taskIdentifierPattern)
-                return
-            }
+            guard #available(iOS 26.0, *) else { return }
             if UIApplication.shared.backgroundRefreshStatus != .available {
                 NSLog("Aether background refresh is unavailable (status: %ld)",
                       UIApplication.shared.backgroundRefreshStatus.rawValue)
@@ -1316,23 +1381,35 @@ private final class AetherBackgroundExecutionCoordinator {
     private func ensureBriefBackgroundTask(name: String) {
         guard briefTaskIdentifier == .invalid else { return }
         briefTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
-            self?.expireAll()
+            self?.onMain { self?.briefBackgroundTaskExpired() }
         }
     }
 
     @available(iOS 26.0, *)
     private func ensureContinuedProcessingTask(name: String) {
         let scheduler = BGTaskScheduler.shared
-        register()
-        guard continuedTask == nil else { return }
-        // A previously queued request may still be pending after a short-lived
-        // lease ended. Submitting the same wildcard replaces that request and
-        // lets the new foreground turn own the eventual launch.
-        pendingCompletionSuccess = nil
+        guard continuedTask == nil, !continuedTaskSubmitted else { return }
+        let identifier = "\(taskIdentifierPrefix).\(UUID().uuidString.lowercased())"
+        let registered = scheduler.register(
+            forTaskWithIdentifier: identifier,
+            using: nil
+        ) { [weak self] task in
+            guard let self, let task = task as? BGContinuedProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            self.onMain { self.attach(task) }
+        }
+        guard registered else {
+            NSLog("Aether continued-processing task handler was not registered for %@", identifier)
+            return
+        }
+        continuedTaskIdentifier = identifier
+        NSLog("Aether continued-processing task handler registered for %@", identifier)
         let request = BGContinuedProcessingTaskRequest(
-            identifier: taskIdentifierPattern,
+            identifier: identifier,
             title: name,
-            subtitle: "Agent is working"
+            subtitle: "Running in background"
         )
         // Agent turns are user initiated. Queueing lets iOS start the continued
         // task as soon as conditions allow instead of rejecting it under load.
@@ -1340,14 +1417,23 @@ private final class AetherBackgroundExecutionCoordinator {
         do {
             try scheduler.submit(request)
             continuedTaskSubmitted = true
+            NSLog("Aether continued-processing task submitted for %@", identifier)
         } catch {
             continuedTaskSubmitted = false
-            NSLog("Aether continued-processing task submission failed: %@", error.localizedDescription)
+            continuedTaskIdentifier = nil
+            let nsError = error as NSError
+            NSLog("Aether continued-processing task submission failed (%@/%ld): %@",
+                  nsError.domain, nsError.code, nsError.localizedDescription)
         }
     }
 
     @available(iOS 26.0, *)
     private func attach(_ task: BGContinuedProcessingTask) {
+        NSLog("Aether continued-processing task started for %@", task.identifier)
+        guard task.identifier == continuedTaskIdentifier else {
+            task.setTaskCompleted(success: false)
+            return
+        }
         continuedTaskSubmitted = false
         if let success = pendingCompletionSuccess {
             pendingCompletionSuccess = nil
@@ -1408,6 +1494,16 @@ private final class AetherBackgroundExecutionCoordinator {
         progressTimer = nil
     }
 
+    private func briefBackgroundTaskExpired() {
+        if #available(iOS 26.0, *), continuedTaskSubmitted {
+            // The continued-processing request owns the work now. Ending this bridge
+            // may suspend the app briefly, but the scheduler will resume it to attach.
+            endBriefBackgroundTask()
+            return
+        }
+        expireAll()
+    }
+
     private func expireAll() {
         let callbacks = leases.values.map(\.onExpired)
         leases.removeAll()
@@ -1430,6 +1526,7 @@ private final class AetherBackgroundExecutionCoordinator {
         continuedTask = nil
         if !continuedTaskSubmitted {
             pendingCompletionSuccess = nil
+            continuedTaskIdentifier = nil
         }
         stopProgressHeartbeat()
         progressActivityCount = 0

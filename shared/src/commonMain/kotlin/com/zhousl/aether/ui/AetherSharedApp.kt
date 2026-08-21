@@ -793,6 +793,7 @@ private enum class SharedSettingsKind {
     Mcp,
     Alpine,
     Terminal,
+    FileManager,
     Chrome,
     Statistics,
     Developer,
@@ -841,6 +842,7 @@ internal fun shouldReturnToSettingsHubForMissingExtension(
 private fun SettingsDestination?.depth(): Int = when (this?.kind) {
     null -> 0
     SharedSettingsKind.Terminal,
+    SharedSettingsKind.FileManager,
     SharedSettingsKind.Chrome -> 2
     SharedSettingsKind.ExtensionSettingsCategory -> 2
     else -> 1
@@ -1035,7 +1037,7 @@ fun AetherSharedApp(
         val mcpServers = remember { mutableStateListOf<SharedMcpServerConfig>() }
         var chromeEnabled by rememberSaveable { mutableStateOf(false) }
         DisposableEffect(bridgeClient) {
-            onDispose { appScope.launch { bridgeClient.close() } }
+            onDispose { bridgeClient.dispose() }
         }
         var route by rememberSaveable { mutableStateOf(SharedRoute.Onboarding) }
         var restoredSettingsDestination by rememberSaveable { mutableStateOf("") }
@@ -7993,6 +7995,7 @@ private fun SharedSettingsScreen(
         .orEmpty()
     val terminalTitle = stringResource(Res.string.terminal_title)
     val terminalSubtitle = stringResource(Res.string.terminal_subtitle)
+    val fileManagerTitle = stringResource(Res.string.file_manager_title)
     val alpineTitle = stringResource(Res.string.alpine_title)
     val alpineSubtitle = stringResource(Res.string.alpine_subtitle)
     // Restore only when this settings navigation state is first created. Using the persisted
@@ -8207,6 +8210,13 @@ private fun SharedSettingsScreen(
                         kind = SharedSettingsKind.Terminal,
                     )
                 },
+                onOpenFiles = {
+                    destination = SettingsDestination(
+                        title = fileManagerTitle,
+                        subtitle = fileManagerTitle,
+                        kind = SharedSettingsKind.FileManager,
+                    )
+                },
                 onBack = { destination = null },
             )
             SharedSettingsKind.Extensions -> SharedExtensionsSettingsDetail(
@@ -8220,6 +8230,16 @@ private fun SharedSettingsScreen(
                 onBack = { destination = null },
             )
             SharedSettingsKind.Terminal -> SharedTerminalScreen(
+                runtime = runtime,
+                onBack = {
+                    destination = SettingsDestination(
+                        title = alpineTitle,
+                        subtitle = alpineSubtitle,
+                        kind = SharedSettingsKind.Alpine,
+                    )
+                },
+            )
+            SharedSettingsKind.FileManager -> SharedFileManagerScreen(
                 runtime = runtime,
                 onBack = {
                     destination = SettingsDestination(
@@ -8611,6 +8631,7 @@ private fun SharedAlpineSettingsDetail(
     onSettingsSaved: (AppSettings) -> Unit,
     onResetSettingsSaved: suspend (AppSettings) -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenFiles: () -> Unit,
     onTransientMessage: (String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -8620,6 +8641,7 @@ private fun SharedAlpineSettingsDetail(
         onSettingsSaved = onSettingsSaved,
         onResetSettingsSaved = onResetSettingsSaved,
         onOpenTerminal = onOpenTerminal,
+        onOpenFiles = onOpenFiles,
         onTransientMessage = onTransientMessage,
         onBack = onBack,
     )
@@ -8654,6 +8676,10 @@ internal fun SettingsTopBar(
     trailingLoading: Boolean = false,
     trailingContentDescription: String = "",
     onTrailingAction: () -> Unit = {},
+    secondaryTrailingIcon: ImageVector? = null,
+    secondaryTrailingEnabled: Boolean = true,
+    secondaryTrailingContentDescription: String = "",
+    onSecondaryTrailingAction: () -> Unit = {},
 ) {
     val dismissGuard = LocalSharedSettingsDismissGuard.current
     val reduceMotion = LocalReduceMotion.current
@@ -8700,35 +8726,48 @@ internal fun SettingsTopBar(
                     onClick = onBack,
                     modifier = Modifier.align(Alignment.CenterStart),
                 )
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = AetherOnSurface,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-                if (trailingLoading) {
-                    Box(
-                        modifier = Modifier.align(Alignment.CenterEnd).size(44.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = AetherPrimary,
+                BoxWithConstraints(Modifier.align(Alignment.Center)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = AetherOnSurface,
+                        modifier = Modifier.offset(x = if (title == "Alpine" && maxWidth < 500.dp) (-22).dp else 0.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (secondaryTrailingIcon != null) {
+                        SharedSettingsCircleButton(
+                            icon = secondaryTrailingIcon,
+                            contentDescription = secondaryTrailingContentDescription,
+                            onClick = onSecondaryTrailingAction,
+                            enabled = secondaryTrailingEnabled,
                         )
                     }
-                } else if (trailingIcon != null) {
-                    SharedSettingsCircleButton(
-                        icon = trailingIcon,
-                        contentDescription = trailingContentDescription,
-                        onClick = onTrailingAction,
-                        enabled = trailingEnabled,
-                        modifier = Modifier.align(Alignment.CenterEnd).offset {
-                            IntOffset(saveShakeOffset.value.roundToInt(), 0)
-                        },
-                    )
-                } else {
-                    Spacer(Modifier.align(Alignment.CenterEnd).size(44.dp))
+                    if (trailingLoading) {
+                        Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = AetherPrimary,
+                            )
+                        }
+                    } else if (trailingIcon != null) {
+                        SharedSettingsCircleButton(
+                            icon = trailingIcon,
+                            contentDescription = trailingContentDescription,
+                            onClick = onTrailingAction,
+                            enabled = trailingEnabled,
+                            modifier = Modifier.offset {
+                                IntOffset(saveShakeOffset.value.roundToInt(), 0)
+                            },
+                        )
+                    } else {
+                        Spacer(Modifier.size(44.dp))
+                    }
                 }
             }
         }

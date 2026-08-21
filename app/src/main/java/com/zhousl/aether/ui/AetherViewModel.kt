@@ -203,6 +203,7 @@ class AetherViewModel(
     private var providerAuthJob: Job? = null
     private var extensionSendHookJob: Job? = null
     private var developerAlpineSetupPreviewJob: Job? = null
+    private var piExtensionRefreshGeneration: Long = 0
 
     val uiState: StateFlow<AetherUiState> = _uiState.asStateFlow()
     val transientMessages = _transientMessages.asSharedFlow()
@@ -2925,8 +2926,12 @@ class AetherViewModel(
     }
 
     private fun refreshImportedPiExtensions() {
+        val generation = ++piExtensionRefreshGeneration
         viewModelScope.launch {
-            publishImportedPiExtensions(piExtensionManager.listImported())
+            val result = piExtensionManager.listImported()
+            if (generation == piExtensionRefreshGeneration) {
+                publishImportedPiExtensions(result)
+            }
         }
     }
 
@@ -2977,6 +2982,14 @@ class AetherViewModel(
         extension: InstalledPiExtension,
         enabled: Boolean,
     ) {
+        piExtensionRefreshGeneration += 1
+        _uiState.update { current ->
+            current.copy(
+                installedPiExtensions = current.installedPiExtensions.map { installed ->
+                    if (installed.id == extension.id) installed.copy(isEnabled = enabled) else installed
+                },
+            )
+        }
         performPiExtensionOperation(extension.id) {
             piExtensionManager.setEnabled(extension, enabled)
         }
@@ -3034,8 +3047,8 @@ class AetherViewModel(
     }
 
     private suspend fun refreshPiExtensionState(loadCatalog: Boolean) {
+        val generation = ++piExtensionRefreshGeneration
         _uiState.update { it.copy(isLoadingPiExtensions = true) }
-        publishImportedPiExtensions(piExtensionManager.listImported())
         val installedResult = piExtensionManager.listInstalled()
         runtime.nativeModManager.refreshDiscovery()
         val catalogResult = if (loadCatalog) {
@@ -3043,6 +3056,7 @@ class AetherViewModel(
         } else {
             null
         }
+        if (generation != piExtensionRefreshGeneration) return
         _uiState.update { current ->
             current.copy(
                 installedPiExtensions = installedResult.getOrDefault(current.installedPiExtensions),

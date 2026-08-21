@@ -33,6 +33,10 @@ import {
   aetherAppExtensionCountForManifest,
   aetherExtensionApiModule,
 } from "./aether-extensions.js";
+import {
+  ensureExtensionPackageDependencies,
+  packageRootForExtensionPath,
+} from "./extension-dependencies.js";
 
 const EXTENSION_FILE_PATTERN = /\.(?:[cm]?[jt]s)$/i;
 const INDEX_FILE_NAMES = [
@@ -419,9 +423,18 @@ export async function loadAetherExtensions(
   const eventBus = createEventBus();
   const extensions: Extension[] = [];
   const errors: AetherExtensionLoadError[] = [];
+  const installedDependencyRoots = new Set<string>();
 
   for (const extensionPath of paths) {
     try {
+      const packageRoot = packageRootForExtensionPath(
+        extensionPath,
+        path.join(os.homedir(), ".aether", "extensions"),
+      );
+      if (packageRoot && !installedDependencyRoots.has(packageRoot)) {
+        installedDependencyRoots.add(packageRoot);
+        await ensureExtensionPackageDependencies(packageRoot);
+      }
       const factory = await loadFactory(extensionPath);
       extensions.push(
         await loadExtensionFromFactory(factory, cwd, eventBus, runtime, extensionPath),
