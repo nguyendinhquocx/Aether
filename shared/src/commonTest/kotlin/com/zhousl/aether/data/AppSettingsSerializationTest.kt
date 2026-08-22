@@ -62,6 +62,7 @@ class AppSettingsSerializationTest {
             clampsByProviderModel = mapOf(
                 "openai/gpt-5" to mapOf("max" to "high"),
             ),
+            reasoningModels = setOf("openai/gpt-5"),
         )
 
         assertEquals(cache, parseSharedThinkingCatalogCache(serializeSharedThinkingCatalogCache(cache)))

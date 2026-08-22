@@ -1272,8 +1272,13 @@ function streamOptionsFor(
   const maxTokens = payload.max_tokens;
   if (typeof maxTokens === "number") options.maxTokens = maxTokens;
   const thinkingLevel = thinkingLevelFor(payload);
-  const reasoning = thinkingLevel ? clampThinkingLevel(model, thinkingLevel) : undefined;
-  if (reasoning && reasoning !== "off") {
+  // Keep the raw off signal out of native transports. They disable thinking by
+  // omitting the reasoning level, while OpenAI-compatible transports still read
+  // model.thinkingLevelMap.off when constructing their provider-specific payload.
+  const reasoning = thinkingLevel && thinkingLevel !== "off"
+    ? clampThinkingLevel(model, thinkingLevel)
+    : undefined;
+  if (reasoning) {
     options.reasoning = reasoning as SimpleStreamOptions["reasoning"];
   }
   return options;

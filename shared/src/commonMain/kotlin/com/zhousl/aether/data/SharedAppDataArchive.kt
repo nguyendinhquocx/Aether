@@ -6,6 +6,10 @@ import com.zhousl.aether.data.chatdb.SharedChatHistoryStore
 import com.zhousl.aether.data.chatdb.resolveSharedCurrentSessionId
 import com.zhousl.aether.data.chatdb.decodeAndroidChatSessions
 import com.zhousl.aether.data.chatdb.encodeAndroidChatSessions
+import com.zhousl.aether.data.pi.SharedMcpManager
+import com.zhousl.aether.data.pi.SharedMcpServerConfig
+import com.zhousl.aether.data.pi.parseSharedMcpServers
+import com.zhousl.aether.data.pi.serializeSharedMcpServers
 import com.zhousl.aether.runtime.MultiplatformLocalRuntime
 import com.zhousl.aether.runtime.SharedPiBridgeClient
 import kotlinx.serialization.Serializable
@@ -27,7 +31,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
-const val SharedAppDataSchemaVersion = 2
+const val SharedAppDataSchemaVersion = 3
 
 @Serializable
 data class SharedAppDataArchive(
@@ -40,7 +44,9 @@ data class SharedAppDataArchive(
     val sessions: List<PersistedChatSession>,
     val currentSessionId: String? = null,
     val skillBundles: List<SharedSkillBundle>,
+    val mcpServers: JsonArray = JsonArray(emptyList()),
     val piSessions: List<SharedPiSessionArchive> = emptyList(),
+    val extensionArchive: SharedExtensionArchive? = null,
 )
 
 @Serializable
@@ -54,6 +60,7 @@ data class SharedAppDataRestoreResult(
     val sessions: List<PersistedChatSession>,
     val currentSessionId: String?,
     val installedSkills: List<SharedInstalledSkill>,
+    val mcpServers: List<SharedMcpServerConfig>,
 )
 
 class SharedAppDataManager(
@@ -62,7 +69,14 @@ class SharedAppDataManager(
     private val skillManager: SharedSkillManager,
     private val runtime: MultiplatformLocalRuntime,
     private val bridgeClient: SharedPiBridgeClient,
+    private val extensionStateStore: SharedExtensionStateStore,
+    private val mcpManager: SharedMcpManager,
 ) {
+    private val extensionArchiveManager = SharedExtensionArchiveManager(
+        runtime = runtime,
+        bridge = bridgeClient,
+        stateStore = extensionStateStore,
+    )
     suspend fun exportJson(): String = encodeSharedAppDataArchive(readArchive())
 
     suspend fun restoreJson(value: String): SharedAppDataRestoreResult {
@@ -102,13 +116,21 @@ class SharedAppDataManager(
             sessions = sessions,
             currentSessionId = historyStore.loadCurrentSessionId(),
             skillBundles = skillManager.exportBundles(),
+            mcpServers = Json.parseToJsonElement(
+                serializeSharedMcpServers(mcpManager.loadServers()),
+            ).jsonArray,
             piSessions = piSessions,
+            extensionArchive = extensionArchiveManager.export(),
         )
     }
 
     private suspend fun applyArchive(archive: SharedAppDataArchive): SharedAppDataRestoreResult {
         val decoded = validateSharedAppDataArchive(archive)
         val installedSkills = skillManager.replaceBundles(archive.skillBundles)
+        archive.extensionArchive?.let { extensionArchiveManager.restore(it) }
+        val mcpServers = parseSharedMcpServers(archive.mcpServers.toString())
+        mcpManager.saveServers(mcpServers)
+        val mcpServerIds = mcpServers.map(SharedMcpServerConfig::id).toSet()
         val enabledSkillIds = installedSkills
             .filter(SharedInstalledSkill::isEnabled)
             .map(SharedInstalledSkill::id)
@@ -128,7 +150,7 @@ class SharedAppDataManager(
             session.copy(
                 selectedSkillIds = session.selectedSkillIds.filter(enabledSkillIds::contains),
                 activeSkills = emptyList(),
-                activeMcpServerIds = emptyList(),
+                activeMcpServerIds = session.activeMcpServerIds.filter(mcpServerIds::contains),
             )
         }
         val currentSessionId = resolveSharedCurrentSessionId(
@@ -153,6 +175,7 @@ class SharedAppDataManager(
             sessions = sessions,
             currentSessionId = currentSessionId,
             installedSkills = installedSkills,
+            mcpServers = mcpServers,
         )
     }
 }
@@ -194,10 +217,17 @@ fun encodeSharedAppDataArchive(archive: SharedAppDataArchive): String {
             "skillBundles",
             Json.parseToJsonElement(SharedAppDataJson.encodeToString(archive.skillBundles)),
         )
+        put("mcpServers", archive.mcpServers)
         put(
             "piSessions",
             Json.parseToJsonElement(SharedAppDataJson.encodeToString(archive.piSessions)),
         )
+        archive.extensionArchive?.let { extensionArchive ->
+            put(
+                "extensionArchive",
+                Json.parseToJsonElement(SharedAppDataJson.encodeToString(extensionArchive)),
+            )
+        }
     }
     return SharedAppDataJson.encodeToString(JsonObject.serializer(), root)
 }
@@ -230,6 +260,13 @@ fun decodeSharedAppDataArchive(value: String): SharedAppDataArchive {
             SharedAppDataJson.decodeFromString<SharedPiSessionArchive>(element.toString())
         }.getOrNull()?.takeIf { it.sessionId.isNotBlank() && it.jsonl.isNotBlank() }
     }
+    val extensionArchive = (root["extensionArchive"] as? JsonObject)?.let { element ->
+        runCatching {
+            SharedAppDataJson.decodeFromString<SharedExtensionArchive>(element.toString())
+        }.getOrElse {
+            throw IllegalArgumentException("Extensions backup is invalid.", it)
+        }.also(::validateSharedExtensionArchive)
+    }
     val archive = SharedAppDataArchive(
         schemaVersion = (root["schemaVersion"] as? JsonPrimitive)?.intOrNull ?: SharedAppDataSchemaVersion,
         exportType = (root["exportType"] as? JsonPrimitive)?.contentOrNull.orEmpty().ifBlank { "app" },
@@ -244,7 +281,9 @@ fun decodeSharedAppDataArchive(value: String): SharedAppDataArchive {
             sessionIds = sessions.map(PersistedChatSession::id),
         ),
         skillBundles = skillBundles,
+        mcpServers = root["mcpServers"] as? JsonArray ?: JsonArray(emptyList()),
         piSessions = piSessions,
+        extensionArchive = extensionArchive,
     )
     validateSharedAppDataArchive(archive)
     return archive
@@ -256,6 +295,7 @@ private fun validateSharedAppDataArchive(archive: SharedAppDataArchive): Validat
         .ifBlank { archive.settings.providerConfigId }
 
     validateSharedSkillBundles(archive.skillBundles)
+    archive.extensionArchive?.let(::validateSharedExtensionArchive)
     return ValidatedSharedAppData(
         providerConfigs = providerConfigs,
         activeProviderConfigId = activeProviderConfigId,
@@ -307,6 +347,11 @@ private fun AppSettings.toAndroidAppSettingsJson(): JsonObject = buildJsonObject
                 put("installedAtMillis", profile.installedAtMillis)
                 put("lastError", profile.lastError)
             })
+        }
+    })
+    put("alpineEnvironmentVariables", buildJsonArray {
+        alpineEnvironmentVariables.forEach { variable ->
+            add(buildJsonObject { put("name", variable.name); put("value", variable.value) })
         }
     })
     put("autoCleanOldCommandHistory", autoCleanOldCommandHistory)
@@ -403,6 +448,9 @@ private fun parseAndroidAppSettings(value: JsonObject): AppSettings {
         alpinePackageProfiles = parseImportedPackageProfileStates(
             value["alpinePackageProfiles"] as? JsonArray,
         ),
+        alpineEnvironmentVariables = parseImportedAlpineEnvironmentVariables(
+            value["alpineEnvironmentVariables"] as? JsonArray,
+        ),
         agentModeAuthorizationEnabled = value.booleanValueOrDefault(
             "agentModeAuthorizationEnabled",
             defaults.agentModeAuthorizationEnabled,
@@ -459,6 +507,14 @@ private fun parseImportedTermuxEnvironmentVariables(value: JsonArray?): List<Ter
         if (!ImportedEnvironmentVariableNamePattern.matches(name)) return@mapNotNull null
         TermuxEnvironmentVariable(name = name, value = item.stringValue("value"))
     }.distinctBy(TermuxEnvironmentVariable::name)
+
+private fun parseImportedAlpineEnvironmentVariables(value: JsonArray?): List<AlpineEnvironmentVariable> =
+    value.orEmpty().mapNotNull { element ->
+        val item = element as? JsonObject ?: return@mapNotNull null
+        val name = item.stringValue("name").trim()
+        if (!ImportedEnvironmentVariableNamePattern.matches(name)) return@mapNotNull null
+        AlpineEnvironmentVariable(name = name, value = item.stringValue("value"))
+    }.distinctBy(AlpineEnvironmentVariable::name)
 
 private fun parseImportedPackageProfileStates(value: JsonArray?): Map<String, PackageProfileState> =
     buildMap {

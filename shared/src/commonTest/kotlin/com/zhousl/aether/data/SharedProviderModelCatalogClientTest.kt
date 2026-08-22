@@ -164,12 +164,36 @@ class SharedProviderModelCatalogClientTest {
         )
         val option = listOf(config).availableModelOptions().single()
 
-        val levels = SharedProviderModelCatalogClient(engine).fetchThinkingLevels(listOf(option))
+        val catalog = SharedProviderModelCatalogClient(engine).fetchThinkingCatalog(listOf(option))
+        val key = sharedThinkingCatalogKey("openai-compatible", "kimi-k3")
 
         assertEquals(
             listOf("off", "low", "high", "max"),
-            levels[sharedThinkingCatalogKey("openai-compatible", "kimi-k3")],
+            catalog.levelsByProviderModel[key],
         )
+        assertEquals(mapOf("off" to "none"), catalog.levelMapsByProviderModel[key])
+    }
+
+    @Test
+    fun prefixedModalKimiK3UsesMoonshotToggleMetadata() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"providers":{"modal":{"models":{"moonshotai/Kimi-K3":{"id":"moonshotai/Kimi-K3","reasoning":true,"reasoning_options":[]}}},"moonshotai":{"models":{"kimi-k3":{"id":"kimi-k3","reasoning":true,"reasoning_options":[{"type":"toggle"},{"type":"effort","values":["low","high","max"]}]}}}}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val config = customConfig(piProviderId = "openai-compatible").copy(
+            modelId = "moonshotai/Kimi-K3",
+            cachedModels = listOf("moonshotai/Kimi-K3"),
+            enabledModelIds = listOf("moonshotai/Kimi-K3"),
+        )
+        val option = listOf(config).availableModelOptions().single()
+        val key = sharedThinkingCatalogKey("openai-compatible", "moonshotai/Kimi-K3")
+
+        val catalog = SharedProviderModelCatalogClient(engine).fetchThinkingCatalog(listOf(option))
+
+        assertEquals(listOf("off", "low", "high", "max"), catalog.levelsByProviderModel[key])
+        assertEquals(mapOf("off" to "none"), catalog.levelMapsByProviderModel[key])
     }
 
     @Test
@@ -268,6 +292,30 @@ class SharedProviderModelCatalogClientTest {
 
         assertEquals(listOf("off", "low", "medium", "high", "xhigh"), catalog.levelsByProviderModel[key])
         assertEquals(mapOf("off" to "none"), catalog.levelMapsByProviderModel[key])
+    }
+
+    @Test
+    fun alwaysThinkingModelDoesNotInventReasoningEfforts() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"providers":{"moonshotai":{"models":{"kimi-k2.7-code":{"id":"kimi-k2.7-code","reasoning":true,"reasoning_options":[]}}}}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val config = customConfig(piProviderId = "moonshotai-cn").copy(
+            modelId = "kimi-k2.7-code",
+            cachedModels = listOf("kimi-k2.7-code"),
+            enabledModelIds = listOf("kimi-k2.7-code"),
+        )
+        val option = listOf(config).availableModelOptions().single()
+        val key = sharedThinkingCatalogKey("moonshotai-cn", "kimi-k2.7-code")
+
+        val catalog = SharedProviderModelCatalogClient(engine).fetchThinkingCatalog(listOf(option))
+
+        assertTrue(key in catalog.levelsByProviderModel)
+        assertEquals(emptyList(), catalog.levelsByProviderModel[key])
+        assertEquals(emptyMap(), catalog.levelMapsByProviderModel)
+        assertEquals(setOf(key), catalog.reasoningModels)
     }
 }
 

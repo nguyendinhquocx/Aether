@@ -19,15 +19,15 @@ class PiCompletionClient(
         disableReasoning: Boolean = false,
         stream: Boolean = false,
         thinkingLevelMap: Map<String, String> = emptyMap(),
-        isReasoningModel: Boolean = true,
+        isReasoningModel: Boolean? = null,
         onEvent: (suspend (String, JSONObject) -> Unit)? = null,
     ): Result<PiCompletionResult> = runCatching {
         val payload = JSONObject().apply {
             put(
                 "model_config",
                 settings.toPiModelConfig(
-                    thinkingLevelMap = if (disableReasoning) emptyMap() else thinkingLevelMap,
-                    isReasoningModel = !disableReasoning && isReasoningModel,
+                    thinkingLevelMap = thinkingLevelMap,
+                    isReasoningModel = isReasoningModel,
                 ).toJson(),
             )
             put("system_prompt", systemPrompt)

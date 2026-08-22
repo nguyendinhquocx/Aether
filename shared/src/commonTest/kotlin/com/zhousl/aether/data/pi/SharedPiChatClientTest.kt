@@ -84,11 +84,31 @@ class SharedPiChatClientTest {
         assertEquals(7, result.usage.inputTokens)
         assertEquals(11, result.usage.outputTokens)
         assertEquals(18, result.usage.totalTokens)
+        assertFalse(result.usage.reasoningTokensAvailable)
         assertTrue(result.usageAvailable)
         val providerPayload = Json.parseToJsonElement(result.providerPayloadJson).jsonObject
         assertEquals("assistant", providerPayload["piAssistantMessage"]!!.jsonObject["role"]!!.jsonPrimitive.content)
         assertEquals("response-1", providerPayload["responseId"]!!.jsonPrimitive.content)
         assertEquals(1, providerPayload["usage"]!!.jsonObject["request_count"]!!.jsonPrimitive.content.toInt())
+        bridge.close()
+    }
+
+    @Test
+    fun reasoningTokenAvailabilityTracksTheProviderUsageField() = runTest {
+        val process = ChatProtocolProcess(reasoningTokens = 5)
+        val bridge = SharedPiBridgeClient(
+            transport = SingleProcessTransport(process),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val result = SharedPiChatClient(bridge).runTurn(
+            config = testProvider(),
+            messages = listOf(SharedPiChatMessage("user", "reason")),
+            sessionId = "reasoning-usage",
+        )
+
+        assertEquals(5, result.usage.reasoningTokens)
+        assertTrue(result.usage.reasoningTokensAvailable)
         bridge.close()
     }
 
@@ -120,6 +140,7 @@ class SharedPiChatClientTest {
             config = testProvider(),
             messages = listOf(SharedPiChatMessage("user", "Name this chat")),
             systemPrompt = "Return a short title.",
+            isReasoningModel = true,
         )
 
         val request = process.requests.single()
@@ -128,6 +149,7 @@ class SharedPiChatClientTest {
         assertEquals("Return a short title.", payload["system_prompt"]!!.jsonPrimitive.content)
         assertEquals("false", payload["stream"]!!.jsonPrimitive.content)
         assertEquals("off", payload["reasoning"]!!.jsonPrimitive.content)
+        assertEquals("true", payload["model_config"]!!.jsonObject["reasoning"]!!.jsonPrimitive.content)
         assertEquals("done", result.assistantText)
         bridge.close()
     }
@@ -424,6 +446,7 @@ private class ChatProtocolProcess(
     private val oauthCredential: JsonObject? = null,
     private val steerAccepted: Boolean = true,
     private val reconnectEvents: Boolean = false,
+    private val reasoningTokens: Int? = null,
 ) : RuntimeProcess {
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
     val requests = mutableListOf<JsonObject>()
@@ -454,6 +477,7 @@ private class ChatProtocolProcess(
                     put("input_tokens", 7)
                     put("output_tokens", 11)
                     put("total_tokens", 18)
+                    reasoningTokens?.let { put("reasoning_tokens", it) }
                 })
             }
         }

@@ -2,6 +2,7 @@ package com.zhousl.aether.ui
 
 import com.zhousl.aether.data.pi.SharedHostToolResult
 import com.zhousl.aether.data.pi.SharedPiHostToolCall
+import com.zhousl.aether.data.pi.SharedPiTurnResult
 import com.zhousl.aether.data.pi.SharedPiUsage
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -14,6 +15,76 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class SharedConversationMessagesTest {
+    @Test
+    fun finalReasoningFallbackPrecedesAlreadyStreamedAnswer() {
+        val message = SharedChatMessage(text = "", fromUser = false)
+            .appendAssistantTextDelta("Answer")
+            .withAssistantResultFallback(
+                SharedPiTurnResult(assistantText = "Answer", reasoningText = "Reasoning"),
+            )
+
+        assertIs<SharedAssistantResponseBlock.Reasoning>(message.responseBlocks[0])
+        assertIs<SharedAssistantResponseBlock.Text>(message.responseBlocks[1])
+    }
+
+    @Test
+    fun legacyFinalReasoningAfterAnswerIsNormalized() {
+        val text = SharedAssistantResponseBlock.Text("text", "Answer")
+        val reasoning = SharedAssistantResponseBlock.Reasoning(
+            "reasoning",
+            SharedReasoningTrace("reasoning", rawText = "Reasoning"),
+        )
+
+        assertEquals(
+            listOf(reasoning, text),
+            listOf(text, reasoning).normalizeSharedFinalReasoningOrder(),
+        )
+    }
+
+    @Test
+    fun leakedLegacyOffReasoningIsRemovedWithoutDroppingToolTraces() {
+        val leaked = SharedAssistantResponseBlock.Reasoning(
+            "leaked",
+            SharedReasoningTrace(
+                "leaked",
+                rawText = "Hidden reasoning",
+                chunks = listOf(
+                    SharedReasoningSummaryChunk(
+                        id = "summary",
+                        title = "Hidden summary",
+                        detail = "Summarized hidden reasoning",
+                    ),
+                ),
+            ),
+        )
+        val toolTrace = SharedAssistantResponseBlock.Reasoning(
+            "tool",
+            SharedReasoningTrace(
+                "tool",
+                toolInvocations = listOf(SharedChatToolInvocation("call", "read", "Read file")),
+            ),
+        )
+
+        assertEquals(
+            listOf(toolTrace),
+            listOf(leaked, toolTrace).removeLeakedSharedReasoning(persistedReasoningText = ""),
+        )
+        assertEquals(
+            listOf(leaked),
+            listOf(leaked).removeLeakedSharedReasoning(persistedReasoningText = "Visible reasoning"),
+        )
+    }
+
+    @Test
+    fun disabledReasoningRemovesTextAndResponseBlocks() {
+        val message = SharedChatMessage(text = "Answer", fromUser = false)
+            .appendAssistantReasoningDelta("Reasoning")
+            .withoutSharedAssistantReasoning()
+
+        assertEquals("", message.reasoningText)
+        assertTrue(message.responseBlocks.none { it is SharedAssistantResponseBlock.Reasoning })
+    }
+
     @Test
     fun reconnectStatusCompletesInPlaceBeforeLaterResponseBlocks() {
         val reconnecting = SharedChatMessage(

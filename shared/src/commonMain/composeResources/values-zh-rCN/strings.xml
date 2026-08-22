@@ -70,6 +70,7 @@
     <string name="statistics_title">数据统计</string>
     <string name="statistics_session_tokens">本 session token</string>
     <string name="statistics_turn_tokens">本轮 token</string>
+    <string name="statistics_reasoning_tokens">推理 token</string>
     <string name="statistics_output_rate">输出速率</string>
     <string name="statistics_first_token_latency">首字延迟</string>
     <string name="statistics_input">输入</string>

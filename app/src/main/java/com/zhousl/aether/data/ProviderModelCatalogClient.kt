@@ -56,6 +56,7 @@ private fun JSONObject.findPublicCatalogModelAcrossProviders(option: ProviderMod
 data class PublicCatalogThinkingResult(
     val levelsByProviderModel: Map<String, List<String>> = emptyMap(),
     val levelMapsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
+    val reasoningModels: Set<String> = emptySet(),
 )
 
 internal fun publicCatalogThinkingResult(
@@ -65,9 +66,12 @@ internal fun publicCatalogThinkingResult(
     val providers = catalog.optJSONObject("providers") ?: return PublicCatalogThinkingResult()
     val levelsMap = mutableMapOf<String, List<String>>()
     val levelMapsMap = mutableMapOf<String, Map<String, String>>()
+    val reasoningModels = mutableSetOf<String>()
     options.forEach { option ->
         val model = providers.findPublicCatalogModelAcrossProviders(option)
         if (model?.optBoolean("reasoning") == true) {
+            val key = thinkingCatalogKey(option.piProviderId, option.modelId)
+            reasoningModels += key
             val reasoningOptions = model.optJSONArray("reasoning_options")
             val hasToggle = (0 until (reasoningOptions?.length() ?: 0)).any {
                 reasoningOptions?.optJSONObject(it)?.optString("type") == "toggle"
@@ -89,12 +93,10 @@ internal fun publicCatalogThinkingResult(
                         }
                     }
                 }
-                if (isEmpty()) addAll(listOf("off", "medium"))
             }
             val levelMap = buildMap<String, String> {
-                if (hasNone) put("off", "none")
+                if (hasToggle || hasNone) put("off", "none")
             }
-            val key = thinkingCatalogKey(option.piProviderId, option.modelId)
             levelsMap[key] = levels
             if (levelMap.isNotEmpty()) levelMapsMap[key] = levelMap
         } else if (model != null) {
@@ -102,7 +104,7 @@ internal fun publicCatalogThinkingResult(
             levelsMap[key] = emptyList()
         }
     }
-    return PublicCatalogThinkingResult(levelsMap, levelMapsMap)
+    return PublicCatalogThinkingResult(levelsMap, levelMapsMap, reasoningModels)
 }
 
 internal fun publicCatalogThinkingLevels(

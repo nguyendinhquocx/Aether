@@ -70,6 +70,7 @@
     <string name="statistics_title">Statistics</string>
     <string name="statistics_session_tokens">Session tokens</string>
     <string name="statistics_turn_tokens">Turn tokens</string>
+    <string name="statistics_reasoning_tokens">Reasoning tokens</string>
     <string name="statistics_output_rate">Output rate</string>
     <string name="statistics_first_token_latency">First token latency</string>
     <string name="statistics_input">Input</string>

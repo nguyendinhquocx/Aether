@@ -285,6 +285,7 @@ data class AetherUiState(
     val modelCatalogInfo: Map<String, com.zhousl.aether.data.ModelCatalogInfo> = emptyMap(),
     val thinkingLevelsByProviderModel: Map<String, List<String>> = emptyMap(),
     val thinkingLevelClampsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
+    val reasoningModels: Set<String> = emptySet(),
     val isFetchingModels: Boolean = false,
     val providerAuthState: PiProviderAuthState = PiProviderAuthState(),
     val piCoreSetupState: PiCoreSetupState = PiCoreSetupState(),

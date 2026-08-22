@@ -3230,6 +3230,11 @@ private fun SharedUsageStatisticsPanel(
                 usage?.takeIf { it.totalTokensAvailable }?.totalTokens?.let(::formatSharedTokenCount),
             )
             SharedStatisticRow(
+                stringResource(Res.string.statistics_reasoning_tokens),
+                usage?.takeIf { it.reasoningTokensAvailable }?.reasoningTokens
+                    ?.let(::formatSharedTokenCount),
+            )
+            SharedStatisticRow(
                 stringResource(Res.string.statistics_output_rate),
                 metrics.outputTokensPerSecond?.let { "${formatSharedDecimal(it)} tok/s" },
             )

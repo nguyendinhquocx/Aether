@@ -52,6 +52,9 @@ class SharedExtensionStateStore(
     suspend fun removeImportedExtension(path: String): SharedExtensionLoadOptions =
         setImportedExtensionEnabled(path, true)
 
+    suspend fun replace(options: SharedExtensionLoadOptions): SharedExtensionLoadOptions =
+        update { options }
+
     private suspend fun update(
         transform: (SharedExtensionLoadOptions) -> SharedExtensionLoadOptions,
     ): SharedExtensionLoadOptions = mutex.withLock {

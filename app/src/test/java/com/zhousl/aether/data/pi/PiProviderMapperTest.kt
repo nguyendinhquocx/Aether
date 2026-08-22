@@ -241,4 +241,16 @@ class PiProviderMapperTest {
         assertEquals(mapOf("off" to "none"), config.thinkingLevelMap)
         assertEquals("none", config.toJson().getJSONObject("thinking_level_map").getString("off"))
     }
+
+    @Test
+    fun knownReasoningModelKeepsItsCapabilityWhenOffUsesANativeDisableDirective() {
+        val config = AppSettings(
+            piProviderId = "anthropic",
+            modelId = "claude-sonnet-5",
+            reasoningEffort = "off",
+        ).toPiModelConfig(isReasoningModel = true)
+
+        assertTrue(config.reasoning)
+        assertTrue(config.thinkingLevelMap.isEmpty())
+    }
 }

@@ -30,21 +30,30 @@ class SettingsRepository(
     }
 
     suspend fun loadThinkingCatalogCache(): Map<String, List<String>> = context.dataStore.data.first()
-        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).first }
+        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).levels }
 
     suspend fun loadThinkingLevelMapsCache(): Map<String, Map<String, String>> = context.dataStore.data.first()
-        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).second }
+        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).clamps }
+
+    suspend fun loadReasoningModelsCache(): Set<String> = context.dataStore.data.first()
+        .let { preferences -> parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty()).reasoningModels }
 
     suspend fun saveThinkingCatalogCache(
         cache: Map<String, List<String>>,
         levelMaps: Map<String, Map<String, String>> = emptyMap(),
+        reasoningModels: Set<String> = emptySet(),
     ) {
-        if (cache.isEmpty() && levelMaps.isEmpty()) return
+        if (cache.isEmpty() && levelMaps.isEmpty() && reasoningModels.isEmpty()) return
         context.dataStore.edit { preferences ->
-            val (existingLevels, existingLevelMaps) = parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty())
-            val mergedLevels = existingLevels + cache
-            val mergedLevelMaps = existingLevelMaps + levelMaps
-            preferences[THINKING_CATALOG_CACHE_JSON] = serializeThinkingCatalogCache(mergedLevels, mergedLevelMaps)
+            val existing = parseThinkingCatalogCache(preferences[THINKING_CATALOG_CACHE_JSON].orEmpty())
+            val mergedLevels = existing.levels + cache
+            val mergedLevelMaps = (existing.clamps - cache.keys) + levelMaps
+            val mergedReasoningModels = (existing.reasoningModels - cache.keys) + reasoningModels
+            preferences[THINKING_CATALOG_CACHE_JSON] = serializeThinkingCatalogCache(
+                mergedLevels,
+                mergedLevelMaps,
+                mergedReasoningModels,
+            )
         }
     }
     suspend fun initializeLanguageIfNeeded() {
@@ -893,11 +902,13 @@ private fun parseModelCatalogCache(raw: String): Map<String, ModelCatalogInfo> =
 private fun serializeThinkingCatalogCache(
     levels: Map<String, List<String>>,
     clamps: Map<String, Map<String, String>> = emptyMap(),
+    reasoningModels: Set<String> = emptySet(),
 ): String = JSONArray().apply {
-    val allKeys = (levels.keys + clamps.keys).distinct()
+    val allKeys = (levels.keys + clamps.keys + reasoningModels).distinct()
     allKeys.forEach { key ->
         put(JSONObject().apply {
             put("key", key)
+            put("reasoning", key in reasoningModels)
             levels[key]?.let { put("levels", JSONArray(it)) }
             clamps[key]?.let { clampMap ->
                 if (clampMap.isNotEmpty()) {
@@ -910,13 +921,21 @@ private fun serializeThinkingCatalogCache(
     }
 }.toString()
 
-private fun parseThinkingCatalogCache(raw: String): Pair<Map<String, List<String>>, Map<String, Map<String, String>>> = runCatching {
+private data class ThinkingCatalogCache(
+    val levels: Map<String, List<String>> = emptyMap(),
+    val clamps: Map<String, Map<String, String>> = emptyMap(),
+    val reasoningModels: Set<String> = emptySet(),
+)
+
+private fun parseThinkingCatalogCache(raw: String): ThinkingCatalogCache = runCatching {
     val array = JSONArray(raw)
     val levelsMap = mutableMapOf<String, List<String>>()
     val clampsMap = mutableMapOf<String, Map<String, String>>()
+    val reasoningModels = mutableSetOf<String>()
     for (index in 0 until array.length()) {
         val item = array.optJSONObject(index) ?: continue
         val key = item.optString("key").takeIf(String::isNotBlank) ?: continue
+        if (item.optBoolean("reasoning")) reasoningModels += key
         item.optJSONArray("levels")?.let { values ->
             val levels = buildList {
                 for (i in 0 until values.length()) {
@@ -934,5 +953,5 @@ private fun parseThinkingCatalogCache(raw: String): Pair<Map<String, List<String
             if (clamps.isNotEmpty()) clampsMap[key] = clamps
         }
     }
-    levelsMap to clampsMap
-}.getOrDefault(emptyMap<String, List<String>>() to emptyMap<String, Map<String, String>>())
+    ThinkingCatalogCache(levelsMap, clampsMap, reasoningModels)
+}.getOrDefault(ThinkingCatalogCache())

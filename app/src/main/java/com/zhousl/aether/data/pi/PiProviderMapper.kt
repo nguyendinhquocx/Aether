@@ -92,7 +92,7 @@ data class PiCompletionResult(
 
 fun AppSettings.toPiModelConfig(
     thinkingLevelMap: Map<String, String> = emptyMap(),
-    isReasoningModel: Boolean = true,
+    isReasoningModel: Boolean? = null,
 ): PiModelConfig {
     val definition = PiProviderCatalog.resolve(piProviderId)
     val effectiveAuthMethod = if (
@@ -105,7 +105,9 @@ fun AppSettings.toPiModelConfig(
         providerAuthMethod
     }
     val effort = toPiThinkingLevel()
-    val reasoningEnabled = isReasoningModel && (effort != "off" || thinkingLevelMap["off"] == "none")
+    val reasoningEnabled = isReasoningModel ?: (
+        effort != "off" || thinkingLevelMap["off"] == "none"
+    )
     return PiModelConfig(
         providerType = if (definition.isBuiltIn) "builtin" else "custom",
         providerConfigId = providerConfigId.ifBlank {

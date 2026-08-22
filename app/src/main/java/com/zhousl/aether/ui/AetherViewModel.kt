@@ -18,6 +18,7 @@ import com.zhousl.aether.data.AppUpdateManager
 import com.zhousl.aether.data.AutomaticModelPurpose
 import com.zhousl.aether.data.AgentModeAuthorizationMethod
 import com.zhousl.aether.data.AgentWorkspaceMode
+import com.zhousl.aether.data.AlpineEnvironmentVariable
 import com.zhousl.aether.data.AppLanguage
 import com.zhousl.aether.data.AppSettings
 import com.zhousl.aether.data.normalizeReasoningEffort
@@ -56,6 +57,7 @@ import com.zhousl.aether.data.ScheduledTaskCreator
 import com.zhousl.aether.data.ScheduledTaskSchedule
 import com.zhousl.aether.data.TermuxEnvironmentVariable
 import com.zhousl.aether.data.normalizeTermuxEnvironmentVariables
+import com.zhousl.aether.data.normalizeAlpineEnvironmentVariables
 import com.zhousl.aether.data.SessionFollowUpMode
 import com.zhousl.aether.data.SessionExecutionState
 import com.zhousl.aether.data.SessionTurnEvent
@@ -204,6 +206,7 @@ class AetherViewModel(
     private var extensionSendHookJob: Job? = null
     private var developerAlpineSetupPreviewJob: Job? = null
     private var piExtensionRefreshGeneration: Long = 0
+    private var didRefreshAlpineAfterSettingsLoad = false
 
     val uiState: StateFlow<AetherUiState> = _uiState.asStateFlow()
     val transientMessages = _transientMessages.asSharedFlow()
@@ -211,7 +214,6 @@ class AetherViewModel(
     init {
         registerCoreModServices()
         refreshTermuxSetup()
-        refreshAlpineSetup(startPiIfReady = false)
         refreshRootSetup()
         refreshImportedPiExtensions()
 
@@ -247,6 +249,10 @@ class AetherViewModel(
                     retentionHours = settings.oldCommandHistoryRetentionHours,
                 )
                 runtime.alpineRuntime.setEnvironmentVariables(settings.alpineEnvironmentVariables)
+                if (!didRefreshAlpineAfterSettingsLoad) {
+                    didRefreshAlpineAfterSettingsLoad = true
+                    refreshAlpineSetup(startPiIfReady = false)
+                }
                 if (!didEvaluateStartupUpdateCheck && settings.privacyPolicyAccepted) {
                     didEvaluateStartupUpdateCheck = true
                     maybeCheckForUpdates(settings)
@@ -422,11 +428,14 @@ class AetherViewModel(
                 .filterKeys(thinkingCacheKeys::contains)
             val cachedThinkingLevelMaps = settingsRepository.loadThinkingLevelMapsCache()
                 .filterKeys(thinkingCacheKeys::contains)
+            val cachedReasoningModels = settingsRepository.loadReasoningModelsCache()
+                .filterTo(mutableSetOf(), thinkingCacheKeys::contains)
             if (cachedThinkingLevels.isNotEmpty() && requestKey == lastModelCatalogRequestKey) {
                 _uiState.update { current ->
                     current.copy(
                         thinkingLevelsByProviderModel = current.thinkingLevelsByProviderModel + cachedThinkingLevels,
                         thinkingLevelClampsByProviderModel = current.thinkingLevelClampsByProviderModel + cachedThinkingLevelMaps,
+                        reasoningModels = current.reasoningModels + cachedReasoningModels,
                     )
                 }
             }
@@ -446,6 +455,7 @@ class AetherViewModel(
                 settingsRepository.saveThinkingCatalogCache(
                     catalogResult.levelsByProviderModel,
                     catalogResult.levelMapsByProviderModel,
+                    catalogResult.reasoningModels,
                 )
                 if (requestKey == lastModelCatalogRequestKey) {
                     _uiState.update { state ->
@@ -453,7 +463,12 @@ class AetherViewModel(
                             thinkingLevelsByProviderModel =
                                 state.thinkingLevelsByProviderModel + catalogResult.levelsByProviderModel,
                             thinkingLevelClampsByProviderModel =
-                                state.thinkingLevelClampsByProviderModel + catalogResult.levelMapsByProviderModel,
+                                (state.thinkingLevelClampsByProviderModel -
+                                    catalogResult.levelsByProviderModel.keys) +
+                                    catalogResult.levelMapsByProviderModel,
+                            reasoningModels =
+                                (state.reasoningModels - catalogResult.levelsByProviderModel.keys) +
+                                    catalogResult.reasoningModels,
                         )
                     }
                 }
@@ -636,7 +651,12 @@ class AetherViewModel(
                 )
             }
             if (setupState.isReady) {
-                val settings = _uiState.value.settings
+                val storedSettings = _uiState.value.settings
+                val settings = storedSettings.copy(
+                    alpineSetupCompleted = true,
+                    enabledRuntimeIds = storedSettings.enabledRuntimeIds + LocalRuntimeId.Alpine,
+                )
+                if (settings != storedSettings) settingsRepository.updateSettings(settings)
                 val verifiedProfiles = withContext(Dispatchers.IO) {
                     settings.alpinePackageProfiles.mapValues { (profileId, profileState) ->
                         if (
@@ -1948,6 +1968,9 @@ class AetherViewModel(
                     val rawValue = readTextFromUri(sourceUri)
                     val json = JSONObject(rawValue)
                     val importedSkills = skillManager.importSkillBundles(json.optJSONArray("skillBundles"))
+                    json.optJSONObject("extensionArchive")?.let { archive ->
+                        piExtensionManager.restoreArchive(archive)
+                    }
                     parseFullAppImport(json, importedSkills)
                 }
             }
@@ -2003,8 +2026,10 @@ class AetherViewModel(
                             editingSessionId = null,
                             editingMessageId = null,
                             unviewedCompletedSessionIds = emptySet(),
+                            mcpServers = imported.mcpServers,
                         )
                     }
+                    refreshPiExtensionState(loadCatalog = false)
                     emitTransientMessage(uiString(R.string.message_app_data_imported))
                 }
                 .onFailure { throwable ->
@@ -2373,7 +2398,7 @@ class AetherViewModel(
                     put("workspace_trusted", true)
                     val modelKey = thinkingCatalogKey(settings.piProviderId, settings.modelId)
                     val thinkingLevelMap = _uiState.value.thinkingLevelClampsByProviderModel[modelKey].orEmpty()
-                    val isReasoningModel = _uiState.value.thinkingLevelsByProviderModel[modelKey].orEmpty().isNotEmpty()
+                    val isReasoningModel = modelKey in _uiState.value.reasoningModels
                     put("model_config", settings.toPiModelConfig(thinkingLevelMap, isReasoningModel).toJson())
                     put("system_prompt", "")
                     put("host_tools", JSONArray())
@@ -2606,19 +2631,28 @@ class AetherViewModel(
             return
         }
         viewModelScope.launch {
-            val publicThinkingLevels = ProviderModelCatalogClient.fetchPublicThinkingLevels(listOf(option))
-            if (publicThinkingLevels.isNotEmpty()) {
-                settingsRepository.saveThinkingCatalogCache(publicThinkingLevels)
+            val catalogResult = ProviderModelCatalogClient.fetchPublicThinkingCatalog(listOf(option))
+            if (catalogResult.levelsByProviderModel.isNotEmpty()) {
+                settingsRepository.saveThinkingCatalogCache(
+                    catalogResult.levelsByProviderModel,
+                    catalogResult.levelMapsByProviderModel,
+                    catalogResult.reasoningModels,
+                )
                 _uiState.update { state ->
                     state.copy(
                         thinkingLevelsByProviderModel =
-                            state.thinkingLevelsByProviderModel + publicThinkingLevels,
+                            state.thinkingLevelsByProviderModel + catalogResult.levelsByProviderModel,
                         thinkingLevelClampsByProviderModel =
-                            state.thinkingLevelClampsByProviderModel - publicThinkingLevels.keys,
+                            (state.thinkingLevelClampsByProviderModel -
+                                catalogResult.levelsByProviderModel.keys) +
+                                catalogResult.levelMapsByProviderModel,
+                        reasoningModels =
+                            (state.reasoningModels - catalogResult.levelsByProviderModel.keys) +
+                                catalogResult.reasoningModels,
                     )
                 }
             }
-            onResolved(publicThinkingLevels[cacheKey].orEmpty().isNotEmpty())
+            onResolved(catalogResult.levelsByProviderModel[cacheKey].orEmpty().isNotEmpty())
         }
     }
 
@@ -2634,15 +2668,24 @@ class AetherViewModel(
             .firstOrNull { it.key == selectedModelKey }
             ?: return
         viewModelScope.launch {
-            val publicThinkingLevels = ProviderModelCatalogClient.fetchPublicThinkingLevels(listOf(option))
-            if (publicThinkingLevels.isEmpty()) return@launch
-            settingsRepository.saveThinkingCatalogCache(publicThinkingLevels)
+            val catalogResult = ProviderModelCatalogClient.fetchPublicThinkingCatalog(listOf(option))
+            if (catalogResult.levelsByProviderModel.isEmpty()) return@launch
+            settingsRepository.saveThinkingCatalogCache(
+                catalogResult.levelsByProviderModel,
+                catalogResult.levelMapsByProviderModel,
+                catalogResult.reasoningModels,
+            )
             _uiState.update { state ->
                 state.copy(
                     thinkingLevelsByProviderModel =
-                        state.thinkingLevelsByProviderModel + publicThinkingLevels,
+                        state.thinkingLevelsByProviderModel + catalogResult.levelsByProviderModel,
                     thinkingLevelClampsByProviderModel =
-                        state.thinkingLevelClampsByProviderModel - publicThinkingLevels.keys,
+                        (state.thinkingLevelClampsByProviderModel -
+                            catalogResult.levelsByProviderModel.keys) +
+                            catalogResult.levelMapsByProviderModel,
+                    reasoningModels =
+                        (state.reasoningModels - catalogResult.levelsByProviderModel.keys) +
+                            catalogResult.reasoningModels,
                 )
             }
         }
@@ -5465,6 +5508,9 @@ class AetherViewModel(
                 preferredModelKey = resolveDefaultTitleModelKey(settings, providerConfigs),
                 fallbackModelKey = resolveDefaultChatModelKey(settings, providerConfigs),
             )
+            val modelKey = thinkingCatalogKey(titleSettings.piProviderId, titleSettings.modelId)
+            val thinkingLevelMap = _uiState.value.thinkingLevelClampsByProviderModel[modelKey].orEmpty()
+            val isReasoningModel = modelKey in _uiState.value.reasoningModels
             val title = piCompletionClient.completeOnce(
                 settings = titleSettings,
                 systemPrompt = SessionTitleSystemPrompt,
@@ -5475,6 +5521,8 @@ class AetherViewModel(
                     )
                 ),
                 disableReasoning = true,
+                thinkingLevelMap = thinkingLevelMap,
+                isReasoningModel = isReasoningModel,
             ).getOrNull()
                 ?.assistantText
                 ?.sanitizeGeneratedSessionTitle()
@@ -5577,7 +5625,7 @@ class AetherViewModel(
                         put("platform", "android")
                         val modelKey = thinkingCatalogKey(settings.piProviderId, settings.modelId)
                         val thinkingLevelMap = _uiState.value.thinkingLevelClampsByProviderModel[modelKey].orEmpty()
-                        val isReasoningModel = _uiState.value.thinkingLevelsByProviderModel[modelKey].orEmpty().isNotEmpty()
+                        val isReasoningModel = modelKey in _uiState.value.reasoningModels
                         put("model_config", settings.toPiModelConfig(thinkingLevelMap, isReasoningModel).toJson())
                         put("system_prompt", "")
                         put("host_tools", JSONArray())
@@ -6215,7 +6263,7 @@ class AetherViewModel(
                 }
         }
         return JSONObject().apply {
-            put("schemaVersion", 2)
+            put("schemaVersion", 3)
             put("exportType", "app")
             put("exportedAtMillis", System.currentTimeMillis())
             put("settings", snapshot.settings.toJson())
@@ -6223,7 +6271,9 @@ class AetherViewModel(
             put("sessions", JSONArray(serializeChatSessions(sessions.map { it.copy(activeSkills = emptyList()) })))
             put("currentSessionId", snapshot.currentSessionId)
             put("skillBundles", skillManager.exportSkillBundles(snapshot.installedSkills))
+            put("mcpServers", JSONArray(serializeMcpServerConfigs(snapshot.mcpServers)))
             put("piSessions", piSessions)
+            put("extensionArchive", piExtensionManager.exportArchive())
         }
     }
 
@@ -6231,10 +6281,11 @@ class AetherViewModel(
         json: JSONObject,
         installedSkills: List<InstalledSkill>,
     ): ImportedAppData {
+        val mcpServers = parseMcpServerConfigs(json.optJSONArray("mcpServers")?.toString().orEmpty())
         val sessions = sanitizeImportedSessions(
             sessions = parseChatSessions(json.optJSONArray("sessions")?.toString().orEmpty()),
             installedSkillIds = installedSkills.map { it.id }.toSet(),
-            mcpServerIds = emptySet(),
+            mcpServerIds = mcpServers.map(McpServerConfig::id).toSet(),
         )
         val piSessions = buildMap {
             val entries = json.optJSONArray("piSessions") ?: JSONArray()
@@ -6253,7 +6304,7 @@ class AetherViewModel(
                 .takeIf { id -> id == DraftSessionId || sessions.any { it.id == id } }
                 ?: DraftSessionId,
             installedSkills = installedSkills,
-            mcpServers = emptyList(),
+            mcpServers = mcpServers,
             piSessions = piSessions,
         )
     }
@@ -6332,6 +6383,14 @@ class AetherViewModel(
                 }
             },
         )
+        put(
+            "alpineEnvironmentVariables",
+            JSONArray().apply {
+                alpineEnvironmentVariables.forEach { variable ->
+                    put(JSONObject().put("name", variable.name).put("value", variable.value))
+                }
+            },
+        )
         put("autoCleanOldCommandHistory", autoCleanOldCommandHistory)
         put("oldCommandHistoryRetentionHours", oldCommandHistoryRetentionHours)
         put("agentModeAuthorizationEnabled", agentModeAuthorizationEnabled)
@@ -6342,6 +6401,7 @@ class AetherViewModel(
         put("defaultTitleModelKey", defaultTitleModelKey)
         put("defaultNamingModelKey", defaultNamingModelKey)
         put("defaultCompactingModelKey", defaultCompactingModelKey)
+        put("defaultSelectedSkillIds", JSONArray(defaultSelectedSkillIds))
         put("onboardingSeenVersion", onboardingSeenVersion)
         put("onboardingCompletedVersion", onboardingCompletedVersion)
         put("privacyPolicyAccepted", privacyPolicyAccepted)
@@ -6428,6 +6488,9 @@ class AetherViewModel(
             alpinePackageProfiles = parseImportedPackageProfileStates(
                 json.optJSONArray("alpinePackageProfiles")
             ),
+            alpineEnvironmentVariables = parseImportedAlpineEnvironmentVariables(
+                json.optJSONArray("alpineEnvironmentVariables")
+            ),
             agentModeAuthorizationEnabled = json.optBoolean(
                 "agentModeAuthorizationEnabled",
                 defaults.agentModeAuthorizationEnabled,
@@ -6487,6 +6550,25 @@ class AetherViewModel(
                     val item = array.optJSONObject(index) ?: continue
                     add(
                         TermuxEnvironmentVariable(
+                            name = item.optString("name"),
+                            value = item.optString("value"),
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    private fun parseImportedAlpineEnvironmentVariables(
+        array: JSONArray?,
+    ): List<AlpineEnvironmentVariable> {
+        if (array == null) return emptyList()
+        return normalizeAlpineEnvironmentVariables(
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    add(
+                        AlpineEnvironmentVariable(
                             name = item.optString("name"),
                             value = item.optString("value"),
                         )

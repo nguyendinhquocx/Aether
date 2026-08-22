@@ -106,13 +106,16 @@ class SharedPiChatClient(
         reasoning: String = "off",
         timeoutMillis: Int = 360_000,
         thinkingLevelMap: Map<String, String> = emptyMap(),
+        isReasoningModel: Boolean? = null,
     ): SharedPiTurnResult {
         val response = bridge.request(
             type = "complete_once",
             payload = buildJsonObject {
                 put("model_config", config.toSharedPiModelConfig(
                     timeoutMillis = timeoutMillis,
-                    reasoningEnabled = reasoning != "off" || thinkingLevelMap["off"] == "none",
+                    reasoningEnabled = isReasoningModel ?: (
+                        reasoning != "off" || thinkingLevelMap["off"] == "none"
+                    ),
                     thinkingLevelMap = thinkingLevelMap,
                 ))
                 put("system_prompt", systemPrompt.ifBlank { platformDefaultSystemPrompt() })
@@ -150,6 +153,7 @@ class SharedPiChatClient(
         reasoning: String = "off",
         timeoutMillis: Int = 360_000,
         thinkingLevelMap: Map<String, String> = emptyMap(),
+        isReasoningModel: Boolean? = null,
         onAssistantTextDelta: suspend (String) -> Unit = {},
         onAssistantReasoningDelta: suspend (String) -> Unit = {},
         onAssistantReasoningSummaryDelta: suspend (String) -> Unit = {},
@@ -171,7 +175,9 @@ class SharedPiChatClient(
         val payload = buildJsonObject {
             put("model_config", config.toSharedPiModelConfig(
                 timeoutMillis = timeoutMillis,
-                reasoningEnabled = reasoning != "off" || thinkingLevelMap["off"] == "none",
+                reasoningEnabled = isReasoningModel ?: (
+                    reasoning != "off" || thinkingLevelMap["off"] == "none"
+                ),
                 thinkingLevelMap = thinkingLevelMap,
             ))
             put("session_id", resolvedSessionId)
@@ -327,6 +333,11 @@ class SharedPiChatClient(
                 totalTokens = usage.long("total_tokens"),
                 reasoningTokens = usage.long("reasoning_tokens"),
                 cachedInputTokens = usage.long("cached_input_tokens"),
+                inputTokensAvailable = "input_tokens" in usage,
+                outputTokensAvailable = "output_tokens" in usage,
+                totalTokensAvailable = "total_tokens" in usage,
+                reasoningTokensAvailable = "reasoning_tokens" in usage,
+                cachedInputTokensAvailable = "cached_input_tokens" in usage,
             ),
             usageAvailable = usage.isNotEmpty(),
             providerPayloadJson = toSharedProviderPayloadJson(),

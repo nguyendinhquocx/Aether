@@ -31,6 +31,7 @@ data class SharedProviderModelsResult(
 data class SharedThinkingCatalogResult(
     val levelsByProviderModel: Map<String, List<String>> = emptyMap(),
     val levelMapsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
+    val reasoningModels: Set<String> = emptySet(),
 )
 
 @Serializable
@@ -107,6 +108,7 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
             val fallbackModels = providers.sharedPublicCatalogModelIndex()
             val levelsMap = mutableMapOf<String, List<String>>()
             val levelMapsMap = mutableMapOf<String, Map<String, String>>()
+            val reasoningModels = mutableSetOf<String>()
             options.forEach { option ->
                 val model = option.publicCatalogProviderIds()
                     .firstNotNullOfOrNull { providerId ->
@@ -117,6 +119,7 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
                         .firstNotNullOfOrNull { fallbackModels[it.lowercase()] }
                 val key = sharedThinkingCatalogKey(option.piProviderId, option.modelId)
                 if (model?.get("reasoning")?.jsonPrimitive?.booleanOrNull == true) {
+                    reasoningModels += key
                     val optionsArray = model["reasoning_options"] as? JsonArray
                     val hasToggle = optionsArray.orEmpty().any { entry ->
                         (entry as? JsonObject)?.stringValue("type") == "toggle"
@@ -139,10 +142,9 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
                                     }
                                 }
                         }
-                        if (isEmpty()) addAll(listOf("off", "medium"))
                     }
                     val levelMap = buildMap<String, String> {
-                        if (hasNone) put("off", "none")
+                        if (hasToggle || hasNone) put("off", "none")
                     }
                     levelsMap[key] = levels
                     if (levelMap.isNotEmpty()) levelMapsMap[key] = levelMap
@@ -150,7 +152,7 @@ class SharedProviderModelCatalogClient(engine: HttpClientEngine? = null) {
                     levelsMap[key] = emptyList()
                 }
             }
-            SharedThinkingCatalogResult(levelsMap, levelMapsMap)
+            SharedThinkingCatalogResult(levelsMap, levelMapsMap, reasoningModels)
         }
     }.getOrDefault(SharedThinkingCatalogResult())
 

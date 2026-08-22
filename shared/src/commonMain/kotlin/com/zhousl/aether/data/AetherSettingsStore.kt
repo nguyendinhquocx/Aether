@@ -19,6 +19,7 @@ data class SharedThinkingCatalogCache(
     val source: String = "",
     val levelsByProviderModel: Map<String, List<String>> = emptyMap(),
     val clampsByProviderModel: Map<String, Map<String, String>> = emptyMap(),
+    val reasoningModels: Set<String> = emptySet(),
 )
 
 @Serializable
@@ -158,10 +159,13 @@ class AetherSettingsStore(
     suspend fun saveThinkingCatalogCache(cache: SharedThinkingCatalogCache) {
         dataStore.edit { preferences ->
             val current = parseSharedThinkingCatalogCache(preferences[ThinkingCatalogCacheJson].orEmpty())
+            val refreshedKeys = cache.levelsByProviderModel.keys
             val merged = SharedThinkingCatalogCache(
                 source = cache.source.ifBlank { current.source },
                 levelsByProviderModel = current.levelsByProviderModel + cache.levelsByProviderModel,
-                clampsByProviderModel = current.clampsByProviderModel + cache.clampsByProviderModel,
+                clampsByProviderModel =
+                    (current.clampsByProviderModel - refreshedKeys) + cache.clampsByProviderModel,
+                reasoningModels = (current.reasoningModels - refreshedKeys) + cache.reasoningModels,
             )
             preferences[ThinkingCatalogCacheJson] = serializeSharedThinkingCatalogCache(merged)
         }

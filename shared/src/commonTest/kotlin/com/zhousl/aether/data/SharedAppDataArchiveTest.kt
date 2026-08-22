@@ -70,6 +70,7 @@ class SharedAppDataArchiveTest {
                 providerConfigId = provider.id,
                 apiKey = "legacy-secret",
                 defaultSelectedSkillIds = listOf("review"),
+                alpineEnvironmentVariables = listOf(AlpineEnvironmentVariable("NODE_ENV", "test")),
             ),
             providerConfigs = Json.parseToJsonElement(
                 serializeProviderConfigs(listOf(provider)),
@@ -110,6 +111,28 @@ class SharedAppDataArchiveTest {
                     ),
                 ),
             ),
+            mcpServers = Json.parseToJsonElement(
+                """[{"id":"docs","name":"Docs","transport":"http","url":"https://example.test/mcp"}]""",
+            ).jsonArray,
+            extensionArchive = SharedExtensionArchive(
+                packageSources = listOf("npm:example-extension"),
+                importedBundles = listOf(
+                    SharedExtensionBundle(
+                        root = "/root/.aether/extensions",
+                        name = "local.ts",
+                        singleFile = true,
+                        files = listOf(
+                            SharedExtensionBundleFile(
+                                path = "local.ts",
+                                dataBase64 = Base64.encode("export default {}".encodeToByteArray()),
+                                executable = true,
+                            ),
+                        ),
+                    ),
+                ),
+                disabledExtensionPaths = setOf("/root/.aether/extensions/local.ts"),
+                disabledPackageSources = setOf("npm:example-extension"),
+            ),
         )
 
         val decoded = decodeSharedAppDataArchive(encodeSharedAppDataArchive(archive))
@@ -119,6 +142,15 @@ class SharedAppDataArchiveTest {
         assertEquals("Answer", decoded.sessions.single().messages.last().text)
         assertEquals(30L, decoded.sessions.single().messages.last().completedAtMillis)
         assertEquals(false, decoded.skillBundles.single().isEnabled)
+        assertEquals("test", decoded.settings.alpineEnvironmentVariables.single().value)
+        assertEquals("docs", decoded.mcpServers.single().jsonObject["id"]?.jsonPrimitive?.content)
+        assertEquals("npm:example-extension", decoded.extensionArchive?.packageSources?.single())
+        assertEquals(
+            "export default {}",
+            Base64.decode(decoded.extensionArchive!!.importedBundles.single().files.single().dataBase64)
+                .decodeToString(),
+        )
+        assertEquals(true, decoded.extensionArchive.importedBundles.single().files.single().executable)
         assertEquals("---\nname: Review\ndescription: Review changes\n---", Base64.decode(
             decoded.skillBundles.single().files.single().dataBase64,
         ).decodeToString())
@@ -165,6 +197,33 @@ class SharedAppDataArchiveTest {
                     files = listOf(
                         SharedSkillBundleFile("SKILL.md", Base64.encode("ok".encodeToByteArray())),
                         SharedSkillBundleFile("../secret", Base64.encode("bad".encodeToByteArray())),
+                    ),
+                ),
+            ),
+        )
+
+        assertFailsWith<IllegalArgumentException> { encodeSharedAppDataArchive(archive) }
+    }
+
+    @Test
+    fun importRejectsExtensionPathTraversalBeforeWriting() {
+        val archive = SharedAppDataArchive(
+            exportedAtMillis = 1,
+            settings = AppSettings(),
+            providerConfigs = JsonArray(emptyList()),
+            sessions = emptyList(),
+            skillBundles = emptyList(),
+            extensionArchive = SharedExtensionArchive(
+                importedBundles = listOf(
+                    SharedExtensionBundle(
+                        root = "/root/.aether/extensions",
+                        name = "unsafe",
+                        files = listOf(
+                            SharedExtensionBundleFile(
+                                path = "../secret",
+                                dataBase64 = Base64.encode("bad".encodeToByteArray()),
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -401,7 +460,7 @@ class SharedAppDataArchiveTest {
         assertEquals(listOf("review"), decoded.skillBundles.map { it.id })
         val reencoded = Json.parseToJsonElement(encodeSharedAppDataArchive(decoded)).jsonObject
         assertEquals(1, reencoded["providerConfigs"]!!.jsonArray.size)
-        assertFalse("mcpServers" in reencoded)
+        assertEquals(2, reencoded["mcpServers"]!!.jsonArray.size)
     }
 
     @Test

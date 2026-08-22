@@ -8,6 +8,8 @@ import com.zhousl.aether.data.pi.PiKernelBridge
 import com.zhousl.aether.runtime.AlpineRuntime
 import java.io.File
 import java.io.InputStream
+import java.nio.file.Files
+import java.util.Base64
 import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipInputStream
@@ -17,6 +19,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val PiPackagesUrl = "https://pi.dev/packages"
@@ -26,6 +29,7 @@ private const val MaxExtensionArchiveBytes = 32L * 1024L * 1024L
 private const val MaxExtensionExtractedBytes = 128L * 1024L * 1024L
 private const val MaxExtensionEntryBytes = 16L * 1024L * 1024L
 private const val MaxExtensionZipEntries = 4096
+private const val MaxExtensionBackupEntries = 8192
 private const val ExtensionDependencyInstallTimeoutMillis = 5L * 60L * 1000L
 private val ExtensionFilePattern = Regex(""".*\.(?:[cm]?[jt]s)$""", RegexOption.IGNORE_CASE)
 private val ExtensionIndexNames = setOf(
@@ -497,6 +501,146 @@ class PiExtensionManager(
 
     suspend fun loadOptions(): PiExtensionLoadOptions = stateRepository.loadOptions()
 
+    suspend fun exportArchive(): JSONObject = withContext(Dispatchers.IO) {
+        val packageSources = piKernelBridge.listExtensionPackages()
+            .optJSONArray("packages")
+            .toJsonObjects()
+            .mapNotNull { item -> item.optString("source").trim().takeIf(String::isNotBlank) }
+            .distinct()
+        val loadOptions = stateRepository.loadOptions()
+        var totalBytes = 0L
+        var totalEntries = 0
+        val bundles = JSONArray()
+        extensionArchiveRoots().forEach { (guestRoot, hostRoot) ->
+            hostRoot.listFiles().orEmpty()
+                .filterNot { it.name.startsWith(".aether-import-") }
+                .sortedBy(File::getName)
+                .forEach { entry ->
+                    validateExtensionArchiveName(entry.name)
+                    require(!Files.isSymbolicLink(entry.toPath())) {
+                        "Extensions backup does not support symbolic links."
+                    }
+                    val files = if (entry.isFile) {
+                        listOf(entry)
+                    } else {
+                        require(entry.isDirectory) { "Unsupported Extension entry: ${entry.name}" }
+                        entry.walkTopDown().onEnter { directory ->
+                            if (directory != entry && directory.name == "node_modules") {
+                                return@onEnter false
+                            }
+                            require(!Files.isSymbolicLink(directory.toPath())) {
+                                "Extensions backup does not support symbolic links."
+                            }
+                            true
+                        }.filter(File::isFile).toList().also { descendants ->
+                            require(descendants.none { Files.isSymbolicLink(it.toPath()) }) {
+                                "Extensions backup does not support symbolic links."
+                            }
+                        }
+                    }
+                    if (files.isEmpty()) return@forEach
+                    val encodedFiles = JSONArray()
+                    files.sortedBy(File::getPath).forEach { file ->
+                        val relativePath = if (entry.isFile) entry.name else file.relativeTo(entry).invariantSeparatorsPath
+                        validateExtensionArchiveRelativePath(relativePath)
+                        require(file.length() <= MaxExtensionEntryBytes) {
+                            "Extension file is too large: $relativePath"
+                        }
+                        val bytes = file.readBytes()
+                        require(bytes.size.toLong() <= MaxExtensionEntryBytes) {
+                            "Extension file is too large: $relativePath"
+                        }
+                        totalBytes += bytes.size
+                        require(totalBytes <= MaxExtensionExtractedBytes) {
+                            "Extensions backup is too large."
+                        }
+                        totalEntries += 1
+                        require(totalEntries <= MaxExtensionBackupEntries) {
+                            "Extensions backup contains too many files."
+                        }
+                        encodedFiles.put(JSONObject().apply {
+                            put("path", relativePath)
+                            put("dataBase64", Base64.getEncoder().encodeToString(bytes))
+                            put("executable", file.canExecute())
+                        })
+                    }
+                    bundles.put(JSONObject().apply {
+                        put("root", guestRoot)
+                        put("name", entry.name)
+                        put("singleFile", entry.isFile)
+                        put("files", encodedFiles)
+                    })
+                }
+        }
+        JSONObject().apply {
+            put("packageSources", JSONArray(packageSources))
+            put("importedBundles", bundles)
+            put("disabledExtensionPaths", JSONArray(loadOptions.disabledExtensionPaths.sorted()))
+            put("disabledPackageSources", JSONArray(loadOptions.disabledPackageSources.sorted()))
+        }
+    }
+
+    suspend fun restoreArchive(value: JSONObject) = withContext(Dispatchers.IO) {
+        val archive = decodeExtensionArchive(value)
+        val currentSources = piKernelBridge.listExtensionPackages()
+            .optJSONArray("packages")
+            .toJsonObjects()
+            .mapNotNull { item -> item.optString("source").trim().takeIf(String::isNotBlank) }
+            .toSet()
+        val roots = extensionArchiveRoots().toMap()
+        roots.values.forEach { root ->
+            root.listFiles().orEmpty().forEach { entry ->
+                val removed = if (Files.isSymbolicLink(entry.toPath())) entry.delete() else entry.deleteRecursively()
+                require(removed) { "Unable to clear Extensions before restore." }
+            }
+        }
+        archive.bundles.forEach { bundle ->
+            val root = checkNotNull(roots[bundle.root]) { "Unsupported Extension root: ${bundle.root}" }
+            bundle.files.forEach { archivedFile ->
+                val relativeTarget = if (bundle.singleFile) bundle.name else "${bundle.name}/${archivedFile.path}"
+                val target = File(root, relativeTarget).canonicalFile
+                require(target.path.startsWith(root.canonicalPath + File.separator)) {
+                    "Extension archive entry escaped the destination directory."
+                }
+                require(target.parentFile?.mkdirs() != false || target.parentFile?.isDirectory == true) {
+                    "Unable to prepare Extension restore destination."
+                }
+                target.writeBytes(archivedFile.data)
+                if (archivedFile.executable) {
+                    require(target.setExecutable(true, false)) {
+                        "Unable to restore executable permission: ${archivedFile.path}"
+                    }
+                }
+            }
+            if (bundle.root == AetherExtensionGuestDirectory) {
+                alpineRuntime.clearPreinstalledExtensionRemoved(bundle.name)
+            }
+        }
+        archive.bundles.filterNot(DecodedExtensionBundle::singleFile).forEach { bundle ->
+            val root = checkNotNull(roots[bundle.root])
+            installImportedPackageDependencies(
+                packageRoot = File(root, bundle.name),
+                guestDirectory = "${bundle.root}/${bundle.name}",
+            )
+        }
+        val disabledIds = buildSet {
+            archive.disabledPackageSources.forEach { add("package:$it") }
+            archive.disabledExtensionPaths.forEach { path ->
+                val scope = if (path.startsWith(PiUserExtensionGuestDirectory)) "pi" else "aether"
+                add("import:$scope:$path")
+            }
+        }
+        stateRepository.replaceDisabledExtensionIds(disabledIds)
+        val loadOptions = stateRepository.loadOptions()
+        currentSources.filterNot(archive.packageSources::contains).forEach { source ->
+            piKernelBridge.removeExtensionPackage(source, loadOptions)
+        }
+        archive.packageSources.filterNot(currentSources::contains).forEach { source ->
+            piKernelBridge.installExtensionPackage(source, loadOptions)
+        }
+        requireExtensionReloadSucceeded(piKernelBridge.reloadAllExtensions(loadOptions))
+    }
+
     suspend fun importFromUri(uri: Uri): Result<InstalledPiExtension> = withContext(Dispatchers.IO) {
         runCatching {
             val displayName = queryDisplayName(uri)
@@ -844,6 +988,137 @@ class PiExtensionManager(
             ?.takeIf(String::isNotBlank)
             ?: uri.lastPathSegment?.substringAfterLast('/')?.trim().orEmpty()
                 .ifBlank { "extension.ts" }
+    }
+
+    private suspend fun extensionArchiveRoots(): List<Pair<String, File>> = listOf(
+        AetherExtensionGuestDirectory to alpineRuntime.ensureGuestDirectory(AetherExtensionGuestDirectory).canonicalFile,
+        PiUserExtensionGuestDirectory to alpineRuntime.ensureGuestDirectory(PiUserExtensionGuestDirectory).canonicalFile,
+    )
+}
+
+private data class DecodedExtensionArchive(
+    val packageSources: Set<String>,
+    val bundles: List<DecodedExtensionBundle>,
+    val disabledExtensionPaths: Set<String>,
+    val disabledPackageSources: Set<String>,
+)
+
+private data class DecodedExtensionBundle(
+    val root: String,
+    val name: String,
+    val singleFile: Boolean,
+    val files: List<DecodedExtensionFile>,
+)
+
+private data class DecodedExtensionFile(
+    val path: String,
+    val data: ByteArray,
+    val executable: Boolean,
+)
+
+private fun decodeExtensionArchive(value: JSONObject): DecodedExtensionArchive {
+    val packageSources = value.optJSONArray("packageSources").toStringListStrict("Extension package source")
+    val disabledPaths = value.optJSONArray("disabledExtensionPaths")
+        .toStringListStrict("Disabled Extension path")
+        .map(::normalizeImportedExtensionPath)
+        .toSet()
+    require(disabledPaths.all { path ->
+        path.startsWith("$AetherExtensionGuestDirectory/") ||
+            path.startsWith("$PiUserExtensionGuestDirectory/")
+    }) { "Extensions backup contains an unsupported disabled path." }
+    val disabledSources = value.optJSONArray("disabledPackageSources")
+        .toStringListStrict("Disabled Extension package source")
+    val bundleKeys = mutableSetOf<String>()
+    var totalBytes = 0L
+    var totalEntries = 0
+    val bundlesArray = value.optJSONArray("importedBundles") ?: JSONArray()
+    require(bundlesArray.length() <= MaxExtensionBackupEntries) {
+        "Extensions backup contains too many bundles."
+    }
+    val bundles = buildList {
+        for (bundleIndex in 0 until bundlesArray.length()) {
+            val bundle = bundlesArray.optJSONObject(bundleIndex)
+                ?: throw IllegalArgumentException("Extensions backup contains an invalid bundle.")
+            val root = bundle.optString("root")
+            require(root == AetherExtensionGuestDirectory || root == PiUserExtensionGuestDirectory) {
+                "Unsupported Extension root: $root"
+            }
+            val name = bundle.optString("name")
+            validateExtensionArchiveName(name)
+            require(bundleKeys.add("$root/$name")) {
+                "Extensions backup contains duplicate bundles: $name"
+            }
+            val singleFile = bundle.optBoolean("singleFile")
+            val filesArray = bundle.optJSONArray("files")
+                ?: throw IllegalArgumentException("Extension bundle is missing files: $name")
+            require(filesArray.length() > 0) { "Extension bundle is empty: $name" }
+            require(!singleFile || filesArray.length() == 1) {
+                "Single-file Extension bundle contains multiple files: $name"
+            }
+            val paths = mutableSetOf<String>()
+            val files = buildList {
+                for (fileIndex in 0 until filesArray.length()) {
+                    val file = filesArray.optJSONObject(fileIndex)
+                        ?: throw IllegalArgumentException("Extension bundle contains an invalid file: $name")
+                    val path = file.optString("path")
+                    validateExtensionArchiveRelativePath(path)
+                    require(paths.add(path.replace('\\', '/'))) {
+                        "Extension bundle contains duplicate files: $path"
+                    }
+                    val bytes = runCatching { Base64.getDecoder().decode(file.optString("dataBase64")) }
+                        .getOrElse { throw IllegalArgumentException("Extension file is not valid Base64: $path", it) }
+                    require(bytes.size.toLong() <= MaxExtensionEntryBytes) {
+                        "Extension file is too large: $path"
+                    }
+                    totalBytes += bytes.size
+                    require(totalBytes <= MaxExtensionExtractedBytes) { "Extensions backup is too large." }
+                    totalEntries += 1
+                    require(totalEntries <= MaxExtensionBackupEntries) {
+                        "Extensions backup contains too many files."
+                    }
+                    add(DecodedExtensionFile(path, bytes, file.optBoolean("executable")))
+                }
+            }
+            add(DecodedExtensionBundle(root, name, singleFile, files))
+        }
+    }
+    return DecodedExtensionArchive(
+        packageSources = packageSources,
+        bundles = bundles,
+        disabledExtensionPaths = disabledPaths,
+        disabledPackageSources = disabledSources,
+    )
+}
+
+private fun validateExtensionArchiveName(value: String) {
+    require(value.isNotBlank() && '/' !in value && '\\' !in value && value != "." && value != "..") {
+        "Invalid Extension name: $value"
+    }
+}
+
+private fun validateExtensionArchiveRelativePath(value: String) {
+    val normalized = value.replace('\\', '/')
+    require(
+        normalized.isNotBlank() && !normalized.startsWith('/') &&
+            normalized.split('/').none { it.isBlank() || it == "." || it == ".." }
+    ) { "Invalid Extension path: $value" }
+}
+
+private fun JSONArray?.toJsonObjects(): List<JSONObject> {
+    if (this == null) return emptyList()
+    return buildList {
+        for (index in 0 until length()) optJSONObject(index)?.let(::add)
+    }
+}
+
+private fun JSONArray?.toStringListStrict(label: String): Set<String> {
+    if (this == null) return emptySet()
+    return buildSet {
+        for (index in 0 until length()) {
+            val value = optString(index).trim()
+            require(value.isNotBlank()) { "$label is blank." }
+            require(add(value)) { "Extensions backup contains a duplicate $label." }
+        }
     }
 }
 

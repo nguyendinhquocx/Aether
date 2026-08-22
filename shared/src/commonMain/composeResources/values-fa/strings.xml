@@ -66,6 +66,7 @@
     <string name="statistics_title">آمار</string>
     <string name="statistics_session_tokens">نشانه های جلسه</string>
     <string name="statistics_turn_tokens">توکن های چرخشی</string>
+    <string name="statistics_reasoning_tokens">توکن های استدلال</string>
     <string name="statistics_output_rate">نرخ خروجی</string>
     <string name="statistics_first_token_latency">اولین تأخیر توکن</string>
     <string name="statistics_input">ورودی</string>

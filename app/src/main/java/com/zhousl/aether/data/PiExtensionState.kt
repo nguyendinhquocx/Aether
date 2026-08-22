@@ -66,6 +66,15 @@ class PiExtensionStateRepository(
     suspend fun loadOptions(): PiExtensionLoadOptions =
         loadOptionsForIds(disabledExtensionIds.first())
 
+    suspend fun replaceDisabledExtensionIds(extensionIds: Set<String>) {
+        context.piExtensionStateDataStore.edit { preferences ->
+            preferences[DISABLED_EXTENSION_IDS] = extensionIds
+                .map(::normalizeExtensionStateId)
+                .filter(String::isNotBlank)
+                .toSet()
+        }
+    }
+
     private companion object {
         val DISABLED_EXTENSION_IDS = stringSetPreferencesKey("disabled_extension_ids")
     }
