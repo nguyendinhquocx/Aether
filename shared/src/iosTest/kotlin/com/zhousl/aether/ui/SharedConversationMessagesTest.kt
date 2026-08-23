@@ -66,7 +66,7 @@ class SharedConversationMessagesTest {
         )
 
         assertEquals(
-            listOf(toolTrace),
+            listOf(SharedAssistantResponseBlock.ToolGroup("tool", toolTrace.trace.toolInvocations)),
             listOf(leaked, toolTrace).removeLeakedSharedReasoning(persistedReasoningText = ""),
         )
         assertEquals(
@@ -76,13 +76,35 @@ class SharedConversationMessagesTest {
     }
 
     @Test
-    fun disabledReasoningRemovesTextAndResponseBlocks() {
-        val message = SharedChatMessage(text = "Answer", fromUser = false)
-            .appendAssistantReasoningDelta("Reasoning")
+    fun disabledReasoningKeepsToolsAndOnlyTheFinalTextBlock() {
+        val tool = SharedChatToolInvocation("call", "bash", "Run command")
+        val message = SharedChatMessage(text = "", fromUser = false)
+            .appendAssistantTextDelta("Intermediate answer")
+            .copy(
+                responseBlocks = listOf(
+                    SharedAssistantResponseBlock.Text("draft", "Intermediate answer"),
+                    SharedAssistantResponseBlock.Reasoning(
+                        "reasoning",
+                        SharedReasoningTrace(
+                            "reasoning",
+                            rawText = "Hidden reasoning",
+                            toolInvocations = listOf(tool),
+                        ),
+                    ),
+                    SharedAssistantResponseBlock.Text("final", "Final answer"),
+                ),
+            )
             .withoutSharedAssistantReasoning()
 
+        assertEquals("Final answer", message.text)
         assertEquals("", message.reasoningText)
-        assertTrue(message.responseBlocks.none { it is SharedAssistantResponseBlock.Reasoning })
+        assertEquals(
+            listOf(
+                SharedAssistantResponseBlock.ToolGroup("reasoning", listOf(tool)),
+                SharedAssistantResponseBlock.Text("final", "Final answer"),
+            ),
+            message.responseBlocks,
+        )
     }
 
     @Test

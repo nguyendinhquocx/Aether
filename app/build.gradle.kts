@@ -41,7 +41,7 @@ val appVersionName = providers.gradleProperty("aether.versionName")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "2.1.4"
+    ?: "2.1.5"
 val piBridgeProjectDir = rootProject.layout.projectDirectory.dir("pi-bridge")
 val piBridgeGeneratedAssetsDir = layout.buildDirectory.dir("generated/assets/piBridge")
 val preinstalledExtensionsDir = rootProject.layout.projectDirectory.dir("extensions")
@@ -113,7 +113,7 @@ android {
         // Alpine/Termux-style local runtimes install executable ELF files into app-private
         // storage. Android blocks execve() from that location for targetSdk >= 29.
         targetSdk = 28
-        versionCode = 9
+        versionCode = 10
         versionName = appVersionName
 
         ndk {
@@ -251,6 +251,7 @@ dependencies {
     implementation(libs.shizuku.provider)
     implementation(libs.android.app.process)
     implementation(libs.posthog.android)
+    implementation(libs.sora.editor)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

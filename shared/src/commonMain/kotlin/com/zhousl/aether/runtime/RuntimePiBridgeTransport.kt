@@ -43,6 +43,7 @@ class RuntimePiBridgeTransport(
                 environment = mapOf(
                     "HOME" to runtime.homeDirectory,
                     "AETHER_WORKSPACE" to runtime.workspaceRoot,
+                    "NODE_COMPILE_CACHE" to "${runtime.homeDirectory}/.aether/node-compile-cache",
                 ),
                 workingDirectory = bridgePath.substringBeforeLast('/'),
             ),

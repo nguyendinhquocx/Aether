@@ -116,6 +116,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zhousl.aether.AetherApplication
 import com.zhousl.aether.data.AetherPrivacyPolicyUrl
+import com.zhousl.aether.data.AetherGitHubUrl
 import com.zhousl.aether.data.AetherWebsiteUrl
 import com.zhousl.aether.data.AgentModeAuthorizationMethod
 import com.zhousl.aether.data.AppLanguage
@@ -1207,6 +1208,7 @@ private fun AetherAppContent(
                     onStopAgentModeDisplay = viewModel::stopAgentModeDisplay,
                     onRefreshAgentModeDisplays = viewModel::refreshAgentModeDisplays,
                     onOpenWebsite = { openExternalUrl(context, AetherWebsiteUrl) },
+                    onOpenGitHub = { openExternalUrl(context, AetherGitHubUrl) },
                     onOpenPrivacyPolicy = { openExternalUrl(context, AetherPrivacyPolicyUrl) },
                     onCheckForUpdates = viewModel::checkForUpdates,
                     onForceUpdateCheckForTesting = viewModel::forceUpdateCheckForTesting,

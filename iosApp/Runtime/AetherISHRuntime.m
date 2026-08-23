@@ -752,6 +752,65 @@ static void AetherISHDie(const char *message) {
     return operationError == nil;
 }
 
+- (NSArray<NSDictionary<NSString *, id> *> *)listDirectory:(NSString *)path
+                                                       error:(NSError **)error {
+    __block NSError *operationError = nil;
+    __block NSMutableArray<NSDictionary<NSString *, id> *> *items = [NSMutableArray array];
+    BOOL performed = [self performGuestOperation:^{
+        struct fd *directory = generic_open(path.UTF8String, O_RDONLY_ | O_DIRECTORY_, 0);
+        if (IS_ERR(directory)) {
+            operationError = AetherISHError(PTR_ERR(directory), @"Unable to open guest directory.");
+            return;
+        }
+        struct dir_entry entry;
+        int result = 0;
+        while ((result = directory->ops->readdir(directory, &entry)) > 0) {
+            if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) continue;
+            NSString *name = [NSString stringWithUTF8String:entry.name];
+            if (!name) continue;
+            NSString *childPath = [path isEqualToString:@"/"]
+                ? [@"/" stringByAppendingString:name]
+                : [path stringByAppendingPathComponent:name];
+            struct statbuf stat = {0};
+            int statResult = generic_statat(AT_PWD, childPath.UTF8String, &stat, false);
+            if (statResult < 0) {
+                operationError = AetherISHError(statResult, @"Unable to inspect guest directory entry.");
+                break;
+            }
+            BOOL symbolicLink = S_ISLNK(stat.mode);
+            struct statbuf followedStat = stat;
+            if (symbolicLink) {
+                int followedResult = generic_statat(AT_PWD, childPath.UTF8String, &followedStat, true);
+                if (followedResult < 0) followedStat = stat;
+            }
+            [items addObject:@{
+                @"name": name,
+                @"directory": @(S_ISDIR(followedStat.mode) && !symbolicLink),
+                @"symbolicLink": @(symbolicLink),
+                @"size": @((unsigned long long)followedStat.size),
+                @"modified": @((unsigned int)followedStat.mtime),
+                @"mode": @((unsigned int)stat.mode),
+            }];
+        }
+        fd_close(directory);
+        if (result < 0 && !operationError) {
+            operationError = AetherISHError(result, @"Unable to enumerate guest directory.");
+        }
+    }];
+    if (!performed && !operationError) operationError = AetherISHNotInitializedError();
+    if (error) *error = operationError;
+    return operationError ? nil : [items copy];
+}
+
+- (BOOL)movePath:(NSString *)sourcePath toPath:(NSString *)destinationPath error:(NSError **)error {
+    __block int result = _ENODEV;
+    [self performGuestOperation:^{
+        result = generic_renameat(AT_PWD, sourcePath.UTF8String, AT_PWD, destinationPath.UTF8String);
+    }];
+    if (result < 0 && error) *error = AetherISHError(result, @"Unable to move guest path.");
+    return result >= 0;
+}
+
 - (BOOL)removePath:(NSString *)path recursive:(BOOL)recursive error:(NSError **)error {
     __block int result = _ENODEV;
     [self performGuestOperation:^{

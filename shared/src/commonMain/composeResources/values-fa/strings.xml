@@ -368,6 +368,7 @@
     <string name="settings_version">نسخه</string>
     <string name="settings_check_for_updates">به روز رسانی را بررسی کنید</string>
     <string name="settings_website">وب سایت</string>
+    <string name="settings_github">گیت هاب</string>
     <string name="settings_privacy_policy">سیاست حفظ حریم خصوصی</string>
     <string name="settings_download_and_install">دانلود و نصب کنید</string>
     <string name="settings_mcp_server_count_summary">%1$d سرور</string>

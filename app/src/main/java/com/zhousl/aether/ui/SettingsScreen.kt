@@ -137,9 +137,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
-import com.zhousl.aether.data.AetherPrivacyPolicyUrl
 import com.zhousl.aether.data.AetherAppExtensionError
-import com.zhousl.aether.data.AetherWebsiteUrl
 import com.zhousl.aether.data.AgentModeAuthorizationIssue
 import com.zhousl.aether.data.AgentModeAuthorizationMethod
 import com.zhousl.aether.data.AgentModeAuthorizationState
@@ -188,7 +186,7 @@ import com.zhousl.aether.runtime.LocalRuntimeSetupState
 import com.zhousl.aether.runtime.AlpineSetupActivity
 import com.zhousl.aether.runtime.AlpineSetupProgress
 import com.zhousl.aether.runtime.AlpineTerminalLaunchSpec
-import com.zhousl.aether.runtime.MultiplatformLocalRuntime
+import com.zhousl.aether.runtime.AndroidAlpineFileManagerRuntime
 import com.zhousl.aether.termux.TermuxSetupState
 import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnPrimary
@@ -448,7 +446,7 @@ fun SettingsScreen(
     defaultRuntimeId: LocalRuntimeId?,
     alpinePackageProfiles: Map<String, PackageProfileState>,
     alpinePackageInstallProgress: Map<String, AlpineSetupProgress>,
-    alpineFileManagerRuntime: MultiplatformLocalRuntime,
+    alpineFileManagerRuntime: AndroidAlpineFileManagerRuntime,
     developerTermuxReadyOverride: Boolean?,
     installedSkills: List<com.zhousl.aether.data.InstalledSkill>,
     installedPiExtensions: List<InstalledPiExtension>,
@@ -547,6 +545,7 @@ fun SettingsScreen(
     onStopAgentModeDisplay: () -> Unit,
     onRefreshAgentModeDisplays: (AgentModeAuthorizationMethod) -> Unit,
     onOpenWebsite: () -> Unit,
+    onOpenGitHub: () -> Unit,
     onOpenPrivacyPolicy: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onForceUpdateCheckForTesting: () -> Unit,
@@ -1251,16 +1250,9 @@ fun SettingsScreen(
             )
 
             SettingsPage.AlpineFiles -> {
-                val fileManagerState = rememberSharedFileManagerState()
-                BackHandler {
-                    if (!fileManagerState.navigateBack()) {
-                        currentPage = SettingsPage.Alpine.name
-                    }
-                }
-                SharedFileManagerScreen(
+                AndroidAlpineFileManagerScreen(
                     runtime = alpineFileManagerRuntime,
                     onBack = { currentPage = SettingsPage.Alpine.name },
-                    state = fileManagerState,
                 )
             }
 
@@ -1344,6 +1336,7 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_about),
                 appUpdate = appUpdate,
                 onOpenWebsite = onOpenWebsite,
+                onOpenGitHub = onOpenGitHub,
                 onOpenPrivacyPolicy = onOpenPrivacyPolicy,
                 onCheckForUpdates = onCheckForUpdates,
                 onDownloadAndInstallUpdate = onDownloadAndInstallUpdate,
@@ -7194,6 +7187,7 @@ private fun AboutPage(
     title: String,
     appUpdate: AppUpdateUiState,
     onOpenWebsite: () -> Unit,
+    onOpenGitHub: () -> Unit,
     onOpenPrivacyPolicy: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadAndInstallUpdate: () -> Unit,
@@ -7251,14 +7245,21 @@ private fun AboutPage(
             SettingsNavRow(
                 icon = Icons.Rounded.Link,
                 title = stringResource(R.string.settings_website),
-                subtitle = AetherWebsiteUrl.removePrefix("https://"),
+                subtitle = "",
                 onClick = onOpenWebsite,
             )
             CardDivider()
             SettingsNavRow(
                 icon = Icons.Rounded.Link,
+                title = stringResource(R.string.settings_github),
+                subtitle = "",
+                onClick = onOpenGitHub,
+            )
+            CardDivider()
+            SettingsNavRow(
+                icon = Icons.Rounded.Link,
                 title = stringResource(R.string.settings_privacy_policy),
-                subtitle = AetherPrivacyPolicyUrl.removePrefix("https://"),
+                subtitle = "",
                 onClick = onOpenPrivacyPolicy,
             )
         }

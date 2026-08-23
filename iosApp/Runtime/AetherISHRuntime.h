@@ -47,6 +47,9 @@ typedef void (^AetherISHExitBlock)(int exitCode, int signal);
          progress:(nullable AetherISHFileWriteProgressBlock)progress
             error:(NSError **)error;
 - (BOOL)createDirectories:(NSString *)path error:(NSError **)error;
+- (nullable NSArray<NSDictionary<NSString *, id> *> *)listDirectory:(NSString *)path
+                                                               error:(NSError **)error;
+- (BOOL)movePath:(NSString *)sourcePath toPath:(NSString *)destinationPath error:(NSError **)error;
 - (BOOL)removePath:(NSString *)path recursive:(BOOL)recursive error:(NSError **)error;
 - (BOOL)bindHostPath:(NSString *)hostPath guestPath:(NSString *)guestPath readOnly:(BOOL)readOnly error:(NSError **)error;
 

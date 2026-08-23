@@ -4,6 +4,10 @@ import UIKit
 import AetherShared
 import FileProvider
 
+extension Notification.Name {
+    static let openAlpineFileManager = Notification.Name("Aether.OpenAlpineFileManager")
+}
+
 private final class AetherAppDelegate: NSObject, UIApplicationDelegate {
     private let internetPermissionRequester = AetherInternetPermissionRequester()
 
@@ -71,12 +75,23 @@ func makeInternetPermissionRequest() -> URLRequest {
 struct AetherIOSApp: App {
     @UIApplicationDelegateAdaptor(AetherAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
+    @State private var presentsAlpineFileManager = false
+    @StateObject private var nativeSettings = NativeSettingsModel()
 
     var body: some Scene {
         WindowGroup {
             ComposeRootView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
+                .onReceive(NotificationCenter.default.publisher(for: .openAlpineFileManager)) { _ in
+                    presentsAlpineFileManager = true
+                }
+                .sheet(isPresented: $presentsAlpineFileManager) {
+                    AlpineFileManagerView(host: AetherRuntimeHost.shared)
+                }
+                .sheet(isPresented: $nativeSettings.isPresented) {
+                    NativeSettingsView(model: nativeSettings)
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

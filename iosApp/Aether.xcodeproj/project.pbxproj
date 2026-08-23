@@ -11,6 +11,7 @@
 		0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3727F800A2CD973EBC5B5911 /* libiconv.tbd */; };
 		1E011A81B7404737A35E9B0E /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */; };
 		24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */; };
+		28EDAD736ACF66FD43ED69CC /* AlpineFileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DB82B5CCA087E5B4B06F89 /* AlpineFileManagerView.swift */; };
 		29422E116B5D611E33AB0B9D /* wasm-polyfill.js in Resources */ = {isa = PBXBuildFile; fileRef = F66BF0C15BAA8020F92F7D0D /* wasm-polyfill.js */; };
 		2A8EED7E02AB8DCCD1890366 /* AetherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */; };
 		30AD3919E04F3E59C61327F4 /* extensions in Resources */ = {isa = PBXBuildFile; fileRef = 87E4E38C502B9B9B1C85857F /* extensions */; };
@@ -20,10 +21,12 @@
 		5260EA11AA36045B2165C752 /* TerminalTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */; };
 		53F71DB8B4F7DFC9DDF96CDB /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		635948EDA8718FF3FF408733 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B7445370C9B563C2B17DA6E1 /* libarchive.a */; };
+		72BE94061B7B13F4A35C53AF /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4153C3FD7DCA6061233E4C81 /* NativeSettingsView.swift */; };
 		7906FB3BC2C49CBFD7B2F794 /* TerminalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */; };
 		7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */ = {isa = PBXBuildFile; fileRef = 95EE05EFD4A21740A10B6F14 /* root.tar.gz */; };
 		7D2F37B739B9ED878ED6F0DA /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1106FBE367ED336302C5A936 /* SystemConfiguration.framework */; };
 		8C67241097C756D2BC0EBD70 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 307932EC76CB1B3E8230BE0B /* LICENSE */; };
+		9E6EDED8E588657281641D0D /* Runestone in Frameworks */ = {isa = PBXBuildFile; productRef = 085D4960A657279579F9F912 /* Runestone */; };
 		A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */; };
 		A9AB37A3710FCA053173B163 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */; };
 		B05361F1AB399DF92E555253 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D06A95D54E8485E5FDA7F0BB /* Assets.xcassets */; };
@@ -33,6 +36,7 @@
 		BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509AFB124196AC221A86909F /* ANSIParser.swift */; };
 		BB61528BEE299540B5A3DEA8 /* AetherRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */; };
 		BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 7FC3C7F439C89DFF299C3D94 /* bridge.mjs */; };
+		C63CF660B5D547D88E4A1B62 /* extension-bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 7F4939CA4BA84D0295DDAF17 /* extension-bridge.mjs */; };
 		C95A4D5886956E5801C13DA5 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D05C334CA852B14A36093D07 /* libbz2.tbd */; };
 		CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D8ECFC71EF1A7DF279E9E95 /* AetherISHRuntime.m */; };
 		D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D7AE7614B5115E8BA325D41F /* libresolv.tbd */; };
@@ -102,9 +106,11 @@
 		1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherTerminalView.swift; sourceTree = "<group>"; };
 		2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeHost.swift; sourceTree = "<group>"; };
 		307932EC76CB1B3E8230BE0B /* LICENSE */ = {isa = PBXFileReference; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
+		30DB82B5CCA087E5B4B06F89 /* AlpineFileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlpineFileManagerView.swift; sourceTree = "<group>"; };
 		3727F800A2CD973EBC5B5911 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
 		3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTypes.swift; sourceTree = "<group>"; };
+		4153C3FD7DCA6061233E4C81 /* NativeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsView.swift; sourceTree = "<group>"; };
 		464A524053D09517D505CABA /* AetherFileProvider.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AetherFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		509AFB124196AC221A86909F /* ANSIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSIParser.swift; sourceTree = "<group>"; };
 		6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
@@ -113,6 +119,7 @@
 		6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = LICENSE.md; path = "../third_party/ish-arm64/LICENSE.md"; sourceTree = "<group>"; };
 		7C4A84D8FFFDC6934C5070EA /* AetherUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherUITests.swift; sourceTree = "<group>"; };
 		7FC3C7F439C89DFF299C3D94 /* bridge.mjs */ = {isa = PBXFileReference; path = bridge.mjs; sourceTree = "<group>"; };
+		7F4939CA4BA84D0295DDAF17 /* extension-bridge.mjs */ = {isa = PBXFileReference; path = "extension-bridge.mjs"; sourceTree = "<group>"; };
 		87E4E38C502B9B9B1C85857F /* extensions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = extensions; path = Resources/Runtime/extensions; sourceTree = SOURCE_ROOT; };
 		95EE05EFD4A21740A10B6F14 /* root.tar.gz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = root.tar.gz; sourceTree = "<group>"; };
 		96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -142,6 +149,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				635948EDA8718FF3FF408733 /* libarchive.a in Frameworks */,
+				9E6EDED8E588657281641D0D /* Runestone in Frameworks */,
 				7D2F37B739B9ED878ED6F0DA /* SystemConfiguration.framework in Frameworks */,
 				C95A4D5886956E5801C13DA5 /* libbz2.tbd in Frameworks */,
 				0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */,
@@ -182,6 +190,14 @@
 			path = Runtime;
 			sourceTree = "<group>";
 		};
+		461743DF061DAAAADBDC72B8 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				4153C3FD7DCA6061233E4C81 /* NativeSettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
 		534B34A52DE0C74150735138 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -205,6 +221,7 @@
 			isa = PBXGroup;
 			children = (
 				7FC3C7F439C89DFF299C3D94 /* bridge.mjs */,
+				7F4939CA4BA84D0295DDAF17 /* extension-bridge.mjs */,
 				87E4E38C502B9B9B1C85857F /* extensions */,
 				95EE05EFD4A21740A10B6F14 /* root.tar.gz */,
 			);
@@ -248,6 +265,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		9EDAAF9BFFDE3AC13D195B9C /* Files */ = {
+			isa = PBXGroup;
+			children = (
+				30DB82B5CCA087E5B4B06F89 /* AlpineFileManagerView.swift */,
+			);
+			path = Files;
+			sourceTree = "<group>";
+		};
 		A1E0705F9D47931E8FA0E150 /* Terminal */ = {
 			isa = PBXGroup;
 			children = (
@@ -283,6 +308,8 @@
 		AEE74072359394A69EA78B41 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				9EDAAF9BFFDE3AC13D195B9C /* Files */,
+				461743DF061DAAAADBDC72B8 /* Settings */,
 				A1E0705F9D47931E8FA0E150 /* Terminal */,
 				136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */,
 				E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */,
@@ -385,6 +412,7 @@
 			);
 			name = Aether;
 			packageProductDependencies = (
+				085D4960A657279579F9F912 /* Runestone */,
 			);
 			productName = Aether;
 			productReference = AF079DE4E9E495EEF6637D03 /* Aether.app */;
@@ -441,6 +469,9 @@
 			);
 			mainGroup = 7CCE34B3C0A23C3EA91514B0;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6AF0515B6D415CA7E3D1EE82 /* XCRemoteSwiftPackageReference "Runestone" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8A93DD82B280EDA489D217FB /* Products */;
 			projectDirPath = "";
@@ -482,6 +513,7 @@
 				30C81A227B16D6CABAF7BAF3 /* PrivacyInfo.xcprivacy in Resources */,
 				B4115544917270FECC7DD257 /* THIRD_PARTY_NOTICES.md in Resources */,
 				BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */,
+				C63CF660B5D547D88E4A1B62 /* extension-bridge.mjs in Resources */,
 				30AD3919E04F3E59C61327F4 /* extensions in Resources */,
 				B0C7744DFFD5B0D7FF572295 /* fetch-polyfill.js in Resources */,
 				7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */,
@@ -585,6 +617,8 @@
 				CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */,
 				24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */,
 				A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */,
+				28EDAD736ACF66FD43ED69CC /* AlpineFileManagerView.swift in Sources */,
+				72BE94061B7B13F4A35C53AF /* NativeSettingsView.swift in Sources */,
 				EC617B7B7015EAFA12902F19 /* TerminalBuffer.swift in Sources */,
 				7906FB3BC2C49CBFD7B2F794 /* TerminalCanvasView.swift in Sources */,
 				FE54CAF7EED3E1E804AED26F /* TerminalEmulator.swift in Sources */,
@@ -948,6 +982,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6AF0515B6D415CA7E3D1EE82 /* XCRemoteSwiftPackageReference "Runestone" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/simonbs/Runestone.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.5.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		085D4960A657279579F9F912 /* Runestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6AF0515B6D415CA7E3D1EE82 /* XCRemoteSwiftPackageReference "Runestone" */;
+			productName = Runestone;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E7C705F7C33D8C121C974109 /* Project object */;
 }

@@ -22,6 +22,7 @@ import com.zhousl.aether.ui.MessageDisplayKind
 import com.zhousl.aether.ui.MessageAuthor
 import com.zhousl.aether.ui.ReasoningSummaryChunk
 import com.zhousl.aether.ui.ReasoningTrace
+import com.zhousl.aether.ui.sanitizedForReasoningOff
 import com.zhousl.aether.ui.syncActiveBranches
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -787,14 +788,13 @@ class SessionExecutionManager(
                     )
                     val responseBlocks = currentAssistantResponseBlocks(handle.sessionId).let { blocks ->
                         if (request.settings.reasoningEffort == "off") {
-                            blocks.filterNot { it is AssistantResponseBlock.Reasoning }
+                            blocks.sanitizedForReasoningOff()
                         } else {
                             blocks
                         }
                     }
                     val visibleThoughtDurationMillis = thoughtDurationMillis.takeIf {
-                        request.settings.reasoningEffort != "off" ||
-                            responseBlocks.any { it is AssistantResponseBlock.ToolGroup }
+                        request.settings.reasoningEffort != "off"
                     }
                     diagnosticLogger.event(
                         category = "session",
@@ -833,14 +833,13 @@ class SessionExecutionManager(
                 onFailure = { throwable ->
                     val responseBlocks = currentAssistantResponseBlocks(handle.sessionId).let { blocks ->
                         if (request.settings.reasoningEffort == "off") {
-                            blocks.filterNot { it is AssistantResponseBlock.Reasoning }
+                            blocks.sanitizedForReasoningOff()
                         } else {
                             blocks
                         }
                     }
                     val visibleThoughtDurationMillis = thoughtDurationMillis.takeIf {
-                        request.settings.reasoningEffort != "off" ||
-                            responseBlocks.any { it is AssistantResponseBlock.ToolGroup }
+                        request.settings.reasoningEffort != "off"
                     }
                     diagnosticLogger.exception(
                         category = "session",

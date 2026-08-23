@@ -14,6 +14,10 @@ configFiles:
 projectReferences:
   libarchive:
     path: ../third_party/ish-arm64/deps/libarchive.xcodeproj
+packages:
+  Runestone:
+    url: https://github.com/simonbs/Runestone.git
+    exactVersion: 0.5.2
 targets:
   Aether:
     type: application
@@ -27,6 +31,7 @@ targets:
       - path: Resources/Assets.xcassets
         buildPhase: resources
       - path: Resources/Runtime/bridge.mjs
+      - path: Resources/Runtime/extension-bridge.mjs
         buildPhase: resources
       - path: Resources/Runtime/root.tar.gz
         buildPhase: resources
@@ -82,6 +87,7 @@ targets:
     dependencies:
       - target: AetherFileProvider
       - target: libarchive/libarchive
+      - package: Runestone
       - sdk: SystemConfiguration.framework
       - sdk: libbz2.tbd
       - sdk: libiconv.tbd

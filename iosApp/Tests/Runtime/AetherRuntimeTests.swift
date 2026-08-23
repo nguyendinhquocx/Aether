@@ -85,6 +85,143 @@ final class AetherRuntimeTests: XCTestCase {
         XCTAssertEqual(listener.value, true)
     }
 
+    func testAlpinePackageDatabaseLockCanBeAcquired() throws {
+        try initializeRuntime()
+
+        let result = try run(
+            "/usr/bin/flock",
+            arguments: ["-n", "/lib/apk/db/lock", "/bin/true"]
+        )
+
+        XCTAssertEqual(result.exitCode, 0, result.stderr)
+    }
+
+    func testAlpineProfilePackageCanBeInstalled() throws {
+        try initializeRuntime()
+
+        let result = try run(
+            "/bin/sh",
+            arguments: [
+                "-lc",
+                "apk add --no-cache --no-chown openssh-client && ssh -V",
+            ],
+            timeout: 300
+        )
+
+        XCTAssertEqual(result.exitCode, 0, result.stdout + result.stderr)
+    }
+
+    func testAlpineFileManagerListsMovesAndRemovesGuestEntries() throws {
+        try initializeRuntime()
+        let directory = "/tmp/aether-file-manager-\(UUID().uuidString)"
+        let original = "\(directory)/original.txt"
+        let renamed = "\(directory)/renamed.txt"
+
+        let created = expectation(description: "file manager directory created")
+        var operationError: Error?
+        host.createGuestDirectory(path: directory) { result in
+            if case let .failure(error) = result { operationError = error }
+            created.fulfill()
+        }
+        wait(for: [created], timeout: 10)
+        if let operationError { throw operationError }
+        try writeGuestFile(original, contents: "alpine files")
+
+        let listed = expectation(description: "file manager directory listed")
+        var entries: [AlpineFileEntry] = []
+        host.listGuestDirectory(path: directory) { result in
+            switch result {
+            case let .success(value): entries = value
+            case let .failure(error): operationError = error
+            }
+            listed.fulfill()
+        }
+        wait(for: [listed], timeout: 10)
+        if let operationError { throw operationError }
+        let entry = try XCTUnwrap(entries.first { $0.name == "original.txt" })
+        XCTAssertEqual(entry.path, original)
+        XCTAssertFalse(entry.isDirectory)
+        XCTAssertEqual(entry.size, 12)
+
+        let moved = expectation(description: "file manager entry moved")
+        host.moveGuestPath(from: original, to: renamed) { result in
+            if case let .failure(error) = result { operationError = error }
+            moved.fulfill()
+        }
+        wait(for: [moved], timeout: 10)
+        if let operationError { throw operationError }
+
+        let removed = expectation(description: "file manager directory removed")
+        host.removeGuestPath(path: directory, recursive: true) { result in
+            if case let .failure(error) = result { operationError = error }
+            removed.fulfill()
+        }
+        wait(for: [removed], timeout: 10)
+        if let operationError { throw operationError }
+    }
+
+    func testAlpineFileManagerImportsFilesAndFoldersWithoutOverwriting() throws {
+        try initializeRuntime()
+        let sourceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("aether-import-\(UUID().uuidString)", isDirectory: true)
+        let sourceFile = sourceRoot.appendingPathComponent("standalone.txt")
+        let sourceFolder = sourceRoot.appendingPathComponent("project", isDirectory: true)
+        let nestedFolder = sourceFolder.appendingPathComponent("nested", isDirectory: true)
+        let nestedFile = nestedFolder.appendingPathComponent("data.json")
+        try FileManager.default.createDirectory(at: nestedFolder, withIntermediateDirectories: true)
+        try Data("standalone".utf8).write(to: sourceFile)
+        try Data("{\"imported\":true}".utf8).write(to: nestedFile)
+        defer { try? FileManager.default.removeItem(at: sourceRoot) }
+
+        let destination = "/tmp/aether-import-destination-\(UUID().uuidString)"
+        let created = expectation(description: "import destination created")
+        var operationError: Error?
+        host.createGuestDirectory(path: destination) { result in
+            if case let .failure(error) = result { operationError = error }
+            created.fulfill()
+        }
+        wait(for: [created], timeout: 10)
+        if let operationError { throw operationError }
+
+        let imported = expectation(description: "files and folders imported")
+        host.importGuestItems(
+            urls: [sourceFile, sourceFolder],
+            destinationDirectory: destination
+        ) { result in
+            if case let .failure(error) = result { operationError = error }
+            imported.fulfill()
+        }
+        wait(for: [imported], timeout: 10)
+        if let operationError { throw operationError }
+
+        let read = expectation(description: "nested imported file read")
+        var importedData: Data?
+        host.readGuestFile(path: "\(destination)/project/nested/data.json") { result in
+            switch result {
+            case let .success(data): importedData = data
+            case let .failure(error): operationError = error
+            }
+            read.fulfill()
+        }
+        wait(for: [read], timeout: 10)
+        if let operationError { throw operationError }
+        XCTAssertEqual(String(data: try XCTUnwrap(importedData), encoding: .utf8), "{\"imported\":true}")
+
+        let rejected = expectation(description: "existing item rejected")
+        host.importGuestItems(urls: [sourceFile], destinationDirectory: destination) { result in
+            if case .failure = result { operationError = nil } else {
+                operationError = RuntimeTestError.failed("Import unexpectedly overwrote an existing file.")
+            }
+            rejected.fulfill()
+        }
+        wait(for: [rejected], timeout: 10)
+        if let operationError { throw operationError }
+
+        let removed = expectation(description: "import destination removed")
+        host.removeGuestPath(path: destination, recursive: true) { _ in removed.fulfill() }
+        wait(for: [removed], timeout: 10)
+    }
+
     func testRetryResetAllowsMountedRuntimeToInitializeAgain() throws {
         try initializeRuntime()
 

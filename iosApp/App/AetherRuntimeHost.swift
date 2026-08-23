@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
@@ -807,6 +808,210 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         return true
     }
 
+    func openAlpineFileManager() -> Bool {
+        onMain {
+            NotificationCenter.default.post(name: .openAlpineFileManager, object: nil)
+        }
+        return true
+    }
+
+    func listGuestDirectory(
+        path: String,
+        completion: @escaping (Result<[AlpineFileEntry], Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                let values = try runtime.listDirectory(path)
+                let entries = values.compactMap { value -> AlpineFileEntry? in
+                    guard let name = value["name"] as? String else { return nil }
+                    let childPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
+                    return AlpineFileEntry(
+                        name: name,
+                        path: childPath,
+                        isDirectory: (value["directory"] as? NSNumber)?.boolValue ?? false,
+                        isSymbolicLink: (value["symbolicLink"] as? NSNumber)?.boolValue ?? false,
+                        size: (value["size"] as? NSNumber)?.int64Value ?? 0,
+                        modifiedAt: Date(
+                            timeIntervalSince1970: (value["modified"] as? NSNumber)?.doubleValue ?? 0
+                        ),
+                        mode: (value["mode"] as? NSNumber)?.uint32Value ?? 0
+                    )
+                }
+                complete { completion(.success(entries)) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func createGuestFile(path: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        operations.async { [self] in
+            do {
+                guard !runtime.fileExists(path) else {
+                    throw RuntimeHostError.operationFailed("An item already exists at \(path).")
+                }
+                try runtime.writeFile(path, data: Data(), executable: false)
+                complete { completion(.success(())) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func createGuestDirectory(path: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        operations.async { [self] in
+            do {
+                try runtime.createDirectories(path)
+                complete { completion(.success(())) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func moveGuestPath(
+        from source: String,
+        to destination: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                guard source == destination || !runtime.fileExists(destination) else {
+                    throw RuntimeHostError.operationFailed("An item already exists at \(destination).")
+                }
+                guard source != destination else {
+                    complete { completion(.success(())) }
+                    return
+                }
+                try runtime.movePath(source, toPath: destination)
+                complete { completion(.success(())) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func removeGuestPath(
+        path: String,
+        recursive: Bool,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                try runtime.removePath(path, recursive: recursive)
+                complete { completion(.success(())) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func readGuestFile(
+        path: String,
+        maximumBytes: Int = 8 * 1024 * 1024,
+        completion: @escaping (Result<Data, Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                let data = try runtime.readFile(path, maximumBytes: UInt(maximumBytes))
+                complete { completion(.success(data)) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func writeGuestFile(
+        path: String,
+        data: Data,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                try runtime.writeFile(path, data: data, executable: false)
+                complete { completion(.success(())) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func importGuestItems(
+        urls: [URL],
+        destinationDirectory: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                let imports = try urls.map { source -> (source: URL, name: String, destination: String) in
+                    let name = source.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else {
+                        throw RuntimeHostError.operationFailed("The selected item has an invalid name.")
+                    }
+                    let destination = destinationDirectory == "/"
+                        ? "/\(name)"
+                        : "\(destinationDirectory)/\(name)"
+                    return (source, name, destination)
+                }
+                guard Set(imports.map(\.name)).count == imports.count else {
+                    throw RuntimeHostError.operationFailed("The selection contains items with the same name.")
+                }
+                for item in imports where runtime.fileExists(item.destination) {
+                    throw RuntimeHostError.operationFailed("An item named \(item.name) already exists.")
+                }
+
+                for item in imports {
+                    let scoped = item.source.startAccessingSecurityScopedResource()
+                    do {
+                        try importGuestItem(from: item.source, to: item.destination)
+                        if scoped { item.source.stopAccessingSecurityScopedResource() }
+                    } catch {
+                        if scoped { item.source.stopAccessingSecurityScopedResource() }
+                        if runtime.fileExists(item.destination) {
+                            try? runtime.removePath(item.destination, recursive: true)
+                        }
+                        throw error
+                    }
+                }
+                complete { completion(.success(())) }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
+    private func importGuestItem(from source: URL, to destination: String) throws {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        let values = try source.resourceValues(forKeys: keys)
+        guard values.isSymbolicLink != true else {
+            throw RuntimeHostError.operationFailed("Symbolic links cannot be imported.")
+        }
+        if values.isDirectory == true {
+            try runtime.createDirectories(destination)
+            let children = try FileManager.default.contentsOfDirectory(
+                at: source,
+                includingPropertiesForKeys: Array(keys),
+                options: []
+            )
+            for child in children {
+                let name = child.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else {
+                    throw RuntimeHostError.operationFailed("The selected folder contains an item with an invalid name.")
+                }
+                try importGuestItem(from: child, to: "\(destination)/\(name)")
+            }
+            return
+        }
+        guard values.isRegularFile == true else {
+            throw RuntimeHostError.operationFailed("The selected item is not a regular file or folder.")
+        }
+        try runtime.writeFile(
+            destination,
+            data: Data(contentsOf: source, options: .mappedIfSafe),
+            executable: false
+        )
+    }
+
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int { previewURL == nil ? 0 : 1 }
 
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
@@ -1179,14 +1384,46 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     private func installBridgeAsset() throws {
-        guard let source = Bundle.main.url(forResource: "bridge", withExtension: "mjs") else {
-            throw RuntimeHostError.operationFailed("Bundled Pi Bridge is missing.")
-        }
         try guestCreateDirectories("/root/.aether/pi-bridge")
+        try installBridgeAsset(
+            resource: "bridge",
+            guestName: "bridge.mjs",
+            markerName: ".bridge.sha256"
+        )
+        try installBridgeAsset(
+            resource: "extension-bridge",
+            guestName: "extension-bridge.mjs",
+            markerName: ".extension-bridge.sha256"
+        )
+    }
+
+    private func installBridgeAsset(
+        resource: String,
+        guestName: String,
+        markerName: String
+    ) throws {
+        guard let source = Bundle.main.url(forResource: resource, withExtension: "mjs") else {
+            throw RuntimeHostError.operationFailed("Bundled \(resource) is missing.")
+        }
         let bytes = try Data(contentsOf: source)
+        let fingerprint = SHA256.hash(data: bytes)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let bridgePath = "/root/.aether/pi-bridge/\(guestName)"
+        let markerPath = "/root/.aether/pi-bridge/\(markerName)"
+        if runtime.fileExists(bridgePath),
+           let marker = try? runtime.readFile(markerPath),
+           String(data: marker, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == fingerprint {
+            return
+        }
         try runtime.writeFile(
-            "/root/.aether/pi-bridge/bridge.mjs",
+            bridgePath,
             data: bytes,
+            executable: false
+        )
+        try runtime.writeFile(
+            markerPath,
+            data: Data("\(fingerprint)\n".utf8),
             executable: false
         )
     }

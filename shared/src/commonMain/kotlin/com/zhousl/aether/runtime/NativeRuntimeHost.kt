@@ -55,6 +55,7 @@ interface NativeRuntimeHost {
     fun shareText(title: String, text: String): Boolean
     fun shareFile(name: String, mimeType: String, bytes: ByteArray): Boolean
     fun previewFile(name: String, mimeType: String, bytes: ByteArray): Boolean
+    fun openAlpineFileManager(): Boolean
     fun openUrl(url: String): Boolean
     fun openAuthenticationUrl(url: String, listener: NativeAuthenticationSessionListener): Boolean
     fun terminateApplication(): Boolean

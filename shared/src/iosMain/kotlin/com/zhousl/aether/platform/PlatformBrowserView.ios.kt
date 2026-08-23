@@ -12,7 +12,7 @@ import com.zhousl.aether.data.pi.IosBrowserBackend
 import com.zhousl.aether.data.pi.SharedChromeManager
 
 @Composable
-internal actual fun PlatformBrowserView(
+internal fun PlatformBrowserView(
     manager: SharedChromeManager,
     modifier: Modifier,
 ) {

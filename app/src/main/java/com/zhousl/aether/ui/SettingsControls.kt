@@ -136,10 +136,125 @@ import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.ui.theme.AetherPrimary
 import com.zhousl.aether.ui.theme.AetherScrim
 import com.zhousl.aether.ui.theme.AetherSettingsBackground
+import com.zhousl.aether.ui.theme.AetherSettingsIcon
 import com.zhousl.aether.ui.theme.AetherSurface
 import com.zhousl.aether.ui.theme.AetherSurfaceHigh
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+@Composable
+fun SettingsCardGroup(content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(AetherSurface),
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun CardDivider() {
+    Spacer(Modifier.height(4.dp))
+}
+
+@Composable
+fun SettingsNavRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    showChevron: Boolean = true,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    SettingsNavRowContent(
+        icon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = AetherSettingsIcon,
+                modifier = Modifier.size(24.dp),
+            )
+        },
+        title = title,
+        subtitle = subtitle,
+        showChevron = showChevron,
+        enabled = enabled,
+        onClick = onClick,
+    )
+}
+
+@Composable
+fun SettingsNavRow(
+    iconPainter: Painter,
+    title: String,
+    subtitle: String,
+    showChevron: Boolean = true,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    SettingsNavRowContent(
+        icon = {
+            Icon(
+                painter = iconPainter,
+                contentDescription = null,
+                tint = AetherSettingsIcon,
+                modifier = Modifier.size(24.dp),
+            )
+        },
+        title = title,
+        subtitle = subtitle,
+        showChevron = showChevron,
+        enabled = enabled,
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun SettingsNavRowContent(
+    icon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    showChevron: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val contentAlpha = if (enabled) 1f else 0.38f
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.alpha(contentAlpha)) { icon() }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = AetherOnSurface.copy(alpha = contentAlpha),
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = AetherOnSurfaceVariant.copy(alpha = contentAlpha),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (showChevron) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowForwardIos,
+                contentDescription = null,
+                tint = AetherOnSurfaceVariant.copy(alpha = if (enabled) 0.5f else 0.2f),
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Page enum - drives the local in-composable navigation

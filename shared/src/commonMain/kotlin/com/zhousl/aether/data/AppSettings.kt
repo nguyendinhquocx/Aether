@@ -214,7 +214,8 @@ const val MaxOldCommandHistoryRetentionHours = 168
 private const val MinLlmInactivityReconnectTimeoutSeconds = 30
 private const val MaxLlmInactivityReconnectTimeoutSeconds = 3600
 const val OnboardingStarterPrompt = "Hi"
-const val AetherWebsiteUrl = "https://github.com/Zhou-Shilin"
+const val AetherWebsiteUrl = "https://aether.baimoqilin.com"
+const val AetherGitHubUrl = "https://github.com/Zhou-Shilin/Aether"
 const val AetherPrivacyPolicyUrl = "https://github.com/Zhou-Shilin/Aether/wiki/Privacy-Policy"
 const val DefaultTavilyBaseUrl = "https://api.tavily.com/"
 

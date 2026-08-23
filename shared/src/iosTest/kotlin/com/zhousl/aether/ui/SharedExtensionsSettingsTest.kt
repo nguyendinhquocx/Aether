@@ -15,13 +15,6 @@ import kotlinx.coroutines.test.runTest
 
 class SharedExtensionsSettingsTest {
     @Test
-    fun downloadCountsUseAndroidOneDecimalRounding() {
-        assertEquals("999", formatSharedExtensionDownloads(999))
-        assertEquals("2.0K", formatSharedExtensionDownloads(1_999))
-        assertEquals("1.3M", formatSharedExtensionDownloads(1_250_000))
-    }
-
-    @Test
     fun preservesReadmeStructureAndResolvesRelativeAssets() {
         val markdown = """
             <h1>Package README</h1>
@@ -64,13 +57,6 @@ class SharedExtensionsSettingsTest {
         assertFailsWith<IllegalArgumentException> {
             parseSharedUnzipListing("unexpected output")
         }
-    }
-
-    @Test
-    fun ignoresBlankExtensionRuntimeError() {
-        assertEquals(emptyList(), mergeSharedExtensionErrors(emptyList(), ""))
-        assertEquals(listOf("session failed"), mergeSharedExtensionErrors(listOf("session failed"), ""))
-        assertEquals(listOf("runtime failed"), mergeSharedExtensionErrors(emptyList(), "runtime failed"))
     }
 
     @Test

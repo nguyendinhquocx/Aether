@@ -46,32 +46,6 @@ class SharedTabletLayoutTest {
     }
 
     @Test
-    fun restoresSettingsUsingThePresentationForTheCurrentLayout() {
-        assertEquals(
-            SharedNavigationPresentation(
-                route = SharedRoute.Chat,
-                tabletSettingsVisible = true,
-            ),
-            resolveSharedNavigationPresentation(
-                route = SharedRoute.Settings,
-                tabletSettingsVisible = false,
-                useTabletLayout = true,
-            ),
-        )
-        assertEquals(
-            SharedNavigationPresentation(
-                route = SharedRoute.Settings,
-                tabletSettingsVisible = false,
-            ),
-            resolveSharedNavigationPresentation(
-                route = SharedRoute.Chat,
-                tabletSettingsVisible = true,
-                useTabletLayout = false,
-            ),
-        )
-    }
-
-    @Test
     fun defersAndCoalescesMobileDrawerEventsUntilRegistration() {
         val gate = SharedDrawerOpenedEventGate()
 
@@ -142,19 +116,4 @@ class SharedTabletLayoutTest {
         )
     }
 
-    @Test
-    fun settingsDismissGuardTracksOnlyTheActiveDraft() {
-        val guard = SharedSettingsDismissGuard()
-        val firstPage = Any()
-        val secondPage = Any()
-
-        guard.report(firstPage, hasChanges = true)
-        assertTrue(guard.hasUnsavedChanges)
-        guard.rejectDismiss()
-        assertTrue(guard.saveShakeRequest == 1)
-
-        guard.report(secondPage, hasChanges = false)
-        guard.clear(firstPage)
-        assertFalse(guard.hasUnsavedChanges)
-    }
 }

@@ -23,7 +23,8 @@ if [ ! -f "$rootfs" ] || [ "$(shasum -a 256 "$rootfs" | awk '{print $1}')" != "$
 fi
 
 bridge_source="$repo_root/pi-bridge/dist/bridge.mjs"
-if [ ! -f "$bridge_source" ]; then
+extension_bridge_source="$repo_root/pi-bridge/dist/extension-bridge.mjs"
+if [ ! -f "$bridge_source" ] || [ ! -f "$extension_bridge_source" ]; then
     npm_command=${NPM:-npm}
     (
         cd "$repo_root/pi-bridge"
@@ -32,6 +33,7 @@ if [ ! -f "$bridge_source" ]; then
     )
 fi
 cp "$bridge_source" "$destination/bridge.mjs"
+cp "$extension_bridge_source" "$destination/extension-bridge.mjs"
 
 extensions_source="$repo_root/extensions"
 if [ -d "$extensions_source" ]; then

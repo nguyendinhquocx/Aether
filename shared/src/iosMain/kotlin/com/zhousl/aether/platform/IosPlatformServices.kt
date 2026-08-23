@@ -119,5 +119,6 @@ class IosPlatformServices(
         host.shareFile(name, mimeType, bytes)
     override fun previewFile(name: String, mimeType: String, bytes: ByteArray): Boolean =
         host.previewFile(name, mimeType, bytes)
+    override fun openAlpineFileManager(): Boolean = host.openAlpineFileManager()
     override fun terminateApplication(): Boolean = host.terminateApplication()
 }

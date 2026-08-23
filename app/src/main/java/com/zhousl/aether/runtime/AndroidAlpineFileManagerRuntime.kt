@@ -1,13 +1,16 @@
 package com.zhousl.aether.runtime
 
 import java.io.File
+import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 
 /** Adapts the legacy Android Alpine runtime to the shared file manager surface. */
-internal class AndroidAlpineFileManagerRuntime(
+class AndroidAlpineFileManagerRuntime(
     private val alpine: AlpineRuntime,
 ) : MultiplatformLocalRuntime {
     override val homeDirectory: String = alpine.homeDirectory
@@ -32,7 +35,58 @@ internal class AndroidAlpineFileManagerRuntime(
         val process = alpine.startManagedProcess(command, spec.workingDirectory, spec.redirectErrorStream)
         return AndroidAlpineProcess(process)
     }
+
+    internal suspend fun listDirectory(path: String): List<AndroidAlpineFileEntry> = withContext(Dispatchers.IO) {
+        val directory = alpine.resolveGuestPath(path)
+        require(directory.isDirectory) { "Not a directory: $path" }
+        directory.listFiles().orEmpty().map { file ->
+            val isSymbolicLink = Files.isSymbolicLink(file.toPath())
+            AndroidAlpineFileEntry(
+                name = file.name,
+                path = if (path == "/") "/${file.name}" else "${path.trimEnd('/')}/${file.name}",
+                isDirectory = file.isDirectory && !isSymbolicLink,
+                isSymbolicLink = isSymbolicLink,
+                size = file.length(),
+                modifiedAtMillis = file.lastModified(),
+            )
+        }
+    }
+
+    internal suspend fun move(source: String, destination: String) = withContext(Dispatchers.IO) {
+        val sourceFile = alpine.resolveGuestPath(source)
+        val destinationFile = alpine.resolveGuestPath(destination)
+        require(!destinationFile.exists()) { "An item already exists at $destination" }
+        destinationFile.parentFile?.mkdirs()
+        runCatching {
+            Files.move(sourceFile.toPath(), destinationFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        }.getOrElse {
+            Files.move(sourceFile.toPath(), destinationFile.toPath())
+        }
+        Unit
+    }
+
+    internal suspend fun importFile(destination: String, input: InputStream) = withContext(Dispatchers.IO) {
+        val destinationFile = alpine.resolveGuestPath(destination)
+        require(!destinationFile.exists()) { "An item already exists at $destination" }
+        destinationFile.parentFile?.mkdirs()
+        try {
+            destinationFile.outputStream().use(input::copyTo)
+        } catch (error: Throwable) {
+            destinationFile.delete()
+            throw error
+        }
+        Unit
+    }
 }
+
+internal data class AndroidAlpineFileEntry(
+    val name: String,
+    val path: String,
+    val isDirectory: Boolean,
+    val isSymbolicLink: Boolean,
+    val size: Long,
+    val modifiedAtMillis: Long,
+)
 
 private class AndroidAlpineFileSystem(
     private val alpine: AlpineRuntime,
@@ -69,8 +123,8 @@ private class AndroidAlpineFileSystem(
     }
 
     override suspend fun remove(path: String, recursive: Boolean) = withContext(Dispatchers.IO) {
+        require(path.trimEnd('/').isNotEmpty()) { "Refusing to remove the Alpine root." }
         val file = resolve(path)
-        check(file != File("/") && file.absolutePath != "/") { "Refusing to remove the Alpine root." }
         check(if (recursive) file.deleteRecursively() else file.delete()) { "Unable to remove $path" }
     }
 

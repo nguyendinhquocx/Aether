@@ -8,6 +8,33 @@ import org.junit.Test
 
 class ConversationUiTest {
     @Test
+    fun reasoningOffKeepsToolsAndOnlyTheFinalTextBlock() {
+        val tools = listOf(
+            ChatToolInvocation(
+                id = "call-1",
+                toolName = "bash",
+                argumentsJson = "{}",
+            ),
+        )
+        val blocks = listOf(
+            AssistantResponseBlock.Text("draft", "Intermediate answer"),
+            AssistantResponseBlock.Reasoning(
+                "reasoning",
+                ReasoningTrace(id = "reasoning", rawText = "Hidden", toolInvocations = tools),
+            ),
+            AssistantResponseBlock.Text("final", "Final answer"),
+        )
+
+        assertEquals(
+            listOf(
+                AssistantResponseBlock.ToolGroup("reasoning", tools),
+                AssistantResponseBlock.Text("final", "Final answer"),
+            ),
+            blocks.sanitizedForReasoningOff(),
+        )
+    }
+
+    @Test
     fun autoCompactionKeepsPiReserveBeforeContextIsFull() {
         assertFalse(shouldAutoCompactContext(LlmTokenUsage(totalTokens = 111_616), "api", ""))
         assertTrue(shouldAutoCompactContext(LlmTokenUsage(totalTokens = 111_617), "api", ""))

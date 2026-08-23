@@ -268,11 +268,18 @@ class SharedPiBridgeClient(
             abortOnCancellation = false,
         )
 
-    suspend fun reloadAllExtensions(): JsonObject = request(
+    suspend fun reloadAllExtensions(
+        startIfNeeded: Boolean = true,
+        reloadAetherExtensions: Boolean = true,
+    ): JsonObject = request(
         type = "reload_all_extensions",
-        payload = extensionLoadOptions().toPayload(),
+        payload = buildJsonObject {
+            extensionLoadOptions().toPayload().forEach { (key, value) -> put(key, value) }
+            if (!reloadAetherExtensions) put("skip_aether_extensions", true)
+        },
         timeoutMillis = 10 * 60_000L,
         abortOnCancellation = false,
+        startIfNeeded = startIfNeeded,
     )
 
     suspend fun getAetherExtensions(

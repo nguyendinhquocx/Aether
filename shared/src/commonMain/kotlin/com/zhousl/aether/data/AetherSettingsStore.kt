@@ -46,7 +46,6 @@ data class SharedPersistedSettings(
 
 data class SharedPersistedUiState(
     val route: String = "",
-    val settingsDestination: String = "",
 )
 
 class AetherSettingsStore(
@@ -91,7 +90,6 @@ class AetherSettingsStore(
             ),
             uiState = SharedPersistedUiState(
                 route = preferences[LastRoute].orEmpty(),
-                settingsDestination = preferences[SettingsDestination].orEmpty(),
             ),
         )
     }
@@ -181,10 +179,9 @@ class AetherSettingsStore(
         }
     }
 
-    suspend fun saveUiState(route: String, settingsDestination: String) {
+    suspend fun saveUiState(route: String) {
         dataStore.edit { preferences ->
             preferences[LastRoute] = route
-            preferences[SettingsDestination] = settingsDestination
         }
     }
 
@@ -251,7 +248,6 @@ class AetherSettingsStore(
         val ThinkingCatalogCacheJson = stringPreferencesKey("thinking_catalog_cache_json")
         val ModelCatalogCacheJson = stringPreferencesKey("model_catalog_cache_json")
         val LastRoute = stringPreferencesKey("last_route")
-        val SettingsDestination = stringPreferencesKey("settings_destination")
     }
 }
 

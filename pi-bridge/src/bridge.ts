@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { flushCompileCache } from "node:module";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -242,6 +243,17 @@ let hostToolCounter = 0;
 let runtimeOperationCounter = 0;
 let authPromptCounter = 0;
 let aetherHostCallCounter = 0;
+let compileCacheFlushed = false;
+
+function flushStartupCompileCache(): void {
+  if (compileCacheFlushed) return;
+  compileCacheFlushed = true;
+  try {
+    flushCompileCache();
+  } catch {
+    // Compile caching is an optimization and must not affect bridge requests.
+  }
+}
 
 function aetherOAuthAuth(providerId: string, oauth: OAuthAuth | undefined): OAuthAuth | undefined {
   if (!oauth) return undefined;
@@ -2915,7 +2927,10 @@ async function reloadAllExtensionSessions(
   // Preinstalled packages can provide both Pi and Aether entrypoints. Resolve
   // their npm dependencies before reloading native Pi sessions so both loaders
   // observe the same ready package tree.
-  const aetherReload = await loadAetherAppExtensions(process.cwd(), loadOptions);
+  const skipAetherExtensions = asBoolean(payload.skip_aether_extensions, false);
+  const aetherReload = skipAetherExtensions
+    ? { reloaded: false, errors: [] }
+    : await loadAetherAppExtensions(process.cwd(), loadOptions);
   const results: JsonObject[] = [];
   for (const state of [...agentSessions.values()]) {
     const { signature: extensionSignature } = await resolveNativeExtensionSet(
@@ -2955,7 +2970,7 @@ async function reloadAllExtensionSessions(
     session_count: results.length,
     sessions: results,
     aether_reload: aetherReload,
-    aether: await aetherAppExtensionSnapshot(),
+    aether: skipAetherExtensions ? {} : await aetherAppExtensionSnapshot(),
   };
 }
 
@@ -3266,9 +3281,13 @@ async function main(): Promise<void> {
       writeError(undefined, error, "invalid_json");
       continue;
     }
-    handleRequest(request).catch((error) => {
-      writeError(request.id, error);
-    });
+    handleRequest(request).then(
+      flushStartupCompileCache,
+      (error) => {
+        flushStartupCompileCache();
+        writeError(request.id, error);
+      },
+    );
   }
 }
 

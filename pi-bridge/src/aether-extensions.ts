@@ -2,10 +2,8 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  DefaultPackageManager,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js";
+import { SettingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 import { createJiti } from "jiti/static";
 import type {
   AetherActionContext,
