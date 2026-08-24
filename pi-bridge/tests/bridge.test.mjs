@@ -1869,6 +1869,95 @@ test("passes reasoning_effort none when off is selected for a model with thinkin
   assert.equal(Object.hasOwn(result.usage, "reasoning_tokens"), false);
 });
 
+test("updates reasoning effort when reusing an agent session", async (t) => {
+  const receivedBodies = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      receivedBodies.push(body);
+      const answer = body.reasoning_effort === "none" ? "NONE_OK" : "LOW_OK";
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(
+        `data: ${JSON.stringify({
+          id: `chatcmpl-agent-reasoning-${receivedBodies.length}`,
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "reasoning-model",
+          choices: [{
+            index: 0,
+            delta: { role: "assistant", reasoning_content: "HIDDEN_REASONING" },
+            finish_reason: null,
+          }],
+        })}\n\n`,
+      );
+      response.write(
+        `data: ${JSON.stringify({
+          id: `chatcmpl-agent-reasoning-${receivedBodies.length}`,
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "reasoning-model",
+          choices: [{ index: 0, delta: { content: answer }, finish_reason: null }],
+        })}\n\n`,
+      );
+      response.write(
+        `data: ${JSON.stringify({
+          id: `chatcmpl-agent-reasoning-${receivedBodies.length}`,
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "reasoning-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: { prompt_tokens: 4, completion_tokens: 4, total_tokens: 8 },
+        })}\n\n`,
+      );
+      response.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const config = {
+    provider_type: "openai_compatible",
+    provider_config_id: "agent-reasoning-level",
+    pi_provider_id: "aether-test-agent-reasoning",
+    pi_api: "openai-completions",
+    model_id: "reasoning-model",
+    base_url: `http://127.0.0.1:${address.port}/v1`,
+    api_key: "secret-key",
+    reasoning: true,
+    thinking_level_map: { off: "none" },
+  };
+  const sessionId = "session-agent-reasoning-level";
+  const low = await client.request(
+    "agent-reasoning-low",
+    "run_turn",
+    { ...turnPayload(sessionId, [userMessage("first")], config), reasoning: "low" },
+  );
+  const off = await client.request(
+    "agent-reasoning-off",
+    "run_turn",
+    { ...turnPayload(sessionId, [userMessage("second")], config), reasoning: "off" },
+  );
+
+  assert.equal(low.session_reused, false);
+  assert.equal(off.session_reused, true);
+  assert.deepEqual(receivedBodies.map((body) => body.reasoning_effort), ["low", "none"]);
+  assert.equal(off.reasoning_text, "HIDDEN_REASONING");
+  assert.equal(off.assistant_text, "NONE_OK");
+  assert.ok(
+    client.events.some(
+      (frame) =>
+        frame.id === "agent-reasoning-off" &&
+        frame.event === "assistant_reasoning_delta" &&
+        frame.payload.delta === "HIDDEN_REASONING",
+    ),
+  );
+});
+
 test("reads top-level reasoning_tokens from OpenAI-compatible completion usage", async (t) => {
   const server = createServer((request, response) => {
     request.resume();

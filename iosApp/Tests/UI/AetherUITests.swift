@@ -35,6 +35,29 @@ final class AetherUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
     }
 
+    func testComposerStaysAtBottomAfterOrientationRoundTrip() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        let privacyAgreement = app.buttons["Agree"]
+        if privacyAgreement.waitForExistence(timeout: 5) {
+            privacyAgreement.tap()
+        }
+
+        let composer = app.textViews.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 30))
+        composer.tap()
+        composer.typeText("orientation-regression")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(waitForLandscape(app))
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(waitForPortrait(app))
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        XCTAssertLessThan(app.frame.maxY - composer.frame.maxY, 120)
+    }
+
     func testOnboardingRuntimeAndIOSCapabilitySurface() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -137,5 +160,21 @@ final class AetherUITests: XCTestCase {
         localizedDarkHome.name = "Chinese dark chat home"
         localizedDarkHome.lifetime = .keepAlways
         add(localizedDarkHome)
+    }
+
+    private func waitForLandscape(_ app: XCUIApplication) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in app.frame.width > app.frame.height },
+            object: nil
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: 10) == .completed
+    }
+
+    private func waitForPortrait(_ app: XCUIApplication) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in app.frame.height > app.frame.width },
+            object: nil
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: 10) == .completed
     }
 }

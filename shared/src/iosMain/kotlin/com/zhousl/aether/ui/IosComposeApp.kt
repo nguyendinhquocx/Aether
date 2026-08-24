@@ -6843,7 +6843,13 @@ private fun SharedComposer(
 
     Box(
         modifier = modifier.fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
+            .then(
+                if (textFieldFocused) {
+                    Modifier.windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
+                } else {
+                    Modifier
+                },
+            )
             .navigationBarsPadding()
             .padding(bottom = bottomLift),
     ) {

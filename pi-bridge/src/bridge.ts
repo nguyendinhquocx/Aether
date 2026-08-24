@@ -2605,6 +2605,14 @@ async function runNativeAgentTurn(id: string, payload: JsonObject): Promise<Json
   const messages = normalizeMessages(payload.messages);
   const prompt = promptFromLastUserMessage(messages);
   const { state, reused } = await prepareNativeAgentSession(payload, prompt.history);
+  const requestedThinkingLevel = thinkingLevelFor(payload) ?? "off";
+  state.session.setThinkingLevel(requestedThinkingLevel);
+  bridgeDebug("agent_turn_thinking_level", {
+    session_id: state.sessionId,
+    requested: requestedThinkingLevel,
+    effective: state.session.thinkingLevel,
+    session_reused: reused,
+  });
   const message = await runNativeAgentPrompt(id, state, prompt.text, prompt.images);
   return {
     ...assistantPayload(message),

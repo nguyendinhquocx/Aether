@@ -144,4 +144,19 @@ private final class FullscreenComposeViewController: UIViewController {
         ])
         content.didMove(toParent: self)
     }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: any UIViewControllerTransitionCoordinator
+    ) {
+        // Compose can otherwise retain the keyboard frame from the previous
+        // orientation and keep bottom IME insets after the keyboard disappears.
+        view.endEditing(true)
+        super.viewWillTransition(to: size, with: coordinator)
+
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.content.view.setNeedsLayout()
+            self?.content.view.layoutIfNeeded()
+        }
+    }
 }
