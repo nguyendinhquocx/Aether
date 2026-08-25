@@ -12,7 +12,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 
@@ -145,10 +144,11 @@ data class AppSettings(
     val modelId: String = DefaultCustomModelId,
     val userAgent: String = AetherLlmUserAgent,
     val customHeaders: List<LlmCustomHeader> = emptyList(),
+    val developerRoleUnsupported: Boolean = false,
     val reasoningEffort: String = DefaultReasoningEffort,
     val systemPrompt: String = platformDefaultSystemPrompt(),
-    @Transient val tavilyApiKey: String = "",
-    @Transient val tavilyBaseUrl: String = DefaultTavilyBaseUrl,
+    val tavilyApiKey: String = "",
+    val tavilyBaseUrl: String = DefaultTavilyBaseUrl,
     val llmInactivityReconnectTimeoutSeconds: Int = DefaultLlmInactivityReconnectTimeoutSeconds,
     val keepTasksRunningInBackground: Boolean = true,
     val notifyOnTaskCompletion: Boolean = true,
@@ -171,7 +171,7 @@ data class AppSettings(
     val defaultTitleModelKey: String = "",
     val defaultNamingModelKey: String = "",
     val defaultCompactingModelKey: String = "",
-    @Transient val defaultSelectedSkillIds: List<String> = emptyList(),
+    val defaultSelectedSkillIds: List<String> = emptyList(),
     val onboardingSeenVersion: Int = 0,
     val onboardingCompletedVersion: Int = 0,
     val privacyPolicyAccepted: Boolean = false,
@@ -333,6 +333,7 @@ data class LlmProviderConfig(
     val manualModelIds: List<String> = listOf(modelId).filter(String::isNotBlank),
     val userAgent: String = AetherLlmUserAgent,
     val customHeaders: List<LlmCustomHeader> = emptyList(),
+    val developerRoleUnsupported: Boolean = false,
     val cachedModels: List<String> = emptyList(),
     val enabledModelIds: List<String> = cachedModels + manualModelIds,
     val isEnabled: Boolean = true,
@@ -363,6 +364,7 @@ fun LlmProviderConfig.toJsonObject(): JsonObject = JsonObject(
         "userAgent" to JsonPrimitive(normalizeLlmUserAgent(userAgent)),
         "manualModelIds" to manualModelIds.toStringJsonArray(),
         "customHeaders" to customHeaders.toKotlinJsonArray(),
+        "developerRoleUnsupported" to JsonPrimitive(developerRoleUnsupported),
         "cachedModels" to cachedModels.toStringJsonArray(),
         "enabledModelIds" to enabledModelIds.toStringJsonArray(),
         "isEnabled" to JsonPrimitive(isEnabled),
@@ -442,6 +444,10 @@ fun parseProviderConfigs(rawValue: String): List<LlmProviderConfig> {
                         customHeaders = parsedCustomHeaders.filterNot {
                             it.name.equals("User-Agent", ignoreCase = true)
                         },
+                        developerRoleUnsupported = json.boolean(
+                            "developerRoleUnsupported",
+                            false,
+                        ),
                         cachedModels = cachedModels,
                         enabledModelIds = if ("enabledModelIds" in json) {
                             normalizeStringList(enabledModelIds.filter(availableModels::contains))
@@ -584,6 +590,7 @@ data class ProviderModelOption(
     val modelId: String,
     val userAgent: String,
     val customHeaders: List<LlmCustomHeader>,
+    val developerRoleUnsupported: Boolean,
     val fullLabel: String,
     val chatLabel: String,
 )
@@ -635,6 +642,7 @@ fun List<LlmProviderConfig>.availableModelOptions(
                 modelId = normalizedModelId,
                 userAgent = normalizeLlmUserAgent(config.userAgent),
                 customHeaders = config.customHeaders,
+                developerRoleUnsupported = config.developerRoleUnsupported,
                 fullLabel = fullLabel,
                 chatLabel = if ((modelCounts[normalizedModelId] ?: 0) > 1) fullLabel else normalizedModelId,
             )
@@ -658,6 +666,7 @@ fun AppSettings.withModelOption(option: ProviderModelOption): AppSettings = copy
     modelId = option.modelId.trim(),
     userAgent = normalizeLlmUserAgent(option.userAgent),
     customHeaders = option.customHeaders,
+    developerRoleUnsupported = option.developerRoleUnsupported,
 )
 
 fun List<ProviderModelOption>.findModelOption(key: String?): ProviderModelOption? =

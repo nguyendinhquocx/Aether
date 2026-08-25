@@ -8,6 +8,25 @@ import org.junit.Test
 
 class ProviderConfigSerializationTest {
     @Test
+    fun developerRoleFallbackMarkRoundTrips() {
+        val serialized = serializeProviderConfigs(
+            listOf(
+                LlmProviderConfig(
+                    providerId = "custom",
+                    name = "Custom",
+                    piProviderId = "openai-compatible",
+                    apiKey = "key",
+                    baseUrl = "https://example.test/v1",
+                    modelId = "model",
+                    developerRoleUnsupported = true,
+                )
+            )
+        )
+
+        assertTrue(parseProviderConfigs(serialized).single().developerRoleUnsupported)
+    }
+
+    @Test
     fun fullProviderSerializationPreservesCredentials() {
         val config = LlmProviderConfig(
             providerId = "openai",

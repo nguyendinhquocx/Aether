@@ -64,14 +64,23 @@ class AetherSettingsStore(
         if (storedLanguage != initialLanguage.storageValue) {
             dataStore.edit { it[Language] = initialLanguage.storageValue }
         }
-        val legacySettings = defaults.copy(
+        val serializedSettings = parseAppSettings(preferences[AppSettingsJson].orEmpty(), defaults)
+        // These keys predate the full settings JSON and are also written atomically with it.
+        // Prefer them when present so an older or partially migrated JSON snapshot cannot
+        // overwrite a newer value during startup.
+        val fullSettings = serializedSettings.copy(
             language = initialLanguage,
-            themeMode = AppThemeMode.fromStorage(preferences[ThemeMode]),
-            systemPrompt = preferences[SystemPrompt] ?: defaults.systemPrompt,
-            reasoningEffort = normalizeReasoningEffort(preferences[ReasoningEffort]),
-            onboardingCompletedVersion = preferences[OnboardingCompletedVersion] ?: 0,
+            themeMode = preferences[ThemeMode]
+                ?.let(AppThemeMode::fromStorage) ?: serializedSettings.themeMode,
+            systemPrompt = preferences[SystemPrompt] ?: serializedSettings.systemPrompt,
+            reasoningEffort = preferences[ReasoningEffort]
+                ?.let(::normalizeReasoningEffort) ?: serializedSettings.reasoningEffort,
+            tavilyApiKey = preferences[TavilyApiKey] ?: serializedSettings.tavilyApiKey,
+            tavilyBaseUrl = preferences[TavilyBaseUrl]
+                ?.let(::normalizeTavilyBaseUrl) ?: serializedSettings.tavilyBaseUrl,
+            defaultSelectedSkillIds = preferences[DefaultSelectedSkillIds]
+                ?.let(::parsePersistedStringListOrNull) ?: serializedSettings.defaultSelectedSkillIds,
         )
-        val fullSettings = parseAppSettings(preferences[AppSettingsJson].orEmpty(), legacySettings)
         val privacyPolicyAccepted = preferences[PrivacyPolicyAccepted]
             ?: fullSettings.privacyPolicyAccepted
         return SharedPersistedSettings(
@@ -151,6 +160,11 @@ class AetherSettingsStore(
             preferences[ThemeMode] = settings.themeMode.storageValue
             preferences[SystemPrompt] = settings.systemPrompt
             preferences[ReasoningEffort] = normalizeReasoningEffort(settings.reasoningEffort)
+            preferences[TavilyApiKey] = settings.tavilyApiKey
+            preferences[TavilyBaseUrl] = normalizeTavilyBaseUrl(settings.tavilyBaseUrl)
+            preferences[DefaultSelectedSkillIds] = serializePersistedStringList(
+                settings.defaultSelectedSkillIds,
+            )
         }
     }
 
@@ -232,6 +246,11 @@ class AetherSettingsStore(
             preferences[ThemeMode] = persisted.appSettings.themeMode.storageValue
             preferences[SystemPrompt] = persisted.appSettings.systemPrompt
             preferences[ReasoningEffort] = normalizeReasoningEffort(persisted.appSettings.reasoningEffort)
+            preferences[TavilyApiKey] = persisted.appSettings.tavilyApiKey
+            preferences[TavilyBaseUrl] = normalizeTavilyBaseUrl(persisted.appSettings.tavilyBaseUrl)
+            preferences[DefaultSelectedSkillIds] = serializePersistedStringList(
+                persisted.appSettings.defaultSelectedSkillIds,
+            )
         }
     }
 
@@ -243,6 +262,9 @@ class AetherSettingsStore(
         val ThemeMode = stringPreferencesKey("theme_mode")
         val SystemPrompt = stringPreferencesKey("system_prompt")
         val ReasoningEffort = stringPreferencesKey("reasoning_effort")
+        val TavilyApiKey = stringPreferencesKey("tavily_api_key")
+        val TavilyBaseUrl = stringPreferencesKey("tavily_base_url")
+        val DefaultSelectedSkillIds = stringPreferencesKey("default_selected_skill_ids")
         val AppSettingsJson = stringPreferencesKey("app_settings_json")
         val PrivacyPolicyAccepted = booleanPreferencesKey("privacy_policy_accepted")
         val ThinkingCatalogCacheJson = stringPreferencesKey("thinking_catalog_cache_json")
@@ -250,6 +272,22 @@ class AetherSettingsStore(
         val LastRoute = stringPreferencesKey("last_route")
     }
 }
+
+private fun parsePersistedStringListOrNull(value: String): List<String>? =
+    value.takeIf(String::isNotBlank)
+        ?.let { raw ->
+            runCatching {
+                SharedSettingsJson.decodeFromString<List<String>>(raw)
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .distinct()
+            }.getOrNull()
+        }
+
+private fun serializePersistedStringList(values: List<String>): String =
+    SharedSettingsJson.encodeToString(
+        values.map(String::trim).filter(String::isNotBlank).distinct(),
+    )
 
 internal fun privacyPolicyAccepted(persisted: Boolean, requested: Boolean): Boolean =
     persisted || requested

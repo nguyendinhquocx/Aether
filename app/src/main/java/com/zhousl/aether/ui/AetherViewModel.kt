@@ -2237,7 +2237,7 @@ class AetherViewModel(
             if (trimmedMessages.lastOrNull()?.author != MessageAuthor.User) {
                 return@update current
             }
-            piBranchMessageId = trimmedMessages.last().id
+            piBranchMessageId = trimmedMessages.piBranchMessageIdBeforeLastUser()
 
             request = SessionTurnRequest(
                 sessionId = sessionId,
@@ -2283,7 +2283,7 @@ class AetherViewModel(
             )
         }
         viewModelScope.launch {
-            navigatePiBranch(sessionId, piBranchMessageId)
+            navigatePiBranch(sessionId, piBranchMessageId, resetWhenMissing = true)
             sessionExecutionManager.startTurn(turnRequest)
         }
     }

@@ -346,6 +346,8 @@
     <string name="statistics_no_speed_samples">No speed samples yet</string>
     <string name="statistics_selected_day_tokens">%1$s · %2$s tokens</string>
     <string name="settings_developer_description">Developer-only tools and replay controls.</string>
+    <string name="settings_developer_role_fallbacks">Developer message fallbacks</string>
+    <string name="settings_developer_role_fallbacks_description">These providers rejected the developer message role, so Aether now uses system messages for them. Turn a provider off here to try developer messages again.</string>
     <string name="settings_app_data">App Data</string>
     <string name="settings_app_data_description">Import or export the complete local Aether data set as JSON.</string>
     <string name="settings_import_app_data">Import app data</string>

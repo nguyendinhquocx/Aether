@@ -16,10 +16,12 @@ import {
   fauxProvider,
   fauxToolCall,
   InMemoryModelsStore,
+  createAssistantMessageEventStream,
   type AuthContext,
   type AuthInteraction,
   type AssistantMessage,
   type AssistantMessageEvent,
+  type AssistantMessageEventStream,
   type Context,
   type Credential,
   type CredentialInfo,
@@ -32,6 +34,7 @@ import {
   type MutableModels,
   type ProviderStreams,
   type SimpleStreamOptions,
+  type StreamOptions,
   type TextContent,
   type Usage,
   Type,
@@ -100,6 +103,7 @@ const AETHER_LOOPBACK_OAUTH_CALLBACK_HOST = "127.0.0.1";
 const OAUTH_FETCH_MAX_ATTEMPTS = 3;
 const DEFAULT_AGENT_RETRY_MAX_RETRIES = 5;
 const RUNTIME_OPERATION_CHUNK_BYTES = 64 * 1024;
+const DEVELOPER_ROLE_ERROR_BODY_MAX_CHARS = 16 * 1024;
 
 type JsonObject = Record<string, unknown>;
 
@@ -118,6 +122,7 @@ interface ModelConfig {
   base_url: string;
   api_key?: string;
   custom_headers?: Record<string, string>;
+  supports_developer_role?: boolean;
   reasoning?: boolean;
   thinking_level_map?: Record<string, string | null>;
   context_window?: number;
@@ -173,6 +178,7 @@ interface AgentSessionState {
   chromeEnabled: boolean;
   modelRuntime: ModelRuntime;
   model: Model<string>;
+  compatibilityFallbackState: CompatibilityFallbackState;
   credentialStore?: BridgeCredentialStore;
   session: AgentSession;
   resourceLoader: DefaultResourceLoader;
@@ -185,6 +191,10 @@ interface AgentSessionState {
   firstAssistantEventAtMillis?: number;
   toolArgsById: Map<string, unknown>;
   lastAccessedAt: number;
+}
+
+interface CompatibilityFallbackState {
+  developerRoleUnsupportedDetected: boolean;
 }
 
 const activeAborters = new Map<string, () => void | Promise<unknown>>();
@@ -749,6 +759,7 @@ function normalizeModelConfig(rawValue: unknown): ModelConfig {
     base_url: baseUrl,
     api_key: asString(raw.api_key),
     custom_headers: normalizeHeaders(raw.custom_headers),
+    supports_developer_role: raw.supports_developer_role === false ? false : undefined,
     reasoning: asBoolean(raw.reasoning, false),
     thinking_level_map: normalizeThinkingLevelMap(raw.thinking_level_map),
     context_window: asNumber(raw.context_window, 128000),
@@ -829,6 +840,141 @@ function apiStreamsFor(piApi: string): ProviderStreams {
   }
 }
 
+function requestContainsDeveloperMessage(payload: unknown): boolean {
+  const messages = asObject(payload).messages;
+  return Array.isArray(messages) && messages.some((message) =>
+    asString(asObject(message).role).trim().toLowerCase() === "developer"
+  );
+}
+
+function isDeveloperRoleUnsupportedError(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized.includes("developer")) return false;
+
+  const directRoleRejections = [
+    /(?:invalid|unsupported|unknown|unrecognized|unrecognised)\s+(?:message\s+)?role[^.\n]{0,80}["']?developer["']?/,
+    /(?:role|message role)[^.\n]{0,80}["']?developer["']?[^.\n]{0,80}(?:not\s+(?:supported|allowed|valid|recognized|recognised|permitted)|unsupported|invalid|unknown)/,
+    /["']?developer["']?[^.\n]{0,50}(?:is\s+)?(?:not\s+(?:a\s+)?(?:supported|allowed|valid|recognized|recognised|permitted)|(?:an?\s+)?(?:unsupported|invalid|unknown|unrecognized|unrecognised))\s+(?:message\s+)?role/,
+    /["']?developer["']?\s+(?:message\s+)?role[^.\n]{0,60}(?:not\s+(?:supported|allowed|valid|recognized|recognised|permitted)|unsupported|invalid|unknown)/,
+    /["']?developer["']?\s+messages?[^.\n]{0,60}(?:not\s+(?:supported|allowed|valid|recognized|recognised|permitted)|unsupported|invalid|unknown)/,
+    /(?:message\s+)?role[^.\n]{0,120}(?:must be one of|expected one of|allowed values?)[^.\n]{0,160}(?:got|received|input|provided)?[^.\n]{0,30}["']?developer["']?/,
+  ];
+  if (directRoleRejections.some((pattern) => pattern.test(normalized))) return true;
+
+  const hasMessageRoleLocation =
+    /messages?(?:\[[^\]]+\]|\.[^.\s:]+)*[.\s:'"\]]role/.test(normalized) ||
+    /["']messages["'][^\n]{0,160}["']role["']/.test(normalized);
+  const hasDeveloperInput =
+    /["'](?:input|value|received|got)["']\s*:\s*["']developer["']/.test(normalized) ||
+    /(?:input|value|received|got)\s+(?:was\s+)?["']developer["']/.test(normalized);
+  const hasEnumRejection =
+    /literal_error|enum(?:_error)?|input should be|expected (?:one of|a value)|must be one of|supported (?:message )?roles?|allowed (?:message )?roles?|permitted (?:message )?roles?/.test(normalized);
+  if (hasMessageRoleLocation && hasDeveloperInput && hasEnumRejection) return true;
+  const hasExplicitValueRejection =
+    /does not support|cannot be|not\s+(?:supported|allowed|valid|recognized|recognised|permitted)|unsupported(?:[_\s-]+(?:value|role|parameter|field))?|invalid(?:[_\s-]+(?:value|role|parameter|field|message))|unknown(?:[_\s-]+(?:value|role|parameter|field))|unrecogni[sz]ed(?:[_\s-]+(?:value|role|parameter|field))/.test(normalized);
+  if (hasMessageRoleLocation && hasExplicitValueRejection) return true;
+  if (
+    hasMessageRoleLocation &&
+    /(?:invalid|unsupported) value\s*:?\s*["']developer["']/.test(normalized) &&
+    /supported values?|allowed values?|must be one of|expected one of/.test(normalized)
+  ) return true;
+
+  return (
+    /(?:supported|allowed|valid|permitted) (?:message )?roles?[^.\n]{0,160}(?:system|user)[^.\n]{0,160}(?:got|received|input|provided)[^.\n]{0,40}["']?developer["']?/.test(normalized) ||
+    /(?:supported|allowed|valid|permitted) (?:message )?roles?[^.\n]{0,160}(?:system|user)[^.\n]{0,160}["']?developer["']?[^.\n]{0,40}(?:was )?provided/.test(normalized)
+  );
+}
+
+function developerRoleFallbackStreams(
+  streams: ProviderStreams,
+  state: CompatibilityFallbackState,
+): ProviderStreams {
+  type SupportedOptions = StreamOptions | SimpleStreamOptions;
+  type StreamCall = (
+    model: Model<"openai-completions">,
+    context: Context,
+    options?: SupportedOptions,
+  ) => AssistantMessageEventStream;
+
+  const wrap = (call: StreamCall): StreamCall => (model, context, options) => {
+    const output = createAssistantMessageEventStream();
+    void (async () => {
+      // Inspect the actual serialized role and hold the first event so a rejected
+      // request never enters AgentSession history before the system-role retry.
+      let sentDeveloperMessage = false;
+      let providerErrorBody = "";
+      const requestFetch = options?.fetch ?? globalThis.fetch;
+      const observedOptions = {
+        ...options,
+        fetch: async (input: string | URL | Request, init?: RequestInit) => {
+          const response = await requestFetch(input, init);
+          if (!response.ok) {
+            providerErrorBody = await response.clone().text()
+              .then((body) => body.slice(0, DEVELOPER_ROLE_ERROR_BODY_MAX_CHARS))
+              .catch(() => "");
+          }
+          return response;
+        },
+        onPayload: async (payload: unknown, requestModel: Model<"openai-completions">) => {
+          const transformed = await options?.onPayload?.(payload, requestModel);
+          sentDeveloperMessage = requestContainsDeveloperMessage(transformed ?? payload);
+          return transformed;
+        },
+      } as SupportedOptions;
+      const firstAttempt = call(model, context, observedOptions);
+      const iterator = firstAttempt[Symbol.asyncIterator]();
+      const first = await iterator.next();
+      if (
+        !first.done &&
+        first.value.type === "error" &&
+        sentDeveloperMessage &&
+        model.compat?.supportsDeveloperRole !== false &&
+        isDeveloperRoleUnsupportedError(
+          `${first.value.error.errorMessage ?? ""}\n${providerErrorBody}`,
+        )
+      ) {
+        model.compat = {
+          ...(model.compat ?? {}),
+          supportsDeveloperRole: false,
+        };
+        state.developerRoleUnsupportedDetected = true;
+        const fallback = call(model, context, options);
+        for await (const event of fallback) output.push(event);
+        output.end(await fallback.result());
+        return;
+      }
+      if (!first.done) output.push(first.value);
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) break;
+        output.push(next.value);
+      }
+      output.end(await firstAttempt.result());
+    })().catch((error) => {
+      const message: AssistantMessage = {
+        role: "assistant",
+        content: [],
+        api: model.api,
+        provider: model.provider,
+        model: model.id,
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: errorMessageWithCause(error),
+        timestamp: Date.now(),
+      };
+      output.push({ type: "error", reason: "error", error: message });
+      output.end(message);
+    });
+    return output;
+  };
+
+  return {
+    ...streams,
+    stream: wrap(streams.stream as StreamCall) as ProviderStreams["stream"],
+    streamSimple: wrap(streams.streamSimple as StreamCall) as ProviderStreams["streamSimple"],
+  };
+}
+
 function createAetherModel(config: ModelConfig): Model<string> {
   return {
     id: config.model_id,
@@ -848,7 +994,10 @@ function createAetherModel(config: ModelConfig): Model<string> {
     contextWindow: config.context_window ?? 128000,
     maxTokens: config.max_tokens ?? 16384,
     headers: config.custom_headers,
-  };
+    ...(config.supports_developer_role === false
+      ? { compat: { supportsDeveloperRole: false } }
+      : {}),
+  } as Model<string>;
 }
 
 function buildModels(config: ModelConfig): {
@@ -856,7 +1005,11 @@ function buildModels(config: ModelConfig): {
   model: Model<string>;
   provider: Provider;
   credentialStore?: BridgeCredentialStore;
+  compatibilityFallbackState: CompatibilityFallbackState;
 } {
+  const compatibilityFallbackState: CompatibilityFallbackState = {
+    developerRoleUnsupportedDetected: false,
+  };
   bridgeDebug("build_models_start", {
     provider_type: config.provider_type,
     pi_provider_id: config.pi_provider_id,
@@ -898,7 +1051,7 @@ function buildModels(config: ModelConfig): {
     }
     models.setProvider(faux.provider);
     const model = faux.getModel(config.model_id) ?? faux.getModel();
-    return { models, model, provider: faux.provider };
+    return { models, model, provider: faux.provider, compatibilityFallbackState };
   }
 
   if (config.provider_type === "builtin") {
@@ -967,7 +1120,7 @@ function buildModels(config: ModelConfig): {
         ...config.custom_headers,
       },
     } as Model<string>;
-    return { models, model, provider, credentialStore };
+    return { models, model, provider, credentialStore, compatibilityFallbackState };
   }
 
   const models = createModels();
@@ -993,16 +1146,20 @@ function buildModels(config: ModelConfig): {
       },
     },
     models: [model],
-    api: apiStreamsFor(config.pi_api),
+    api: developerRoleFallbackStreams(
+      apiStreamsFor(config.pi_api),
+      compatibilityFallbackState,
+    ),
   });
   models.setProvider(provider);
-  return { models, model, provider };
+  return { models, model, provider, compatibilityFallbackState };
 }
 
 async function buildModelRuntime(config: ModelConfig): Promise<{
   modelRuntime: ModelRuntime;
   model: Model<string>;
   credentialStore?: BridgeCredentialStore;
+  compatibilityFallbackState: CompatibilityFallbackState;
 }> {
   const startedAt = Date.now();
   bridgeDebug("model_runtime_create_start", {
@@ -1027,6 +1184,7 @@ async function buildModelRuntime(config: ModelConfig): Promise<{
     modelRuntime,
     model: built.model,
     credentialStore: built.credentialStore,
+    compatibilityFallbackState: built.compatibilityFallbackState,
   };
 }
 
@@ -2283,6 +2441,7 @@ async function createNativeAgentSession(
     chromeEnabled: platform === "android" && asBoolean(payload.chrome_enabled, false),
     modelRuntime: built.modelRuntime,
     model: built.model,
+    compatibilityFallbackState: built.compatibilityFallbackState,
     credentialStore: built.credentialStore,
     session: undefined as unknown as AgentSession,
     resourceLoader,
@@ -2623,6 +2782,8 @@ async function runNativeAgentTurn(id: string, payload: JsonObject): Promise<Json
     runtime: state.runtime,
     cwd: state.runtime === "termux" ? state.termuxWorkspaceDirectory : state.workspaceDirectory,
     session_reused: reused,
+    developer_role_unsupported_detected:
+      state.compatibilityFallbackState.developerRoleUnsupportedDetected,
   };
 }
 
@@ -2643,14 +2804,22 @@ async function followUpNativeAgentSession(id: string, payload: JsonObject): Prom
     await state.session.waitForIdle();
     const message = latestAssistantMessage(state.session.messages);
     if (!message) throw new Error(`Pi session ${state.sessionId} has no assistant response.`);
-    return assistantPayload(message);
+    return {
+      ...assistantPayload(message),
+      developer_role_unsupported_detected:
+        state.compatibilityFallbackState.developerRoleUnsupportedDetected,
+    };
   }
-  return assistantPayload(await runNativeAgentPrompt(id, state, prompt.text, prompt.images));
+  return {
+    ...assistantPayload(await runNativeAgentPrompt(id, state, prompt.text, prompt.images)),
+    developer_role_unsupported_detected:
+      state.compatibilityFallbackState.developerRoleUnsupportedDetected,
+  };
 }
 
 async function runSimpleCompletion(id: string, payload: JsonObject, stream: boolean): Promise<JsonObject> {
   const config = normalizeModelConfig(payload.model_config ?? defaultModelConfig);
-  const { models, model, credentialStore } = buildModels(config);
+  const { models, model, credentialStore, compatibilityFallbackState } = buildModels(config);
   const controller = new AbortController();
   activeAborters.set(id, () => controller.abort());
   try {
@@ -2665,12 +2834,16 @@ async function runSimpleCompletion(id: string, payload: JsonObject, stream: bool
       return {
         ...assistantPayload(message),
         ...(await credentialPayload(credentialStore)),
+        developer_role_unsupported_detected:
+          compatibilityFallbackState.developerRoleUnsupportedDetected,
       };
     }
     const message = await models.completeSimple(model, context, options);
     return {
       ...assistantPayload(message),
       ...(await credentialPayload(credentialStore)),
+      developer_role_unsupported_detected:
+        compatibilityFallbackState.developerRoleUnsupportedDetected,
     };
   } finally {
     activeAborters.delete(id);

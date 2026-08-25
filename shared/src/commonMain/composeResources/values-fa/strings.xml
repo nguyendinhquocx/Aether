@@ -339,6 +339,8 @@
     <string name="statistics_no_speed_samples">هنوز هیچ نمونه سرعتی وجود ندارد</string>
     <string name="statistics_selected_day_tokens">%1$s · %2$s نشانه</string>
     <string name="settings_developer_description">ابزارهای مخصوص توسعه دهندگان و کنترل های پخش مجدد.</string>
+    <string name="settings_developer_role_fallbacks">Developer message fallbacks</string>
+    <string name="settings_developer_role_fallbacks_description">These providers rejected the developer message role, so Aether uses system messages for them. Turn a provider off here to try developer messages again.</string>
     <string name="settings_app_data">داده های برنامه</string>
     <string name="settings_app_data_description">مجموعه کامل داده های Aether محلی را به عنوان JSON وارد یا صادر کنید.</string>
     <string name="settings_import_app_data">داده های برنامه را وارد کنید</string>

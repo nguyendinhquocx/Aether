@@ -45,6 +45,15 @@ class PiCompletionClient(
                     result.updatedOauthCredentialJson,
                 )
             }
+            if (
+                settings.providerConfigId.isNotBlank() &&
+                result.developerRoleUnsupportedDetected
+            ) {
+                settingsRepository?.setProviderDeveloperRoleUnsupported(
+                    settings.providerConfigId,
+                    true,
+                )
+            }
         }
     }
 }

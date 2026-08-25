@@ -671,6 +671,7 @@ internal enum class SharedPendingTurnMode { Queue, Steer }
 internal data class SharedAssistantRetryPlan(
     val retainedMessages: List<SharedChatMessage>,
     val userMessage: SharedChatMessage,
+    val piBranchMessageId: String?,
 )
 
 internal fun List<SharedPendingTurn>.nextSharedQueuedTurnIndex(): Int =
@@ -768,7 +769,8 @@ internal fun buildSharedAssistantRetryPlan(
     } ?: targetIndex
     val retained = messages.take(trimIndex)
     val user = retained.lastOrNull()?.takeIf { it.fromUser } ?: return null
-    return SharedAssistantRetryPlan(retained, user)
+    val piBranchMessageId = retained.dropLast(1).lastOrNull { !it.fromUser }?.id
+    return SharedAssistantRetryPlan(retained, user, piBranchMessageId)
 }
 
 internal fun resolveSharedProviderForModel(
@@ -920,10 +922,38 @@ fun IosComposeApp(
                 }
             }
         }
-        val completionClient = remember(bridgeClient, persistOAuthCredential) {
+        val persistDeveloperRoleFallback: suspend (String) -> Unit = remember(settingsStore) {
+            { configId ->
+                if (configId.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        val index = providerConfigs.indexOfFirst { it.id == configId }
+                        val current = providerConfigs.getOrNull(index)
+                        if (current != null && !current.developerRoleUnsupported) {
+                            val updated = providerConfigs.toMutableList().apply {
+                                this[index] = current.copy(
+                                    developerRoleUnsupported = true,
+                                    updatedAtMillis = platformCurrentTimeMillis(),
+                                )
+                            }
+                            val activeConfigId = providerConfig?.id.orEmpty()
+                            providerConfigs.clear()
+                            providerConfigs.addAll(updated)
+                            providerConfig = updated.firstOrNull { it.id == activeConfigId }
+                            settingsStore?.saveProviders(updated, activeConfigId)
+                        }
+                    }
+                }
+            }
+        }
+        val completionClient = remember(
+            bridgeClient,
+            persistOAuthCredential,
+            persistDeveloperRoleFallback,
+        ) {
             SharedPiChatClient(
                 bridge = bridgeClient,
                 onOAuthCredentialUpdated = persistOAuthCredential,
+                onDeveloperRoleUnsupportedDetected = persistDeveloperRoleFallback,
             )
         }
         val providerConfigsSnapshot = providerConfigs.toList()
@@ -1148,11 +1178,17 @@ fun IosComposeApp(
                 )
             )
         }
-        val chatClient = remember(bridgeClient, hostToolRegistry, persistOAuthCredential) {
+        val chatClient = remember(
+            bridgeClient,
+            hostToolRegistry,
+            persistOAuthCredential,
+            persistDeveloperRoleFallback,
+        ) {
             SharedPiChatClient(
                 bridge = bridgeClient,
                 hostToolExecutor = hostToolRegistry,
                 onOAuthCredentialUpdated = persistOAuthCredential,
+                onDeveloperRoleUnsupportedDetected = persistDeveloperRoleFallback,
             )
         }
 
@@ -3304,6 +3340,21 @@ fun IosComposeApp(
                                 }
                             }
                         }
+                        "developer_clear_developer_role_fallback" -> {
+                            val configId = payload.nativeString("providerConfigId")
+                            commitProviderConfigs(
+                                providerConfigs.map { config ->
+                                    if (config.id == configId) {
+                                        config.copy(
+                                            developerRoleUnsupported = false,
+                                            updatedAtMillis = platformCurrentTimeMillis(),
+                                        )
+                                    } else {
+                                        config
+                                    }
+                                }
+                            )
+                        }
                         "developer_export_data" -> appScope.launch {
                             nativeOperationMessage = ""
                             nativeOperationError = ""
@@ -3671,7 +3722,8 @@ fun IosComposeApp(
                             rawValue = plan.userMessage.text,
                             attachments = plan.userMessage.attachments,
                             retryResponseGroupId = plan.userMessage.id,
-                            piBranchMessageId = plan.userMessage.id,
+                            piBranchMessageId = plan.piBranchMessageId,
+                            resetPiBranchWhenMissing = true,
                         )
                     },
                     onRetryUserMessage = { messageId ->

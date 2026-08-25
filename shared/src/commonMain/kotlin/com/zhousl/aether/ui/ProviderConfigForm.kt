@@ -383,6 +383,7 @@ class ProviderFormState constructor(
                 header.name.isNotBlank() &&
                     !header.name.equals("User-Agent", ignoreCase = true)
             },
+        developerRoleUnsupported = existingConfig?.developerRoleUnsupported ?: false,
         cachedModels = normalizeModelIds(cachedModels),
         enabledModelIds = enabledModelIds
             .map(String::trim)

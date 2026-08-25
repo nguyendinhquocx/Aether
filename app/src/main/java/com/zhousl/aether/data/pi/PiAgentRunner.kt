@@ -424,6 +424,15 @@ class PiAgentRunner(
                                 completion.updatedOauthCredentialJson,
                             )
                         }
+                        if (
+                            settings.providerConfigId.isNotBlank() &&
+                            completion.developerRoleUnsupportedDetected
+                        ) {
+                            settingsRepository?.setProviderDeveloperRoleUnsupported(
+                                settings.providerConfigId,
+                                true,
+                            )
+                        }
                         if (completion.errorMessage.isNotBlank()) {
                             error(completion.errorMessage)
                         }

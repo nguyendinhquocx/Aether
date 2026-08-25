@@ -1323,6 +1323,16 @@ fun SettingsScreen(
                 onExportAppData = onExportAppData,
                 onExportLogs = onExportLogs,
                 onForceUpdateCheckForTesting = onForceUpdateCheckForTesting,
+                developerRoleFallbackProviders = providerConfigs.filter {
+                    it.developerRoleUnsupported
+                },
+                onClearDeveloperRoleFallback = { configId ->
+                    providerConfigs.firstOrNull { it.id == configId }?.let { config ->
+                        onUpsertProviderConfig(
+                            config.copy(developerRoleUnsupported = false),
+                        )
+                    }
+                },
                 autoCleanOldCommandHistory = autoCleanOldCommandHistoryValue,
                 oldCommandHistoryRetentionHours = oldCommandHistoryRetentionHoursValue,
                 onAutoCleanOldCommandHistoryChanged = { autoCleanOldCommandHistoryValue = it },
@@ -6998,6 +7008,8 @@ private fun DeveloperSettingsPage(
     onExportAppData: () -> Unit,
     onExportLogs: () -> Unit,
     onForceUpdateCheckForTesting: () -> Unit,
+    developerRoleFallbackProviders: List<LlmProviderConfig>,
+    onClearDeveloperRoleFallback: (String) -> Unit,
     autoCleanOldCommandHistory: Boolean,
     oldCommandHistoryRetentionHours: TextFieldValue,
     onAutoCleanOldCommandHistoryChanged: (Boolean) -> Unit,
@@ -7117,6 +7129,39 @@ private fun DeveloperSettingsPage(
         }
 
         Spacer(Modifier.height(14.dp))
+
+        if (developerRoleFallbackProviders.isNotEmpty()) {
+            SettingsCardGroup {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_developer_role_fallbacks),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = AetherOnSurface,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.settings_developer_role_fallbacks_description,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AetherOnSurfaceVariant,
+                    )
+                    developerRoleFallbackProviders.forEach { config ->
+                        Spacer(Modifier.height(16.dp))
+                        SettingsToggleRow(
+                            title = config.name,
+                            subtitle = config.providerId,
+                            checked = true,
+                            onCheckedChange = { enabled ->
+                                if (!enabled) onClearDeveloperRoleFallback(config.id)
+                            },
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+        }
 
         RuntimeCleanupDeveloperSettingsSection(
             autoCleanOldCommandHistory = autoCleanOldCommandHistory,

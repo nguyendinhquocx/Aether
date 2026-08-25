@@ -2043,6 +2043,9 @@ private struct NativeDeveloperSettingsView: View {
     @ObservedObject var model: NativeSettingsModel
     @State private var confirmExport = false
     @State private var confirmImport = false
+    private var developerRoleFallbackProviders: [[String: Any]] {
+        model.providers.filter { model.bool($0, "developerRoleUnsupported") }
+    }
     var body: some View {
         Form {
             if !model.string(model.snapshot, "operationError").isEmpty {
@@ -2074,6 +2077,33 @@ private struct NativeDeveloperSettingsView: View {
                 Text(model.text("Diagnostics", "诊断"))
             } footer: {
                 Text(model.text("The export redacts stored credentials and includes runtime diagnostics.", "导出内容会隐藏已存储的凭证，并包含运行时诊断信息。"))
+            }
+            if !developerRoleFallbackProviders.isEmpty {
+                Section {
+                    ForEach(developerRoleFallbackProviders, id: \.nativeID) { provider in
+                        Toggle(
+                            model.string(provider, "name"),
+                            isOn: Binding(
+                                get: { true },
+                                set: { enabled in
+                                    if !enabled {
+                                        model.perform(
+                                            "developer_clear_developer_role_fallback",
+                                            ["providerConfigId": model.string(provider, "id")]
+                                        )
+                                    }
+                                }
+                            )
+                        )
+                    }
+                } header: {
+                    Text(model.text("Developer message fallbacks", "Developer 消息回退"))
+                } footer: {
+                    Text(model.text(
+                        "These providers rejected the developer message role, so Aether uses system messages for them. Turn a provider off to try developer messages again.",
+                        "这些提供商拒绝了 Developer 消息角色，因此 Aether 会对它们使用 System 消息。关闭提供商标记即可重新尝试 Developer 消息。"
+                    ))
+                }
             }
             Section(model.text("Command history", "命令历史")) {
                 Toggle(model.text("Automatically clean old history", "自动清理旧历史"), isOn: Binding(

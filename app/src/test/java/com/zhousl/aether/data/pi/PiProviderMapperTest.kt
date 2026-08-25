@@ -77,6 +77,26 @@ class PiProviderMapperTest {
     }
 
     @Test
+    fun developerRoleCompatibilityOverrideIsSentOnlyAfterDetection() {
+        val automatic = AppSettings(
+            piProviderId = "openai-compatible",
+            providerConfigId = "automatic",
+            baseUrl = "https://example.test/v1",
+            modelId = "model",
+        ).toPiModelConfig().toJson()
+        val marked = AppSettings(
+            piProviderId = "openai-compatible",
+            providerConfigId = "marked",
+            baseUrl = "https://example.test/v1",
+            modelId = "model",
+            developerRoleUnsupported = true,
+        ).toPiModelConfig().toJson()
+
+        assertFalse(automatic.has("supports_developer_role"))
+        assertFalse(marked.getBoolean("supports_developer_role"))
+    }
+
+    @Test
     fun legacyNoneReasoningEffortMigratesToPiOff() {
         assertEquals("off", AppSettings(
             piProviderId = "openai",

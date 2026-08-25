@@ -1080,6 +1080,8 @@ class SharedConversationMessagesTest {
         val plan = buildSharedAssistantRetryPlan(messages, firstReply.id)
         assertEquals(listOf(firstUser), plan?.retainedMessages)
         assertEquals(firstUser, plan?.userMessage)
+        assertNull(plan?.piBranchMessageId)
+        assertEquals(firstReply.id, buildSharedAssistantRetryPlan(messages, secondReply.id)?.piBranchMessageId)
         assertNull(buildSharedAssistantRetryPlan(messages, firstUser.id))
     }
 

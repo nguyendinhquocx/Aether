@@ -98,6 +98,7 @@ class SharedPiChatClient(
     private val hostToolExecutor: SharedHostToolExecutor? = null,
     private val onOAuthCredentialUpdated: suspend (providerConfigId: String, credentialJson: String) -> Unit =
         { _, _ -> },
+    private val onDeveloperRoleUnsupportedDetected: suspend (providerConfigId: String) -> Unit = {},
 ) {
     suspend fun completeOnce(
         config: LlmProviderConfig,
@@ -321,6 +322,12 @@ class SharedPiChatClient(
         if (config.id.isNotBlank() && updatedOauthCredentialJson.isNotBlank()) {
             onOAuthCredentialUpdated(config.id, updatedOauthCredentialJson)
         }
+        if (
+            config.id.isNotBlank() &&
+            this["developer_role_unsupported_detected"]?.jsonPrimitive?.booleanOrNull == true
+        ) {
+            onDeveloperRoleUnsupportedDetected(config.id)
+        }
         return SharedPiTurnResult(
             assistantText = string("assistant_text"),
             reasoningText = string("reasoning_text"),
@@ -456,6 +463,7 @@ fun LlmProviderConfig.toSharedPiModelConfig(
             }
             put("User-Agent", normalizeLlmUserAgent(userAgent))
         })
+        if (developerRoleUnsupported) put("supports_developer_role", false)
         put("reasoning", reasoningEnabled)
         if (thinkingLevelMap.isNotEmpty()) {
             put("thinking_level_map", buildJsonObject {

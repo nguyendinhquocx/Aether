@@ -24,6 +24,7 @@ data class PiModelConfig(
     val baseUrl: String,
     val apiKey: String = "",
     val customHeaders: Map<String, String> = emptyMap(),
+    val developerRoleUnsupported: Boolean = false,
     val reasoning: Boolean = true,
     val thinkingLevelMap: Map<String, String> = emptyMap(),
     val contextWindow: Int = DefaultContextWindow,
@@ -47,6 +48,7 @@ data class PiModelConfig(
         put("custom_headers", JSONObject().apply {
             customHeaders.forEach { (name, value) -> put(name, value) }
         })
+        if (developerRoleUnsupported) put("supports_developer_role", false)
         put("reasoning", reasoning)
         if (thinkingLevelMap.isNotEmpty()) {
             put("thinking_level_map", JSONObject().apply {
@@ -83,6 +85,7 @@ data class PiCompletionResult(
     val stopReason: String = "",
     val errorMessage: String = "",
     val updatedOauthCredentialJson: String = "",
+    val developerRoleUnsupportedDetected: Boolean = false,
     val sessionId: String = "",
     val sessionFile: String = "",
     val sessionLeafId: String = "",
@@ -128,6 +131,7 @@ fun AppSettings.toPiModelConfig(
         },
         customHeaders = customHeaders.toPiHeaderMap() +
             ("User-Agent" to normalizeLlmUserAgent(userAgent)),
+        developerRoleUnsupported = developerRoleUnsupported,
         reasoning = reasoningEnabled,
         thinkingLevelMap = thinkingLevelMap,
         timeoutMillis = llmInactivityReconnectTimeoutSeconds
@@ -173,6 +177,7 @@ fun JSONObject.toPiCompletionResult(): PiCompletionResult =
         stopReason = optString("stop_reason"),
         errorMessage = optString("error_message"),
         updatedOauthCredentialJson = optJSONObject("oauth_credential")?.toString().orEmpty(),
+        developerRoleUnsupportedDetected = optBoolean("developer_role_unsupported_detected"),
         sessionId = optString("session_id"),
         sessionFile = optString("session_file"),
         sessionLeafId = optString("session_leaf_id"),

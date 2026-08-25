@@ -44,6 +44,40 @@ class SharedPiChatClientTest {
     }
 
     @Test
+    fun markedProviderDisablesDeveloperRoleInModelConfig() {
+        val automatic = testProvider().toSharedPiModelConfig()
+        val marked = testProvider()
+            .copy(developerRoleUnsupported = true)
+            .toSharedPiModelConfig()
+
+        assertFalse("supports_developer_role" in automatic)
+        assertFalse(marked["supports_developer_role"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun detectedDeveloperRoleFallbackIsReportedToPersistence() = runTest {
+        val process = ChatProtocolProcess(developerRoleUnsupportedDetected = true)
+        val bridge = SharedPiBridgeClient(
+            transport = SingleProcessTransport(process),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        var detectedProviderId = ""
+        val config = testProvider()
+        val client = SharedPiChatClient(
+            bridge = bridge,
+            onDeveloperRoleUnsupportedDetected = { detectedProviderId = it },
+        )
+
+        client.completeOnce(
+            config = config,
+            messages = listOf(SharedPiChatMessage("user", "hello")),
+        )
+
+        assertEquals(config.id, detectedProviderId)
+        bridge.close()
+    }
+
+    @Test
     fun sendsMultimodalContentAndParsesUsage() = runTest {
         val process = ChatProtocolProcess()
         val bridge = SharedPiBridgeClient(
@@ -447,6 +481,7 @@ private class ChatProtocolProcess(
     private val steerAccepted: Boolean = true,
     private val reconnectEvents: Boolean = false,
     private val reasoningTokens: Int? = null,
+    private val developerRoleUnsupportedDetected: Boolean = false,
 ) : RuntimeProcess {
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
     val requests = mutableListOf<JsonObject>()
@@ -472,6 +507,10 @@ private class ChatProtocolProcess(
                 put("model", "test-model")
                 put("response_id", "response-1")
                 put("stop_reason", "stop")
+                put(
+                    "developer_role_unsupported_detected",
+                    developerRoleUnsupportedDetected,
+                )
                 oauthCredential?.let { put("oauth_credential", it) }
                 put("usage", buildJsonObject {
                     put("input_tokens", 7)

@@ -898,6 +898,30 @@ function userMessage(text) {
   return { role: "user", content: [{ type: "text", text }] };
 }
 
+function writeSuccessfulChatCompletion(response, content, model) {
+  response.writeHead(200, { "content-type": "text/event-stream" });
+  response.write(`data: ${JSON.stringify({
+    id: `chatcmpl-${model}`,
+    object: "chat.completion.chunk",
+    created: 1,
+    model,
+    choices: [{
+      index: 0,
+      delta: { role: "assistant", content },
+      finish_reason: null,
+    }],
+  })}\n\n`);
+  response.write(`data: ${JSON.stringify({
+    id: `chatcmpl-${model}`,
+    object: "chat.completion.chunk",
+    created: 1,
+    model,
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+  })}\n\n`);
+  response.end("data: [DONE]\n\n");
+}
+
 function hostTool(name, executionMode = "parallel") {
   return {
     name,
@@ -1790,6 +1814,259 @@ test("maps a custom OpenAI-compatible provider through Pi", async (t) => {
   assert.equal(receivedRequest.authorization, "Bearer secret-key");
   assert.equal(receivedRequest.customHeader, "present");
   assert.equal(receivedRequest.body.model, "custom-model");
+});
+
+test("falls back from developer to system only for a structured role rejection", async (t) => {
+  const receivedRoles = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const role = body.messages?.[0]?.role;
+      receivedRoles.push(role);
+      if (role === "developer") {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          detail: [{
+            type: "literal_error",
+            loc: ["body", "messages", 0, "role"],
+            msg: "Input should be 'system', 'user', 'assistant' or 'tool'",
+            input: "developer",
+          }],
+        }));
+        return;
+      }
+      writeSuccessfulChatCompletion(response, "FALLBACK_OK", "fallback-model");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request("developer-fallback", "complete_once", {
+    model_config: {
+      provider_type: "openai_compatible",
+      provider_config_id: "developer-fallback",
+      pi_provider_id: "aether-developer-fallback",
+      pi_api: "openai-completions",
+      model_id: "fallback-model",
+      base_url: `http://127.0.0.1:${address.port}/v1`,
+      api_key: "secret-key",
+      reasoning: true,
+      max_retries: 0,
+    },
+    system_prompt: "Reply briefly.",
+    messages: [userMessage("hello")],
+    reasoning: "low",
+  });
+
+  assert.equal(result.assistant_text, "FALLBACK_OK", JSON.stringify(result));
+  assert.equal(result.developer_role_unsupported_detected, true);
+  assert.deepEqual(receivedRoles, ["developer", "system"]);
+});
+
+test("recognizes explicit developer-role rejections across provider error formats", async (t) => {
+  const cases = [
+    {
+      model: "unsupported-value-model",
+      error: {
+        error: {
+          message: "Unsupported value 'developer' for messages[0].role.",
+          code: "unsupported_value",
+          param: "messages[0].role",
+        },
+      },
+    },
+    {
+      model: "developer-message-model",
+      error: { message: "Developer messages are not supported by this endpoint." },
+    },
+    {
+      model: "role-path-model",
+      error: { detail: "messages[0].role does not support 'developer'." },
+    },
+  ];
+  const rolesByModel = new Map(cases.map(({ model }) => [model, []]));
+  const errorsByModel = new Map(cases.map(({ model, error }) => [model, error]));
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const role = body.messages?.[0]?.role;
+      rolesByModel.get(body.model)?.push(role);
+      if (role === "developer") {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify(errorsByModel.get(body.model)));
+        return;
+      }
+      writeSuccessfulChatCompletion(response, "FALLBACK_OK", body.model);
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  for (const { model } of cases) {
+    const result = await client.request(`developer-fallback-${model}`, "complete_once", {
+      model_config: {
+        provider_type: "openai_compatible",
+        provider_config_id: `developer-fallback-${model}`,
+        pi_provider_id: "aether-developer-fallback",
+        pi_api: "openai-completions",
+        model_id: model,
+        base_url: `http://127.0.0.1:${address.port}/v1`,
+        api_key: "secret-key",
+        reasoning: true,
+        max_retries: 0,
+      },
+      system_prompt: "Reply briefly.",
+      messages: [userMessage("hello")],
+      reasoning: "low",
+    });
+
+    assert.equal(result.assistant_text, "FALLBACK_OK", JSON.stringify(result));
+    assert.equal(result.developer_role_unsupported_detected, true);
+    assert.deepEqual(rolesByModel.get(model), ["developer", "system"]);
+  }
+});
+
+test("applies the developer-role fallback inside an agent turn", async (t) => {
+  const receivedRoles = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const role = body.messages?.[0]?.role;
+      receivedRoles.push(role);
+      if (role === "developer") {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          error: {
+            message: "Invalid value: 'developer'. Supported values are: 'system', 'user', 'assistant', and 'tool'.",
+            type: "invalid_request_error",
+            param: "messages[0].role",
+          },
+        }));
+        return;
+      }
+      writeSuccessfulChatCompletion(response, "AGENT_FALLBACK_OK", "agent-fallback-model");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request(
+    "developer-agent-fallback",
+    "run_turn",
+    {
+      ...turnPayload("session-developer-agent-fallback", [userMessage("hello")], {
+        provider_type: "openai_compatible",
+        provider_config_id: "developer-agent-fallback",
+        pi_provider_id: "aether-developer-agent-fallback",
+        pi_api: "openai-completions",
+        model_id: "agent-fallback-model",
+        base_url: `http://127.0.0.1:${address.port}/v1`,
+        api_key: "secret-key",
+        reasoning: true,
+        max_retries: 0,
+      }),
+      reasoning: "low",
+    },
+  );
+
+  assert.equal(result.assistant_text, "AGENT_FALLBACK_OK", JSON.stringify(result));
+  assert.equal(result.developer_role_unsupported_detected, true);
+  assert.deepEqual(receivedRoles, ["developer", "system"]);
+});
+
+test("does not treat unrelated developer errors as role incompatibility", async (t) => {
+  let requestCount = 0;
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      requestCount += 1;
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        error: { message: "The developer account API key is invalid." },
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request("developer-unrelated-error", "complete_once", {
+    model_config: {
+      provider_type: "openai_compatible",
+      provider_config_id: "developer-unrelated-error",
+      pi_provider_id: "aether-developer-unrelated-error",
+      pi_api: "openai-completions",
+      model_id: "unrelated-error-model",
+      base_url: `http://127.0.0.1:${address.port}/v1`,
+      api_key: "secret-key",
+      reasoning: true,
+      max_retries: 0,
+    },
+    system_prompt: "Reply briefly.",
+    messages: [userMessage("hello")],
+    reasoning: "low",
+  });
+
+  assert.match(result.error_message, /developer account api key is invalid/i);
+  assert.equal(result.developer_role_unsupported_detected, false);
+  assert.equal(requestCount, 1);
+});
+
+test("uses system immediately when the provider is already marked", async (t) => {
+  let receivedRole;
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      receivedRole = body.messages?.[0]?.role;
+      writeSuccessfulChatCompletion(response, "MARKED_OK", "marked-model");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request("developer-marked", "complete_once", {
+    model_config: {
+      provider_type: "openai_compatible",
+      provider_config_id: "developer-marked",
+      pi_provider_id: "aether-developer-marked",
+      pi_api: "openai-completions",
+      model_id: "marked-model",
+      base_url: `http://127.0.0.1:${address.port}/v1`,
+      api_key: "secret-key",
+      reasoning: true,
+      supports_developer_role: false,
+      max_retries: 0,
+    },
+    system_prompt: "Reply briefly.",
+    messages: [userMessage("hello")],
+    reasoning: "low",
+  });
+
+  assert.equal(result.assistant_text, "MARKED_OK", JSON.stringify(result));
+  assert.equal(result.developer_role_unsupported_detected, false);
+  assert.equal(receivedRole, "system");
 });
 
 test("passes reasoning_effort none when off is selected for a model with thinkingLevelMap off: none", async (t) => {
