@@ -34,6 +34,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zhousl.aether.platform.PlatformWebView
@@ -391,12 +392,17 @@ private fun SharedMarkdownRichTextBlock(
         end = annotated.length,
     ).isNotEmpty()
     if (!hasLinks) {
-        Text(annotated, style = style, color = color, modifier = modifier)
+        Text(
+            annotated,
+            style = style.copy(textDirection = TextDirection.Content),
+            color = color,
+            modifier = modifier,
+        )
     } else {
         @Suppress("DEPRECATION")
         ClickableText(
             text = annotated,
-            style = style.copy(color = color),
+            style = style.copy(color = color, textDirection = TextDirection.Content),
             modifier = modifier,
             onClick = { offset ->
                 annotated.getStringAnnotations(SharedMarkdownLinkAnnotationTag, offset, offset)
@@ -694,7 +700,7 @@ private fun splitSharedMarkdownTableCellsWithOffsets(line: String): List<Pair<St
     return cells
 }
 
-private fun sharedInlineMarkdown(
+internal fun sharedInlineMarkdown(
     source: SharedMarkdownSourceText,
     fadeSpan: SharedMarkdownFadeSpan?,
 ): AnnotatedString = buildAnnotatedString {

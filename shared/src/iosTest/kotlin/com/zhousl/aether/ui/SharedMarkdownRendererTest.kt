@@ -10,6 +10,17 @@ import kotlin.test.assertTrue
 
 class SharedMarkdownRendererTest {
     @Test
+    fun inlineMarkdownDoesNotInjectBidiControlsIntoSelectableText() {
+        val rendered = sharedInlineMarkdown(
+            source = SharedMarkdownSourceText("سلام `printf('%s', value)` دنیا", 0),
+            fadeSpan = null,
+        )
+
+        assertEquals("سلام printf('%s', value) دنیا", rendered.text)
+        assertFalse(rendered.text.any { it in "\u2066\u2067\u2068\u2069" })
+    }
+
+    @Test
     fun incompleteTableLineRemainsParagraphWhileStreaming() {
         val blocks = parseSharedMarkdownTextBlocks("| Effort | Share |")
 

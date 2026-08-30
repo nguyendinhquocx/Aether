@@ -9,6 +9,16 @@ final class AetherRuntimeTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    @MainActor
+    func testNativeSettingsUsesPersianTranslations() {
+        let model = NativeSettingsModel()
+        model.snapshot = ["settings": ["language": "fa"]]
+
+        XCTAssertEqual(model.text("Settings", "设置"), "تنظیمات")
+        XCTAssertEqual(model.text("Model Providers", "模型提供商"), "ارائه‌دهندگان مدل")
+        XCTAssertEqual(model.text("2 installed", "已安装 2 个", "2 نصب‌شده"), "2 نصب‌شده")
+    }
+
     func testInternetPermissionProbeUsesFiniteHeadRequest() throws {
         let request = makeInternetPermissionRequest()
 

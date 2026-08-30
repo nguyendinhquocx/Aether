@@ -8,6 +8,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownRendererTest {
+    @Test
+    fun inlineMarkdownDoesNotInjectBidiControlsIntoSelectableText() {
+        val rendered = inlineMarkdown(
+            text = "سلام `printf('%s', value)` دنیا",
+            sourceOffset = 0,
+            fadeSpan = null,
+        )
+
+        assertEquals("سلام printf('%s', value) دنیا", rendered.text)
+        assertFalse(rendered.text.any { it in "\u2066\u2067\u2068\u2069" })
+    }
+
     @Test(timeout = 1_000L)
     fun parseMarkdownTreatsIncompleteTableLineAsParagraph() {
         val blocks = parseMarkdownBlocks("| Effort | Share |")

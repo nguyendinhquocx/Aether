@@ -4,6 +4,214 @@ import Foundation
 import SwiftUI
 import UIKit
 
+private let nativeSettingsPersianTranslations: [String: String] = [
+    "API key": "کلید API",
+    "About": "درباره",
+    "Account authorized.": "حساب تأیید شد.",
+    "Add": "افزودن",
+    "Add Provider": "افزودن ارائه‌دهنده",
+    "Add Skill": "افزودن مهارت",
+    "Add a provider to choose models for Aether.": "برای انتخاب مدل‌های Aether یک ارائه‌دهنده اضافه کنید.",
+    "Add provider": "افزودن ارائه‌دهنده",
+    "Advanced settings": "تنظیمات پیشرفته",
+    "Agent Skills": "مهارت‌های عامل",
+    "Allowed tools": "ابزارهای مجاز",
+    "Any": "همه",
+    "App data": "داده‌های برنامه",
+    "Authenticate": "احراز هویت",
+    "Authentication": "احراز هویت",
+    "Author": "نویسنده",
+    "Automatic": "خودکار",
+    "Automatically clean old history": "پاک‌سازی خودکار تاریخچه قدیمی",
+    "Available Models": "مدل‌های موجود",
+    "Average latency": "میانگین تأخیر",
+    "Average speed": "میانگین سرعت",
+    "Average turn": "میانگین هر نوبت",
+    "Back": "بازگشت",
+    "Back up or restore settings, providers, skills, and conversations.": "از تنظیمات، ارائه‌دهندگان، مهارت‌ها و گفتگوها پشتیبان بگیرید یا آن‌ها را بازیابی کنید.",
+    "Base URL": "نشانی پایه",
+    "Browser login": "ورود با مرورگر",
+    "Cancel": "لغو",
+    "Check your connection and try again.": "اتصال خود را بررسی کرده و دوباره تلاش کنید.",
+    "Choose Folder": "انتخاب پوشه",
+    "Choose Zip": "انتخاب فایل Zip",
+    "Choose a login method and finish authorization.": "یک روش ورود انتخاب کرده و مجوزدهی را کامل کنید.",
+    "Choose a provider": "انتخاب ارائه‌دهنده",
+    "Choose backup": "انتخاب نسخه پشتیبان",
+    "Choose models": "انتخاب مدل‌ها",
+    "Choose the language used throughout Aether.": "زبان مورد استفاده در سراسر Aether را انتخاب کنید.",
+    "Command history": "تاریخچه فرمان‌ها",
+    "Compatibility": "سازگاری",
+    "Compatibility warning": "هشدار سازگاری",
+    "Configure credentials provided by the runtime environment.": "اعتبارنامه‌های ارائه‌شده توسط محیط اجرا را پیکربندی کنید.",
+    "Connect your provider": "اتصال ارائه‌دهنده",
+    "Connect your subscription account to continue.": "برای ادامه، حساب اشتراک خود را متصل کنید.",
+    "Connection": "اتصال",
+    "Continue": "ادامه",
+    "Continue authentication": "ادامه احراز هویت",
+    "Copy": "کپی",
+    "Credentials are read from the provider environment.": "اعتبارنامه‌ها از محیط ارائه‌دهنده خوانده می‌شوند.",
+    "Custom headers": "سرآیندهای سفارشی",
+    "Custom instructions": "دستورالعمل‌های سفارشی",
+    "Dark": "تیره",
+    "Data and diagnostics": "داده‌ها و عیب‌یابی",
+    "Day": "روز",
+    "Default Models": "مدل‌های پیش‌فرض",
+    "Delete": "حذف",
+    "Dependencies": "وابستگی‌ها",
+    "Developer": "توسعه‌دهنده",
+    "Developer message fallbacks": "جایگزین‌های پیام توسعه‌دهنده",
+    "Device code login": "ورود با کد دستگاه",
+    "Diagnostics": "عیب‌یابی",
+    "Disconnect": "قطع اتصال",
+    "Discover": "کاوش",
+    "Done": "تمام",
+    "Downloads": "دانلودها",
+    "Edit": "ویرایش",
+    "Edit Provider": "ویرایش ارائه‌دهنده",
+    "Enabled": "فعال",
+    "Enter an API key or use the provider's credential flow.": "یک کلید API وارد کنید یا از فرایند اعتبارنامه ارائه‌دهنده استفاده کنید.",
+    "Environment": "محیط",
+    "Environment Presets": "پیش‌تنظیم‌های محیط",
+    "Environment variables": "متغیرهای محیطی",
+    "Existing local data will be replaced by the selected backup.": "داده‌های محلی موجود با نسخه پشتیبان انتخاب‌شده جایگزین می‌شوند.",
+    "Export": "خروجی گرفتن",
+    "Export app data": "خروجی گرفتن از داده‌های برنامه",
+    "Export app data?": "از داده‌های برنامه خروجی گرفته شود؟",
+    "Export logs": "خروجی گرفتن از گزارش‌ها",
+    "Failed": "ناموفق",
+    "Fetch models": "دریافت مدل‌ها",
+    "Files": "فایل‌ها",
+    "General Settings": "تنظیمات عمومی",
+    "Git & Search Tools": "ابزارهای Git و جستجو",
+    "History": "تاریخچه",
+    "How do you want to authenticate?": "چگونه می‌خواهید احراز هویت کنید؟",
+    "Idle timeout": "مهلت بی‌کاری",
+    "Import Extension": "وارد کردن افزونه",
+    "Import app data": "وارد کردن داده‌های برنامه",
+    "Import app data?": "داده‌های برنامه وارد شوند؟",
+    "Initialize": "راه‌اندازی",
+    "Input": "ورودی",
+    "Install": "نصب",
+    "Install common development tools into the Alpine environment.": "ابزارهای رایج توسعه را در محیط Alpine نصب کنید.",
+    "Install from URL": "نصب از نشانی اینترنتی",
+    "Installed": "نصب‌شده",
+    "Installing...": "در حال نصب...",
+    "Keep tasks running in background": "ادامه اجرای وظایف در پس‌زمینه",
+    "Language": "زبان",
+    "Largest turn": "بزرگ‌ترین نوبت",
+    "License": "مجوز",
+    "Light": "روشن",
+    "Loading extensions...": "در حال بارگیری افزونه‌ها...",
+    "Loading package...": "در حال بارگیری بسته...",
+    "Local": "محلی",
+    "Manual model IDs, one per line": "شناسه‌های مدل به‌صورت دستی، هر کدام در یک خط",
+    "Method": "روش",
+    "Model Providers": "ارائه‌دهندگان مدل",
+    "Models": "مدل‌ها",
+    "Multitasking": "چندوظیفگی",
+    "Name": "نام",
+    "No Pi extensions installed": "هیچ افزونه Pi نصب نشده است",
+    "No extensions found": "افزونه‌ای یافت نشد",
+    "No models were returned. Add a model ID above or try again.": "مدلی دریافت نشد. یک شناسه مدل در بالا اضافه کنید یا دوباره تلاش کنید.",
+    "No providers": "ارائه‌دهنده‌ای وجود ندارد",
+    "No skills installed": "هیچ مهارتی نصب نشده است",
+    "Node Environment": "محیط Node",
+    "Not installed": "نصب نشده",
+    "Notify when tasks finish": "اعلان پس از پایان وظایف",
+    "Open": "باز کردن",
+    "Open authorization page": "باز کردن صفحه مجوزدهی",
+    "Open verification page": "باز کردن صفحه تأیید",
+    "Output": "خروجی",
+    "Overview": "نمای کلی",
+    "Package Information": "اطلاعات بسته",
+    "Package details unavailable": "جزئیات بسته در دسترس نیست",
+    "Path": "مسیر",
+    "Peak day": "روز اوج",
+    "Personalization": "شخصی‌سازی",
+    "Pi Extensions": "افزونه‌های Pi",
+    "Privacy Policy": "سیاست حفظ حریم خصوصی",
+    "Prompt extensions may not work in this environment.": "ممکن است افزونه‌های پرامپت در این محیط کار نکنند.",
+    "Provider": "ارائه‌دهنده",
+    "Provider ID": "شناسه ارائه‌دهنده",
+    "Provider ID is required.": "شناسه ارائه‌دهنده الزامی است.",
+    "Published": "منتشرشده",
+    "Python Environment": "محیط Python",
+    "Ready": "آماده",
+    "Reasoning": "استدلال",
+    "Recent 7 days": "۷ روز اخیر",
+    "Recent speed": "سرعت اخیر",
+    "Reconnect": "اتصال مجدد",
+    "Recorded turns": "نوبت‌های ثبت‌شده",
+    "Refresh": "تازه‌سازی",
+    "Reinstall": "نصب مجدد",
+    "Release": "نسخه انتشار",
+    "Reliability": "پایداری",
+    "Remote": "راه دور",
+    "Remove": "حذف",
+    "Remove Skill": "حذف مهارت",
+    "Replay Alpine setup preview": "نمایش دوباره پیش‌نمایش راه‌اندازی Alpine",
+    "Replay follow-up onboarding": "نمایش دوباره راهنمای پیگیری",
+    "Repository": "مخزن",
+    "Reset": "بازنشانی",
+    "Reset Alpine Data": "بازنشانی داده‌های Alpine",
+    "Reset Alpine data?": "داده‌های Alpine بازنشانی شوند؟",
+    "Retention": "مدت نگهداری",
+    "Retry": "تلاش دوباره",
+    "SSH Tools": "ابزارهای SSH",
+    "Sample": "نمونه",
+    "Save": "ذخیره",
+    "Search providers": "جستجوی ارائه‌دهندگان",
+    "Sessions": "جلسه‌ها",
+    "Settings": "تنظیمات",
+    "Setup previews": "پیش‌نمایش‌های راه‌اندازی",
+    "Setup required": "نیازمند راه‌اندازی",
+    "Sign in with an account or subscription.": "با یک حساب یا اشتراک وارد شوید.",
+    "Sign in with browser": "ورود با مرورگر",
+    "Sign in with device code": "ورود با کد دستگاه",
+    "Size": "اندازه",
+    "Source": "منبع",
+    "Status": "وضعیت",
+    "Step": "مرحله",
+    "Submit": "ارسال",
+    "Subscription": "اشتراک",
+    "System": "سیستم",
+    "Terminal": "پایانه",
+    "The Alpine environment stays inside Aether's private app storage.": "محیط Alpine در فضای ذخیره‌سازی خصوصی Aether باقی می‌ماند.",
+    "The backup may contain conversation content and API credentials. Store it securely.": "نسخه پشتیبان ممکن است شامل محتوای گفتگو و اعتبارنامه‌های API باشد. آن را در مکانی امن نگه دارید.",
+    "The export redacts stored credentials and includes runtime diagnostics.": "خروجی، اعتبارنامه‌های ذخیره‌شده را حذف کرده و اطلاعات عیب‌یابی زمان اجرا را در بر می‌گیرد.",
+    "Theme": "پوسته",
+    "Theme extensions are not supported here.": "افزونه‌های پوسته در اینجا پشتیبانی نمی‌شوند.",
+    "These instructions are included when Aether starts an agent turn.": "این دستورالعمل‌ها هنگام آغاز یک نوبت عامل توسط Aether اضافه می‌شوند.",
+    "These providers rejected the developer message role, so Aether uses system messages for them. Turn a provider off to try developer messages again.": "این ارائه‌دهندگان نقش پیام توسعه‌دهنده را نپذیرفتند، بنابراین Aether برای آن‌ها از پیام‌های سیستم استفاده می‌کند. برای امتحان دوباره پیام‌های توسعه‌دهنده، ارائه‌دهنده را غیرفعال کنید.",
+    "This extension may not be compatible with the current platform.": "ممکن است این افزونه با پلتفرم فعلی سازگار نباشد.",
+    "This extension requires interactive terminal UI features.": "این افزونه به قابلیت‌های تعاملی رابط پایانه نیاز دارد.",
+    "This provider ID is already in use.": "این شناسه ارائه‌دهنده قبلاً استفاده شده است.",
+    "This removes the runtime and all files stored inside it.": "این کار محیط اجرا و همه فایل‌های ذخیره‌شده در آن را حذف می‌کند.",
+    "Token and session activity": "فعالیت توکن‌ها و جلسه‌ها",
+    "Token history": "تاریخچه توکن‌ها",
+    "Token mix": "ترکیب توکن‌ها",
+    "Total tokens": "مجموع توکن‌ها",
+    "Type": "نوع",
+    "Types": "انواع",
+    "Unavailable": "در دسترس نیست",
+    "Update": "به‌روزرسانی",
+    "Updating skills...": "در حال به‌روزرسانی مهارت‌ها...",
+    "Usage Statistics": "آمار استفاده",
+    "Use a provider-issued API key.": "از کلید API صادرشده توسط ارائه‌دهنده استفاده کنید.",
+    "Use as Default Runtime": "استفاده به‌عنوان محیط اجرای پیش‌فرض",
+    "Use credentials already available in the runtime.": "از اعتبارنامه‌های موجود در محیط اجرا استفاده کنید.",
+    "Use lowercase letters, numbers, and underscores only.": "فقط از حروف کوچک، اعداد و زیرخط استفاده کنید.",
+    "Use the system appearance or choose a fixed theme.": "از ظاهر سیستم استفاده کنید یا یک پوسته ثابت برگزینید.",
+    "User agent": "عامل کاربر",
+    "Value": "مقدار",
+    "Version": "نسخه",
+    "Version ": "نسخه ",
+    "View": "نمایش",
+    "Website": "وب‌سایت",
+    "Working...": "در حال انجام...",
+]
+
 @MainActor
 final class NativeSettingsModel: NSObject, ObservableObject, @preconcurrency IosNativeSettingsListener {
     @Published var snapshot: [String: Any] = [:]
@@ -48,7 +256,7 @@ final class NativeSettingsModel: NSObject, ObservableObject, @preconcurrency Ios
     func text(_ english: String, _ chinese: String, _ persian: String? = nil) -> String {
         switch language {
         case "zh-CN": chinese
-        case "fa": persian ?? english
+        case "fa": persian ?? nativeSettingsPersianTranslations[english] ?? english
         default: english
         }
     }
@@ -160,6 +368,7 @@ struct NativeSettingsView: View {
             }
         }
         .preferredColorScheme(preferredColorScheme)
+        .environment(\.layoutDirection, model.language == "fa" ? .rightToLeft : .leftToRight)
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -177,7 +386,7 @@ struct NativeSettingsView: View {
     private var providerSummary: String {
         let enabled = model.providers.filter { model.bool($0, "isEnabled", fallback: true) }
         if enabled.count == 1 { return model.string(enabled[0], "name") }
-        return model.text("\(enabled.count) enabled", "已启用 \(enabled.count) 个")
+        return model.text("\(enabled.count) enabled", "已启用 \(enabled.count) 个", "\(enabled.count) فعال")
     }
 
     private var personalizationSummary: String {
@@ -188,13 +397,14 @@ struct NativeSettingsView: View {
     private var reliabilitySummary: String {
         model.text(
             "Reconnect after \(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) seconds",
-            "闲置 \(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) 秒后重连"
+            "闲置 \(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) 秒后重连",
+            "اتصال مجدد پس از \(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) ثانیه"
         )
     }
 
     private var extensionSummary: String {
         let count = (model.piExtensions["installed"] as? [[String: Any]] ?? []).count
-        return model.text("\(count) installed", "已安装 \(count) 个")
+        return model.text("\(count) installed", "已安装 \(count) 个", "\(count) نصب‌شده")
     }
 
     private var alpineSummary: String {
@@ -341,7 +551,11 @@ private struct NativeReliabilitySettingsView: View {
                 Stepper(value: intBinding("llmInactivityReconnectTimeoutSeconds", 30...3600), in: 30...3600, step: 30) {
                     LabeledContent(
                         model.text("Idle timeout", "闲置超时"),
-                        value: model.text("\(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) sec", "\(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) 秒")
+                        value: model.text(
+                            "\(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) sec",
+                            "\(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) 秒",
+                            "\(model.settingInt("llmInactivityReconnectTimeoutSeconds", fallback: 360)) ثانیه"
+                        )
                     )
                 }
             }
@@ -416,7 +630,11 @@ private struct NativeProviderListView: View {
     private func modelSummary(_ provider: [String: Any]) -> String {
         let available = Set(((provider["cachedModels"] as? [String]) ?? []) + ((provider["manualModelIds"] as? [String]) ?? []))
         let enabled = (provider["enabledModelIds"] as? [String] ?? []).filter(available.contains).count
-        return model.text("\(enabled) of \(available.count) models enabled", "已启用 \(enabled)/\(available.count) 个模型")
+        return model.text(
+            "\(enabled) of \(available.count) models enabled",
+            "已启用 \(enabled)/\(available.count) 个模型",
+            "\(enabled) مدل از \(available.count) مدل فعال است"
+        )
     }
 
     private func deleteButton(_ provider: [String: Any]) -> some View {
@@ -453,7 +671,9 @@ private struct NativeDefaultModelsView: View {
             let automatic = model.snapshot["automaticModels"] as? [String: Any] ?? [:]
             let resolved = automatic[purpose] as? [String: Any] ?? [:]
             let label = model.string(resolved, "label")
-            return label.isEmpty ? model.text("Automatic", "自动") : model.text("Automatic: \(label)", "自动：\(label)")
+            return label.isEmpty
+                ? model.text("Automatic", "自动")
+                : model.text("Automatic: \(label)", "自动：\(label)", "خودکار: \(label)")
         }
         return model.modelOptions.first { model.string($0, "key") == selected }.map { model.string($0, "fullLabel") }
             ?? model.text("Unavailable", "不可用")
@@ -751,7 +971,11 @@ private struct NativeProviderEditor: View {
                     TextEditor(text: $draft.modelIDs).frame(minHeight: 80)
                 }
             } header: { wizardHeader(3) } footer: {
-                Text(model.text("Select the models Aether can use with \(model.string(definition, "displayName")).", "选择 Aether 可通过 \(model.string(definition, "displayName")) 使用的模型。"))
+                Text(model.text(
+                    "Select the models Aether can use with \(model.string(definition, "displayName")).",
+                    "选择 Aether 可通过 \(model.string(definition, "displayName")) 使用的模型。",
+                    "مدل‌هایی را انتخاب کنید که Aether می‌تواند با \(model.string(definition, "displayName")) استفاده کند."
+                ))
             }
             Section(model.text("Available Models", "可用模型")) {
                 Button { fetchModels() } label: {
@@ -816,7 +1040,7 @@ private struct NativeProviderEditor: View {
 
     private func wizardHeader(_ stage: Int) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(model.text("Step \(stage + 1) of 4", "第 \(stage + 1) 步，共 4 步"))
+            Text(model.text("Step \(stage + 1) of 4", "第 \(stage + 1) 步，共 4 步", "مرحله \(stage + 1) از ۴"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .textCase(nil)
@@ -915,7 +1139,7 @@ private struct NativeProviderEditor: View {
             return model.string(relevantAuth, "statusMessage")
         }
         if let account = oauthAccountLabel {
-            return model.text("Connected as \(account)", "已授权账号：\(account)")
+            return model.text("Connected as \(account)", "已授权账号：\(account)", "متصل به‌عنوان \(account)")
         }
         return draft.oauthCredentialJson.isEmpty
             ? model.text("Connect your subscription account to continue.", "连接订阅账户后继续。")
@@ -1366,13 +1590,13 @@ private struct NativeExtensionsOverview: View {
         else if !model.string(model.piExtensions, "message").isEmpty { Section { Text(model.string(model.piExtensions, "message")).foregroundStyle(.secondary) } }
     }
     private func resources(_ item: [String: Any]) -> String {
-        [model.text("\(model.int(item, "extensionCount")) extensions", "\(model.int(item, "extensionCount")) 个 Extension"),
-         model.text("\(model.int(item, "skillCount")) skills", "\(model.int(item, "skillCount")) 个 Skill"),
-         model.text("\(model.int(item, "promptCount")) prompts", "\(model.int(item, "promptCount")) 个 Prompt")].joined(separator: " · ")
+        [model.text("\(model.int(item, "extensionCount")) extensions", "\(model.int(item, "extensionCount")) 个 Extension", "\(model.int(item, "extensionCount")) افزونه"),
+         model.text("\(model.int(item, "skillCount")) skills", "\(model.int(item, "skillCount")) 个 Skill", "\(model.int(item, "skillCount")) مهارت"),
+         model.text("\(model.int(item, "promptCount")) prompts", "\(model.int(item, "promptCount")) 个 Prompt", "\(model.int(item, "promptCount")) پرامپت")].joined(separator: " · ")
     }
     private func downloads(_ item: [String: Any]) -> String {
         let value = (item["monthlyDownloads"] as? NSNumber)?.int64Value ?? 0
-        return model.text("\(value) monthly", "每月 \(value) 次")
+        return model.text("\(value) monthly", "每月 \(value) 次", "ماهانه \(value)")
     }
 }
 
@@ -2114,7 +2338,14 @@ private struct NativeDeveloperSettingsView: View {
                     get: { model.settingInt("oldCommandHistoryRetentionHours", fallback: 6) },
                     set: { model.patch(["oldCommandHistoryRetentionHours": $0]) }
                 ), in: 1...168) {
-                    LabeledContent(model.text("Retention", "保留时间"), value: model.text("\(model.settingInt("oldCommandHistoryRetentionHours", fallback: 6)) hours", "\(model.settingInt("oldCommandHistoryRetentionHours", fallback: 6)) 小时"))
+                    LabeledContent(
+                        model.text("Retention", "保留时间"),
+                        value: model.text(
+                            "\(model.settingInt("oldCommandHistoryRetentionHours", fallback: 6)) hours",
+                            "\(model.settingInt("oldCommandHistoryRetentionHours", fallback: 6)) 小时",
+                            "\(model.settingInt("oldCommandHistoryRetentionHours", fallback: 6)) ساعت"
+                        )
+                    )
                 }
             }
         }
@@ -2152,7 +2383,7 @@ private struct NativeAboutSettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.top, 24)
                 Text("Aether").font(.largeTitle.bold())
-                Text(model.text("Release \(version)", "正式版 \(version)"))
+                Text(model.text("Release \(version)", "正式版 \(version)", "نسخه \(version)"))
                     .font(.subheadline).foregroundStyle(.secondary)
                 VStack(spacing: 0) {
                     aboutRow(model.text("Author", "作者"), "Zhou-Shilin")

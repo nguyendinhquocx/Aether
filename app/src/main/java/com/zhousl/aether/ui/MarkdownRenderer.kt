@@ -63,6 +63,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1180,7 +1181,7 @@ private fun MarkdownText(
     if (!hasLinks) {
         Text(
             text = text,
-            style = style,
+            style = style.copy(textDirection = TextDirection.Content),
             color = color,
             modifier = modifier,
         )
@@ -1189,7 +1190,7 @@ private fun MarkdownText(
 
     ClickableText(
         text = text,
-        style = style.copy(color = color),
+        style = style.copy(color = color, textDirection = TextDirection.Content),
         modifier = modifier,
     ) { offset ->
         text.getStringAnnotations(
@@ -1944,7 +1945,7 @@ private fun parseInlineMarkdownLink(
     )
 }
 
-private fun inlineMarkdown(
+internal fun inlineMarkdown(
     text: String,
     sourceOffset: Int,
     fadeSpan: MarkdownFadeSpan?,
