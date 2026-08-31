@@ -191,7 +191,6 @@ fun OnboardingScreen(
     alpineSetupState: LocalRuntimeSetupState,
     rootSetupState: RootSetupState,
     agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
-    tavilyApiKey: String,
     setupPreviewMode: Boolean = false,
     onFetchModels: (LlmProviderConfig, (List<String>) -> Unit) -> Unit,
     onStartProviderLogin: (String, String, ProviderAuthMethod, String) -> Unit,
@@ -200,7 +199,6 @@ fun OnboardingScreen(
     onSkip: () -> Unit,
     onClose: () -> Unit,
     onCompleteProviderSetup: (LlmProviderConfig) -> Unit,
-    onSaveTavilyApiKey: (String) -> Unit,
     onRequestTermuxPermission: () -> Unit,
     onOpenAppPermissions: () -> Unit,
     onOpenTermuxSettings: () -> Unit,
@@ -218,9 +216,6 @@ fun OnboardingScreen(
 
     var currentStep by rememberSaveable(initialStep, replayMode) {
         mutableStateOf(initialStep)
-    }
-    var tavilyApiKeyValue by rememberSaveable(initialStep, replayMode, tavilyApiKey) {
-        mutableStateOf(tavilyApiKey)
     }
     val formState = rememberProviderFormState(existingProviderConfig)
     var selectedRuntimePath by rememberSaveable(initialStep, replayMode) {
@@ -366,7 +361,6 @@ fun OnboardingScreen(
                 },
             )
 
-            OnboardingStep.TavilySetup -> LaunchedEffect(Unit) { onCompleteFollowUp() }
         }
     }
 }
@@ -1559,50 +1553,6 @@ private fun AgentModeAuthorizationStep(
                     onClick = { onContinue(false, initialMethod) },
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun TavilyStep(
-    stepIndex: Int,
-    stepCount: Int,
-    value: String,
-    onValueChange: (String) -> Unit,
-    onBack: () -> Unit,
-    onClose: () -> Unit,
-    onContinue: () -> Unit,
-) {
-
-    ConversationStepPage(
-        stepIndex = stepIndex,
-        stepCount = stepCount,
-        message = stringResource(R.string.onboarding_tavily_message),
-        onBack = onBack,
-        topRightLabel = stringResource(R.string.common_close),
-        onTopRight = onClose,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            BrandStepLead(
-                drawableRes = R.drawable.tavily_mark,
-                title = "Tavily",
-                body = stringResource(R.string.onboarding_tavily_optional_body),
-            )
-            MinimalInputField(
-                label = stringResource(R.string.onboarding_api_key),
-                value = value,
-                placeholder = stringResource(R.string.onboarding_paste_it_here),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                isSecret = true,
-                onValueChange = onValueChange,
-            )
-            PrimaryActionButton(
-                label = stringResource(R.string.common_done),
-                onClick = onContinue,
-            )
         }
     }
 }

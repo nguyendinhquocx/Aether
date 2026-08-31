@@ -147,8 +147,6 @@ data class AppSettings(
     val developerRoleUnsupported: Boolean = false,
     val reasoningEffort: String = DefaultReasoningEffort,
     val systemPrompt: String = platformDefaultSystemPrompt(),
-    val tavilyApiKey: String = "",
-    val tavilyBaseUrl: String = DefaultTavilyBaseUrl,
     val llmInactivityReconnectTimeoutSeconds: Int = DefaultLlmInactivityReconnectTimeoutSeconds,
     val keepTasksRunningInBackground: Boolean = true,
     val notifyOnTaskCompletion: Boolean = true,
@@ -217,7 +215,6 @@ const val OnboardingStarterPrompt = "Hi"
 const val AetherWebsiteUrl = "https://aether.baimoqilin.com"
 const val AetherGitHubUrl = "https://github.com/Zhou-Shilin/Aether"
 const val AetherPrivacyPolicyUrl = "https://github.com/Zhou-Shilin/Aether/wiki/Privacy-Policy"
-const val DefaultTavilyBaseUrl = "https://api.tavily.com/"
 
 private val AppSettingsJson = Json {
     ignoreUnknownKeys = true
@@ -261,9 +258,6 @@ fun normalizeLlmInactivityReconnectTimeoutSeconds(
         MaxLlmInactivityReconnectTimeoutSeconds,
     )
 }
-
-fun normalizeTavilyBaseUrl(value: String): String =
-    value.trim().ifBlank { DefaultTavilyBaseUrl }
 
 fun AppSettings.shouldLaunchOnboarding(
     onboardingVersion: Int = CurrentOnboardingVersion,

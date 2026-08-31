@@ -32,6 +32,7 @@ import kotlinx.serialization.json.put
 
 private const val PiBridgeStderrMaximumCharacters = 32 * 1024
 private const val PiBridgeStderrMaximumChunkCharacters = 2 * 1024
+private const val PiBridgeMalformedOutputMaximumCharacters = 2 * 1024
 
 class PiBridgeRequestException(
     message: String,
@@ -602,10 +603,30 @@ class SharedPiBridgeClient(
     }
 
     private suspend fun readFrames(activeProcess: RuntimeProcess) {
-        val codec = BridgeFrameCodec()
+        val malformedLines = mutableListOf<Pair<String, String>>()
+        val codec = BridgeFrameCodec { line, error ->
+            malformedLines += line to error.message.orEmpty()
+        }
         try {
             activeProcess.stdout.collect { chunk ->
-                codec.append(chunk).forEach { dispatchFrame(it) }
+                val frames = codec.append(chunk)
+                malformedLines.forEach { (line, error) ->
+                    SharedDiagnosticLogger.event(
+                        category = "pi_bridge",
+                        event = "malformed_protocol_output",
+                        level = "error",
+                        details = mapOf(
+                            "pid" to activeProcess.pid.toString(),
+                            "error" to error,
+                            "output" to line.take(PiBridgeMalformedOutputMaximumCharacters),
+                            "outputCharacters" to line.length.toString(),
+                            "truncated" to
+                                (line.length > PiBridgeMalformedOutputMaximumCharacters).toString(),
+                        ),
+                    )
+                }
+                malformedLines.clear()
+                frames.forEach { dispatchFrame(it) }
             }
             val exit = activeProcess.awaitExit()
             SharedDiagnosticLogger.event(

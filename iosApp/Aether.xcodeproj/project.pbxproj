@@ -26,6 +26,7 @@
 		7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */ = {isa = PBXBuildFile; fileRef = 95EE05EFD4A21740A10B6F14 /* root.tar.gz */; };
 		7D2F37B739B9ED878ED6F0DA /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1106FBE367ED336302C5A936 /* SystemConfiguration.framework */; };
 		8C67241097C756D2BC0EBD70 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 307932EC76CB1B3E8230BE0B /* LICENSE */; };
+		9188705105B8907E2640F49A /* extension-bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 4B0759D6CB01C983172A15D2 /* extension-bridge.mjs */; };
 		9E6EDED8E588657281641D0D /* Runestone in Frameworks */ = {isa = PBXBuildFile; productRef = 085D4960A657279579F9F912 /* Runestone */; };
 		A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */; };
 		A9AB37A3710FCA053173B163 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */; };
@@ -36,7 +37,6 @@
 		BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509AFB124196AC221A86909F /* ANSIParser.swift */; };
 		BB61528BEE299540B5A3DEA8 /* AetherRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */; };
 		BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 7FC3C7F439C89DFF299C3D94 /* bridge.mjs */; };
-		C63CF660B5D547D88E4A1B62 /* extension-bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 7F4939CA4BA84D0295DDAF17 /* extension-bridge.mjs */; };
 		C95A4D5886956E5801C13DA5 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D05C334CA852B14A36093D07 /* libbz2.tbd */; };
 		CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D8ECFC71EF1A7DF279E9E95 /* AetherISHRuntime.m */; };
 		D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D7AE7614B5115E8BA325D41F /* libresolv.tbd */; };
@@ -112,6 +112,7 @@
 		3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTypes.swift; sourceTree = "<group>"; };
 		4153C3FD7DCA6061233E4C81 /* NativeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsView.swift; sourceTree = "<group>"; };
 		464A524053D09517D505CABA /* AetherFileProvider.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AetherFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B0759D6CB01C983172A15D2 /* extension-bridge.mjs */ = {isa = PBXFileReference; path = "extension-bridge.mjs"; sourceTree = "<group>"; };
 		509AFB124196AC221A86909F /* ANSIParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSIParser.swift; sourceTree = "<group>"; };
 		6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
 		6D191CEE5D2F1B07416BE0FC /* AetherISHRuntime.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AetherISHRuntime.h; sourceTree = "<group>"; };
@@ -119,7 +120,6 @@
 		6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = LICENSE.md; path = "../third_party/ish-arm64/LICENSE.md"; sourceTree = "<group>"; };
 		7C4A84D8FFFDC6934C5070EA /* AetherUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherUITests.swift; sourceTree = "<group>"; };
 		7FC3C7F439C89DFF299C3D94 /* bridge.mjs */ = {isa = PBXFileReference; path = bridge.mjs; sourceTree = "<group>"; };
-		7F4939CA4BA84D0295DDAF17 /* extension-bridge.mjs */ = {isa = PBXFileReference; path = "extension-bridge.mjs"; sourceTree = "<group>"; };
 		87E4E38C502B9B9B1C85857F /* extensions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = extensions; path = Resources/Runtime/extensions; sourceTree = SOURCE_ROOT; };
 		95EE05EFD4A21740A10B6F14 /* root.tar.gz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = root.tar.gz; sourceTree = "<group>"; };
 		96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -221,7 +221,7 @@
 			isa = PBXGroup;
 			children = (
 				7FC3C7F439C89DFF299C3D94 /* bridge.mjs */,
-				7F4939CA4BA84D0295DDAF17 /* extension-bridge.mjs */,
+				4B0759D6CB01C983172A15D2 /* extension-bridge.mjs */,
 				87E4E38C502B9B9B1C85857F /* extensions */,
 				95EE05EFD4A21740A10B6F14 /* root.tar.gz */,
 			);
@@ -513,7 +513,7 @@
 				30C81A227B16D6CABAF7BAF3 /* PrivacyInfo.xcprivacy in Resources */,
 				B4115544917270FECC7DD257 /* THIRD_PARTY_NOTICES.md in Resources */,
 				BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */,
-				C63CF660B5D547D88E4A1B62 /* extension-bridge.mjs in Resources */,
+				9188705105B8907E2640F49A /* extension-bridge.mjs in Resources */,
 				30AD3919E04F3E59C61327F4 /* extensions in Resources */,
 				B0C7744DFFD5B0D7FF572295 /* fetch-polyfill.js in Resources */,
 				7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */,

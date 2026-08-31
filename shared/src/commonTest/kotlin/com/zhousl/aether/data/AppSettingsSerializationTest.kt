@@ -14,8 +14,6 @@ class AppSettingsSerializationTest {
             customHeaders = listOf(LlmCustomHeader("X-Test", "value")),
             reasoningEffort = "high",
             systemPrompt = "shared prompt",
-            tavilyApiKey = "tavily-secret",
-            tavilyBaseUrl = "https://search.example/",
             keepTasksRunningInBackground = false,
             notifyOnTaskCompletion = false,
             agentWorkspaceMode = AgentWorkspaceMode.PerSession,

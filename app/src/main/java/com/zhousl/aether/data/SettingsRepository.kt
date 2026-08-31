@@ -63,6 +63,20 @@ class SettingsRepository(
         }
     }
 
+    suspend fun repairBuiltInSkillSelectionDefaults() {
+        context.dataStore.edit { preferences ->
+            if (preferences[BUILT_IN_SKILL_SELECTION_REPAIRED] == true) return@edit
+            if (preferences[BUILT_IN_SKILL_DEFAULTS_INITIALIZED] == true) {
+                val selectedSkillIds = preferences[DEFAULT_SELECTED_SKILL_IDS]
+                    ?.let(::parseStringArray)
+                    .orEmpty()
+                    .filterNot(BuiltInAgentSkillIds::contains)
+                preferences[DEFAULT_SELECTED_SKILL_IDS] = serializeStringArray(selectedSkillIds)
+            }
+            preferences[BUILT_IN_SKILL_SELECTION_REPAIRED] = true
+        }
+    }
+
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
         val defaults = AppSettings()
         val storedWorkspaceMode = AgentWorkspaceMode.fromStorage(preferences[AGENT_WORKSPACE_MODE])
@@ -82,12 +96,10 @@ class SettingsRepository(
             baseUrl = storedBaseUrl,
             modelId = preferences[MODEL_ID] ?: defaults.modelId,
             userAgent = normalizeLlmUserAgent(preferences[USER_AGENT]),
+            customHeaders = parseCustomHeaders(preferences[CUSTOM_HEADERS].orEmpty()),
+            developerRoleUnsupported = preferences[DEVELOPER_ROLE_UNSUPPORTED] ?: false,
             reasoningEffort = normalizeReasoningEffort(preferences[REASONING_EFFORT]),
             systemPrompt = preferences[SYSTEM_PROMPT] ?: defaults.systemPrompt,
-            tavilyApiKey = preferences[TAVILY_API_KEY].orEmpty(),
-            tavilyBaseUrl = normalizeTavilyBaseUrl(
-                preferences[TAVILY_BASE_URL] ?: defaults.tavilyBaseUrl,
-            ),
             llmInactivityReconnectTimeoutSeconds = normalizeLlmInactivityReconnectTimeoutSeconds(
                 preferences[LLM_INACTIVITY_RECONNECT_TIMEOUT_SECONDS]
             ),
@@ -141,9 +153,19 @@ class SettingsRepository(
             defaultTitleModelKey = preferences[DEFAULT_TITLE_MODEL_KEY].orEmpty(),
             defaultNamingModelKey = preferences[DEFAULT_NAMING_MODEL_KEY].orEmpty(),
             defaultCompactingModelKey = preferences[DEFAULT_COMPACTING_MODEL_KEY].orEmpty(),
-            defaultSelectedSkillIds = parseStringArray(
-                preferences[DEFAULT_SELECTED_SKILL_IDS].orEmpty()
-            ),
+            defaultSelectedSkillIds = preferences[DEFAULT_SELECTED_SKILL_IDS]
+                ?.let(::parseStringArray)
+                ?.let { selectedSkillIds ->
+                    if (
+                        preferences[BUILT_IN_SKILL_DEFAULTS_INITIALIZED] == true &&
+                        preferences[BUILT_IN_SKILL_SELECTION_REPAIRED] != true
+                    ) {
+                        selectedSkillIds.filterNot(BuiltInAgentSkillIds::contains)
+                    } else {
+                        selectedSkillIds
+                    }
+                }
+                ?: defaults.defaultSelectedSkillIds,
             onboardingSeenVersion = preferences[ONBOARDING_SEEN_VERSION] ?: 0,
             onboardingCompletedVersion = preferences[ONBOARDING_COMPLETED_VERSION] ?: 0,
             privacyPolicyAccepted = preferences[PRIVACY_POLICY_ACCEPTED] ?: false,
@@ -391,10 +413,10 @@ class SettingsRepository(
             it[BASE_URL] = settings.baseUrl
             it[MODEL_ID] = settings.modelId
             it[USER_AGENT] = normalizeLlmUserAgent(settings.userAgent)
+            it[CUSTOM_HEADERS] = serializeCustomHeaders(settings.customHeaders)
+            it[DEVELOPER_ROLE_UNSUPPORTED] = settings.developerRoleUnsupported
             it[REASONING_EFFORT] = normalizeReasoningEffort(settings.reasoningEffort)
             it[SYSTEM_PROMPT] = settings.systemPrompt
-            it[TAVILY_API_KEY] = settings.tavilyApiKey
-            it[TAVILY_BASE_URL] = normalizeTavilyBaseUrl(settings.tavilyBaseUrl)
             it[LLM_INACTIVITY_RECONNECT_TIMEOUT_SECONDS] =
                 normalizeLlmInactivityReconnectTimeoutSeconds(
                     settings.llmInactivityReconnectTimeoutSeconds
@@ -427,6 +449,7 @@ class SettingsRepository(
             it[DEFAULT_NAMING_MODEL_KEY] = settings.defaultNamingModelKey
             it[DEFAULT_COMPACTING_MODEL_KEY] = settings.defaultCompactingModelKey
             it[DEFAULT_SELECTED_SKILL_IDS] = serializeStringArray(settings.defaultSelectedSkillIds)
+            it[BUILT_IN_SKILL_SELECTION_REPAIRED] = true
             it.remove(PROVIDER)
             it.remove(BASIC_FUNCTION_CALLING_COMPATIBILITY_MODE)
             it.remove(UNSUPPORTED_PARALLEL_TOOL_CALL_PROVIDER_KEYS)
@@ -463,6 +486,69 @@ class SettingsRepository(
         context.dataStore.edit { it[THEME_MODE] = themeMode.storageValue }
     }
 
+    suspend fun updateUserSettings(settings: AppSettings) {
+        context.dataStore.edit {
+            it[SYSTEM_PROMPT] = settings.systemPrompt
+            it[LLM_INACTIVITY_RECONNECT_TIMEOUT_SECONDS] =
+                normalizeLlmInactivityReconnectTimeoutSeconds(
+                    settings.llmInactivityReconnectTimeoutSeconds,
+                )
+            it[KEEP_TASKS_RUNNING_IN_BACKGROUND] = settings.keepTasksRunningInBackground
+            it[NOTIFY_ON_TASK_COMPLETION] = settings.notifyOnTaskCompletion
+            it[AGENT_WORKSPACE_MODE] = settings.agentWorkspaceMode.storageValue
+            it[WORKSPACE_MODE_INITIALIZED] = true
+            it[AUTO_CLEAN_OLD_COMMAND_HISTORY] = settings.autoCleanOldCommandHistory
+            it[OLD_COMMAND_HISTORY_RETENTION_HOURS] =
+                normalizeOldCommandHistoryRetentionHours(settings.oldCommandHistoryRetentionHours)
+            it[TERMUX_ENVIRONMENT_VARIABLES] =
+                serializeTermuxEnvironmentVariables(settings.termuxEnvironmentVariables)
+            it[LANGUAGE] = settings.language.storageValue
+            it[THEME_MODE] = settings.themeMode.storageValue
+        }
+    }
+
+    suspend fun updateAgentModeAuthorization(
+        enabled: Boolean,
+        method: AgentModeAuthorizationMethod,
+    ) {
+        context.dataStore.edit {
+            it[AGENT_MODE_AUTHORIZATION_ENABLED] = enabled
+            it[AGENT_MODE_AUTHORIZATION_METHOD] = method.storageValue
+        }
+    }
+
+    suspend fun updateDefaultModelKeys(
+        chat: String,
+        title: String,
+        naming: String,
+        compacting: String,
+    ) {
+        context.dataStore.edit {
+            it[DEFAULT_CHAT_MODEL_KEY] = chat
+            it[DEFAULT_TITLE_MODEL_KEY] = title
+            it[DEFAULT_NAMING_MODEL_KEY] = naming
+            it[DEFAULT_COMPACTING_MODEL_KEY] = compacting
+        }
+    }
+
+    suspend fun markRootSetupComplete() {
+        context.dataStore.edit { preferences ->
+            val enabledRuntimes = resolveEnabledRuntimeIds(
+                rawValue = preferences[ENABLED_RUNTIME_IDS],
+                termuxSetupCompleted = true,
+                alpineSetupCompleted = preferences[ALPINE_SETUP_COMPLETED] ?: false,
+            ) + LocalRuntimeId.Termux
+            preferences[TERMUX_SETUP_COMPLETED] = true
+            preferences[ENABLED_RUNTIME_IDS] = serializeRuntimeIds(enabledRuntimes)
+            if (preferences[DEFAULT_RUNTIME_ID] == null) {
+                preferences[DEFAULT_RUNTIME_ID] = LocalRuntimeId.Termux.storageValue
+            }
+            preferences[AGENT_MODE_AUTHORIZATION_ENABLED] = true
+            preferences[AGENT_MODE_AUTHORIZATION_METHOD] =
+                AgentModeAuthorizationMethod.Root.storageValue
+        }
+    }
+
     suspend fun updateSettings(settings: AppSettings) {
         context.dataStore.edit {
             it[PI_PROVIDER_ID] = settings.piProviderId
@@ -476,25 +562,11 @@ class SettingsRepository(
             it[BASE_URL] = settings.baseUrl
             it[MODEL_ID] = settings.modelId
             it[USER_AGENT] = normalizeLlmUserAgent(settings.userAgent)
+            it[CUSTOM_HEADERS] = serializeCustomHeaders(settings.customHeaders)
+            it[DEVELOPER_ROLE_UNSUPPORTED] = settings.developerRoleUnsupported
             it[REASONING_EFFORT] = normalizeReasoningEffort(settings.reasoningEffort)
-            it[SYSTEM_PROMPT] = settings.systemPrompt
-            it[TAVILY_API_KEY] = settings.tavilyApiKey
-            it[TAVILY_BASE_URL] = normalizeTavilyBaseUrl(settings.tavilyBaseUrl)
-            it[LLM_INACTIVITY_RECONNECT_TIMEOUT_SECONDS] =
-                normalizeLlmInactivityReconnectTimeoutSeconds(
-                    settings.llmInactivityReconnectTimeoutSeconds
-                )
-            it[KEEP_TASKS_RUNNING_IN_BACKGROUND] = settings.keepTasksRunningInBackground
-            it[NOTIFY_ON_TASK_COMPLETION] = settings.notifyOnTaskCompletion
-            it[AGENT_WORKSPACE_MODE] = settings.agentWorkspaceMode.storageValue
-            it[WORKSPACE_MODE_INITIALIZED] = true
-            it[AUTO_CLEAN_OLD_COMMAND_HISTORY] = settings.autoCleanOldCommandHistory
-            it[OLD_COMMAND_HISTORY_RETENTION_HOURS] =
-                normalizeOldCommandHistoryRetentionHours(settings.oldCommandHistoryRetentionHours)
             it[TERMUX_SETUP_COMPLETED] = settings.termuxSetupCompleted
             it[TERMUX_SETUP_NOTICE_DISMISSED] = settings.termuxSetupNoticeDismissed
-            it[TERMUX_ENVIRONMENT_VARIABLES] =
-                serializeTermuxEnvironmentVariables(settings.termuxEnvironmentVariables)
             it[ENABLED_RUNTIME_IDS] = serializeRuntimeIds(settings.enabledRuntimeIds)
             settings.defaultRuntimeId?.let { runtimeId ->
                 it[DEFAULT_RUNTIME_ID] = runtimeId.storageValue
@@ -503,15 +575,6 @@ class SettingsRepository(
             it[ALPINE_PACKAGE_PROFILES] = serializePackageProfileStates(settings.alpinePackageProfiles)
             it[ALPINE_ENVIRONMENT_VARIABLES] =
                 serializeAlpineEnvironmentVariables(settings.alpineEnvironmentVariables)
-            it[AGENT_MODE_AUTHORIZATION_ENABLED] = settings.agentModeAuthorizationEnabled
-            it[AGENT_MODE_AUTHORIZATION_METHOD] = settings.agentModeAuthorizationMethod.storageValue
-            it[LANGUAGE] = settings.language.storageValue
-            it[THEME_MODE] = settings.themeMode.storageValue
-            it[DEFAULT_CHAT_MODEL_KEY] = settings.defaultChatModelKey
-            it[DEFAULT_TITLE_MODEL_KEY] = settings.defaultTitleModelKey
-            it[DEFAULT_NAMING_MODEL_KEY] = settings.defaultNamingModelKey
-            it[DEFAULT_COMPACTING_MODEL_KEY] = settings.defaultCompactingModelKey
-            it[DEFAULT_SELECTED_SKILL_IDS] = serializeStringArray(settings.defaultSelectedSkillIds)
             it.remove(PROVIDER)
             it.remove(BASIC_FUNCTION_CALLING_COMPATIBILITY_MODE)
             it.remove(UNSUPPORTED_PARALLEL_TOOL_CALL_PROVIDER_KEYS)
@@ -548,6 +611,7 @@ class SettingsRepository(
     suspend fun updateDefaultSelectedSkillIds(skillIds: List<String>) {
         context.dataStore.edit { preferences ->
             preferences[DEFAULT_SELECTED_SKILL_IDS] = serializeStringArray(skillIds)
+            preferences[BUILT_IN_SKILL_SELECTION_REPAIRED] = true
         }
     }
 
@@ -567,10 +631,10 @@ class SettingsRepository(
         val BASE_URL = stringPreferencesKey("base_url")
         val MODEL_ID = stringPreferencesKey("model_id")
         val USER_AGENT = stringPreferencesKey("user_agent")
+        val CUSTOM_HEADERS = stringPreferencesKey("custom_headers")
+        val DEVELOPER_ROLE_UNSUPPORTED = booleanPreferencesKey("developer_role_unsupported")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
-        val TAVILY_API_KEY = stringPreferencesKey("tavily_api_key")
-        val TAVILY_BASE_URL = stringPreferencesKey("tavily_base_url")
         val LLM_INACTIVITY_RECONNECT_TIMEOUT_SECONDS =
             intPreferencesKey("llm_inactivity_reconnect_timeout_seconds")
         val KEEP_TASKS_RUNNING_IN_BACKGROUND =
@@ -613,6 +677,10 @@ class SettingsRepository(
         val MODEL_CATALOG_CACHE_JSON = stringPreferencesKey("model_catalog_cache_json")
         val THINKING_CATALOG_CACHE_JSON = stringPreferencesKey("thinking_catalog_cache_json")
         val DEFAULT_SELECTED_SKILL_IDS = stringPreferencesKey("default_selected_skill_ids")
+        val BUILT_IN_SKILL_DEFAULTS_INITIALIZED =
+            booleanPreferencesKey("built_in_skill_defaults_initialized_v1")
+        val BUILT_IN_SKILL_SELECTION_REPAIRED =
+            booleanPreferencesKey("built_in_skill_selection_repaired_v2")
         val UNSUPPORTED_PARALLEL_TOOL_CALL_PROVIDER_KEYS =
             stringPreferencesKey("unsupported_parallel_tool_call_provider_keys")
         val BASIC_FUNCTION_CALLING_COMPATIBILITY_MODE =
@@ -866,6 +934,36 @@ private fun serializeAlpineEnvironmentVariables(
                     put("value", variable.value)
                 }
             )
+        }
+    }.toString()
+
+private fun parseCustomHeaders(rawValue: String): List<LlmCustomHeader> {
+    if (rawValue.isBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(rawValue)
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val name = item.optString("name").trim()
+                if (name.isNotBlank()) {
+                    add(LlmCustomHeader(name = name, value = item.optString("value")))
+                }
+            }
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun serializeCustomHeaders(headers: List<LlmCustomHeader>): String =
+    JSONArray().apply {
+        headers.forEach { header ->
+            if (header.name.isNotBlank()) {
+                put(
+                    JSONObject().apply {
+                        put("name", header.name.trim())
+                        put("value", header.value)
+                    }
+                )
+            }
         }
     }.toString()
 

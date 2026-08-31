@@ -73,7 +73,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        NSLocalNetworkUsageDescription: Aether accesses local network services only when you connect a self-hosted AI provider or MCP server.
+        NSLocalNetworkUsageDescription: Aether accesses local network services only when you connect a self-hosted AI provider.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

@@ -171,6 +171,7 @@ class SessionExecutionManager(
     private val rootSetupController: RootSetupController,
     private val agentModeController: AgentModeController,
     private val skillManager: AgentSkillManager,
+    private val piExtensionManager: PiExtensionManager,
     private val scheduledTaskManager: ScheduledTaskManager,
     private val notificationController: AetherNotificationController,
     private val appForegroundTracker: AppForegroundTracker,
@@ -531,6 +532,7 @@ class SessionExecutionManager(
             rootSetupController = rootSetupController,
             agentModeController = agentModeController,
             scheduledTaskManager = scheduledTaskManager,
+            piExtensionManager = piExtensionManager,
             piKernelBridge = piKernelBridge,
             sessionId = handle.sessionId,
             diagnosticLogger = diagnosticLogger,
@@ -579,10 +581,12 @@ class SessionExecutionManager(
                 ?: runtimeRouter.runtimeFor(request.settings, null)?.id
                 ?: request.settings.defaultRuntimeId
                 ?: LocalRuntimeId.Alpine
-            val runtimeWorkspaceDirectory = runtimeRouter.runtimeWorkspaceDirectory(
-                settings = request.settings,
-                termuxWorkspaceDirectory = workspaceDirectory,
-            )
+            val alpineWorkspaceDirectory = runtimeRouter.alpineWorkspaceDirectory()
+            val activeWorkspaceDirectory = if (activeRuntimeId == LocalRuntimeId.Termux) {
+                workspaceDirectory
+            } else {
+                alpineWorkspaceDirectory
+            }
             val reasoningTraceToolRoutingEnabled = request.settings.supportsVisibleReasoningTrace()
             var providerRequestCheckpoint: ProviderRequestCheckpoint? = null
             val emitToolEvent: suspend (AgentToolEvent) -> Unit = { event ->
@@ -602,7 +606,7 @@ class SessionExecutionManager(
                 turnId = turnId,
                 details = mapOf(
                     "runtime_id" to activeRuntimeId.storageValue,
-                    "workspace_directory" to runtimeWorkspaceDirectory,
+                    "workspace_directory" to activeWorkspaceDirectory,
                     "session_file" to agentSessionMetadata?.jsonlPath.orEmpty(),
                     "message_count" to request.requestMessages.size,
                 ),
@@ -618,7 +622,7 @@ class SessionExecutionManager(
                     messages = request.requestMessages,
                     settings = request.settings,
                 ),
-                workspaceDirectory = runtimeWorkspaceDirectory,
+                workspaceDirectory = alpineWorkspaceDirectory,
                 termuxWorkspaceDirectory = workspaceDirectory,
                 skillPaths = mirroredSkillPaths,
                 activeSkills = resolvedActiveSkills,

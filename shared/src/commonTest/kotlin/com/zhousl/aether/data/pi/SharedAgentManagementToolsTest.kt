@@ -51,6 +51,25 @@ class SharedAgentManagementToolsTest {
     }
 
     @Test
+    fun extensionToolAdvertisesPackageInstallation() {
+        val fixture = AgentManagementFixture()
+        val definition = fixture.tools.definitions
+            .mapNotNull { it as? JsonObject }
+            .single { it["name"]?.jsonPrimitive?.contentOrNull == "aether_extension_manage" }
+        val properties = definition["parameters"]?.jsonObject
+            ?.get("properties")?.jsonObject
+            ?: error("Missing extension tool properties")
+
+        assertTrue(
+            properties["action"]?.jsonObject
+                ?.get("description")?.jsonPrimitive?.contentOrNull
+                .orEmpty()
+                .contains("install_package"),
+        )
+        assertTrue("source" in properties)
+    }
+
+    @Test
     fun compositeRoutesSessionAwareDynamicTools() = runTest {
         val dynamic = object : SharedSessionAwareHostToolExecutor {
             override val definitions = JsonArray(emptyList())

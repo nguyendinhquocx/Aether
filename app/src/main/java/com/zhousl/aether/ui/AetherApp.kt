@@ -864,7 +864,6 @@ private fun AetherAppContent(
                         },
                         rootSetupState = uiState.rootSetupState,
                         agentModeAuthorizationMethod = uiState.settings.agentModeAuthorizationMethod,
-                        tavilyApiKey = uiState.settings.tavilyApiKey,
                         onFetchModels = viewModel::fetchModels,
                         onStartProviderLogin = viewModel::startProviderLogin,
                         onSubmitProviderAuthPrompt = viewModel::submitProviderAuthPrompt,
@@ -872,7 +871,6 @@ private fun AetherAppContent(
                         onSkip = viewModel::skipOnboarding,
                         onClose = viewModel::closeOnboarding,
                         onCompleteProviderSetup = viewModel::completeOnboardingProviderSetup,
-                        onSaveTavilyApiKey = viewModel::saveOnboardingTavilyApiKey,
                         onRequestTermuxPermission = { requestTermuxPermission("onboarding_termux_permission") },
                         onOpenAppPermissions = {
                             startTermuxSetupAction("onboarding_app_permissions") { openAppPermissionSettings(context) }
@@ -950,9 +948,9 @@ private fun AetherAppContent(
                     thinkingLevelsByProviderModel = uiState.thinkingLevelsByProviderModel,
                     thinkingLevelClampsByProviderModel = uiState.thinkingLevelClampsByProviderModel,
                     availableSkills = uiState.installedSkills.filter { it.isEnabled },
-                    availableMcpServers = uiState.mcpServers.filter { it.isEnabled },
+                    availableMcpServers = emptyList(),
                     selectedSkillIds = selectedSkillIds,
-                    selectedMcpServerIds = selectedMcpServerIds,
+                    selectedMcpServerIds = emptyList(),
                     agentModeAvailable = agentModeReady,
                     agentModeSelected = agentModeSelected,
                     agentModeDisplayState = uiState.agentModeDisplayState,
@@ -975,7 +973,7 @@ private fun AetherAppContent(
                     onReasoningEffortSelected = viewModel::setReasoningEffort,
                     onRemoveDraftAttachment = viewModel::removeDraftAttachment,
                     onSetSkillSelected = viewModel::setComposerSkillSelected,
-                    onSetMcpServerSelected = viewModel::setComposerMcpServerSelected,
+                    onSetMcpServerSelected = { _, _ -> },
                     onSetAgentModeSelected = viewModel::setComposerAgentModeSelected,
                     onSetChromeSelected = viewModel::setComposerChromeSelected,
                     onCancelEdit = viewModel::cancelMessageEdit,
@@ -1056,8 +1054,6 @@ private fun AetherAppContent(
                     ) {
                         SettingsScreen(
                     systemPrompt = uiState.settings.systemPrompt,
-                    tavilyApiKey = uiState.settings.tavilyApiKey,
-                    tavilyBaseUrl = uiState.settings.tavilyBaseUrl,
                     llmInactivityReconnectTimeoutSeconds = uiState.settings.llmInactivityReconnectTimeoutSeconds,
                     keepTasksRunningInBackground = uiState.settings.keepTasksRunningInBackground,
                     notifyOnTaskCompletion = uiState.settings.notifyOnTaskCompletion,
@@ -1102,11 +1098,12 @@ private fun AetherAppContent(
                     selectedPiPackageSource = uiState.selectedPiPackageSource,
                     isLoadingPiPackageDetails = uiState.isLoadingPiPackageDetails,
                     piPackageDetailsError = uiState.piPackageDetailsError,
-                    mcpServers = uiState.mcpServers,
                     isFetchingModels = uiState.isFetchingModels,
                     providerAuthState = uiState.providerAuthState,
                     appUpdate = uiState.appUpdate,
                     onSave = viewModel::saveSettings,
+                    onSaveDefaultModelKeys = viewModel::saveDefaultModelKeys,
+                    onSaveAgentModeAuthorization = viewModel::saveAgentModeAuthorization,
                     onUpdateLanguage = { language ->
                         viewModel.updateAppLanguage(language)
                         AetherLocaleManager.apply(language)
@@ -1151,11 +1148,6 @@ private fun AetherAppContent(
                         appRuntime.nativeModManager::allowNativeModsOnNextStart,
                     onDisableNativeModsOnNextStart =
                         appRuntime.nativeModManager::requestDisableOnNextStart,
-                    onSaveHttpMcpServer = viewModel::saveStreamableHttpMcpServer,
-                    onSaveStdIoMcpServer = viewModel::saveStdIoMcpServer,
-                    onToggleMcpServerEnabled = viewModel::setMcpServerEnabled,
-                    onRemoveMcpServer = viewModel::removeMcpServer,
-                    onTestMcpServer = viewModel::testMcpServer,
                     onSaveScheduledTask = viewModel::saveScheduledTask,
                     onToggleScheduledTaskEnabled = viewModel::setScheduledTaskEnabled,
                     onRemoveScheduledTask = viewModel::removeScheduledTask,

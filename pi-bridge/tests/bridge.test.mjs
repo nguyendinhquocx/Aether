@@ -188,6 +188,51 @@ test("lists Pi extension packages from an isolated agent directory", async () =>
   }
 });
 
+test("keeps npm install output off both bridge protocol streams", async () => {
+  for (const bridgePath of ["dist/bridge.mjs", "dist/extension-bridge.mjs"]) {
+    const home = await mkdtemp(join(tmpdir(), "aether-package-output-"));
+    const packageDirectory = join(home, "extension-package");
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(
+      join(packageDirectory, "package.json"),
+      JSON.stringify({
+        name: "aether-protocol-output-test",
+        version: "1.0.0",
+        description: "Local package used to verify protocol output isolation",
+      }),
+      "utf8",
+    );
+    const client = new BridgeClient(
+      {
+        HOME: home,
+        USERPROFILE: home,
+        PI_OFFLINE: "1",
+        npm_config_audit: "false",
+        npm_config_fund: "false",
+        npm_config_update_notifier: "false",
+      },
+      bridgePath,
+    );
+    try {
+      const source = `npm:aether-protocol-output-test@file:${packageDirectory}`;
+      const result = await client.request(
+        `package-install-${bridgePath}`,
+        "install_extension_package",
+        { source },
+        30_000,
+      );
+
+      assert.equal(result.installed, true);
+      assert.equal(result.source, source);
+      assert.equal(result.packages.length, 1);
+      assert.equal(result.packages[0].name, "aether-protocol-output-test");
+    } finally {
+      await client.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+});
+
 test("removes extension packages without reloading their code", async () => {
   const home = await mkdtemp(join(tmpdir(), "aether-remove-package-"));
   const agentDirectory = join(home, ".pi", "agent");

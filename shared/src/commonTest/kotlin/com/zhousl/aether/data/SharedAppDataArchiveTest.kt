@@ -138,7 +138,6 @@ class SharedAppDataArchiveTest {
         val decoded = decodeSharedAppDataArchive(encodeSharedAppDataArchive(archive))
 
         assertEquals("secret", parseProviderConfigs(decoded.providerConfigs.toString()).single().apiKey)
-        assertEquals("", decoded.settings.tavilyApiKey)
         assertEquals("Answer", decoded.sessions.single().messages.last().text)
         assertEquals(30L, decoded.sessions.single().messages.last().completedAtMillis)
         assertEquals(false, decoded.skillBundles.single().isEnabled)

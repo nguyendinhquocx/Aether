@@ -86,9 +86,8 @@ function normalizeDetails(details: Record<string, unknown>): string {
 }
 
 /**
- * Returns true when verbose bridge debug logging is enabled. The Android host
- * sets AETHER_PI_BRIDGE_DEBUG=1 on the bridge process when diagnostics are on.
- * Also honor PI_BRIDGE_DEBUG for local command-line troubleshooting.
+ * Returns true when verbose bridge debug logging is enabled. Hosts can set
+ * AETHER_PI_BRIDGE_DEBUG, and local troubleshooting can use PI_BRIDGE_DEBUG.
  */
 export function bridgeDebugEnabled(): boolean {
   const raw = process.env.AETHER_PI_BRIDGE_DEBUG ?? process.env.PI_BRIDGE_DEBUG ?? "";
@@ -103,6 +102,18 @@ export function bridgeDebugEnabled(): boolean {
  */
 export function bridgeDebug(event: string, details: Record<string, unknown> = {}): void {
   if (!bridgeDebugEnabled()) return;
+  writeBridgeDebug(event, details);
+}
+
+/**
+ * Writes a small, non-sensitive diagnostic that must be available in exported
+ * logs even when verbose bridge debugging is disabled.
+ */
+export function bridgeDiagnostic(event: string, details: Record<string, unknown> = {}): void {
+  writeBridgeDebug(event, details);
+}
+
+function writeBridgeDebug(event: string, details: Record<string, unknown>): void {
   try {
     stderr.write(`[pi-bridge] ${event} ${normalizeDetails(details)}\n`);
   } catch {

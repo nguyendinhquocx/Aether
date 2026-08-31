@@ -64,7 +64,6 @@ import com.zhousl.aether.shared.resources.onboarding_timeline_credentials
 import com.zhousl.aether.shared.resources.onboarding_timeline_models
 import com.zhousl.aether.shared.resources.onboarding_timeline_provider
 import com.zhousl.aether.shared.resources.onboarding_timeline_provider_choice
-import com.zhousl.aether.shared.resources.onboarding_timeline_search
 import com.zhousl.aether.shared.resources.onboarding_timeline_setup
 import com.zhousl.aether.shared.resources.onboarding_timeline_welcome
 import com.zhousl.aether.shared.resources.onboarding_timeline_connection
@@ -94,7 +93,6 @@ enum class OnboardingTimelineStep {
     Welcome,
     Setup,
     Provider,
-    Search,
 }
 
 data class OnboardingTimelineSpec(
@@ -445,7 +443,6 @@ private fun OnboardingTimelineSidebar(spec: OnboardingTimelineSpec) {
         OnboardingTimelineStep.Welcome to stringResource(Res.string.onboarding_timeline_welcome),
         OnboardingTimelineStep.Setup to stringResource(Res.string.onboarding_timeline_setup),
         OnboardingTimelineStep.Provider to stringResource(Res.string.onboarding_timeline_provider),
-        OnboardingTimelineStep.Search to stringResource(Res.string.onboarding_timeline_search),
     )
     val providerSubsteps = listOf(
         stringResource(Res.string.onboarding_timeline_connection),

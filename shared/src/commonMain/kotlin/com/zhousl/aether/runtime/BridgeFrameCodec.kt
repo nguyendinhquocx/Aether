@@ -9,6 +9,7 @@ class BridgeFrameCodec(
         ignoreUnknownKeys = true
         explicitNulls = false
     },
+    private val onMalformedLine: (line: String, error: Throwable) -> Unit = { _, _ -> },
 ) {
     private var pending = ByteArray(0)
 
@@ -21,7 +22,11 @@ class BridgeFrameCodec(
             if (pending[index] != '\n'.code.toByte()) return@forEach
             val line = pending.copyOfRange(start, index).decodeToString().trim()
             if (line.isNotEmpty()) {
-                frames += json.parseToJsonElement(line).jsonObject
+                try {
+                    frames += json.parseToJsonElement(line).jsonObject
+                } catch (error: Exception) {
+                    onMalformedLine(line, error)
+                }
             }
             start = index + 1
         }

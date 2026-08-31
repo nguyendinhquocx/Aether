@@ -6,10 +6,7 @@ import com.zhousl.aether.data.chatdb.SharedChatHistoryStore
 import com.zhousl.aether.data.chatdb.resolveSharedCurrentSessionId
 import com.zhousl.aether.data.chatdb.decodeAndroidChatSessions
 import com.zhousl.aether.data.chatdb.encodeAndroidChatSessions
-import com.zhousl.aether.data.pi.SharedMcpManager
 import com.zhousl.aether.data.pi.SharedMcpServerConfig
-import com.zhousl.aether.data.pi.parseSharedMcpServers
-import com.zhousl.aether.data.pi.serializeSharedMcpServers
 import com.zhousl.aether.runtime.MultiplatformLocalRuntime
 import com.zhousl.aether.runtime.SharedPiBridgeClient
 import kotlinx.serialization.Serializable
@@ -70,7 +67,6 @@ class SharedAppDataManager(
     private val runtime: MultiplatformLocalRuntime,
     private val bridgeClient: SharedPiBridgeClient,
     private val extensionStateStore: SharedExtensionStateStore,
-    private val mcpManager: SharedMcpManager,
 ) {
     private val extensionArchiveManager = SharedExtensionArchiveManager(
         runtime = runtime,
@@ -116,9 +112,7 @@ class SharedAppDataManager(
             sessions = sessions,
             currentSessionId = historyStore.loadCurrentSessionId(),
             skillBundles = skillManager.exportBundles(),
-            mcpServers = Json.parseToJsonElement(
-                serializeSharedMcpServers(mcpManager.loadServers()),
-            ).jsonArray,
+            mcpServers = JsonArray(emptyList()),
             piSessions = piSessions,
             extensionArchive = extensionArchiveManager.export(),
         )
@@ -128,9 +122,6 @@ class SharedAppDataManager(
         val decoded = validateSharedAppDataArchive(archive)
         val installedSkills = skillManager.replaceBundles(archive.skillBundles)
         archive.extensionArchive?.let { extensionArchiveManager.restore(it) }
-        val mcpServers = parseSharedMcpServers(archive.mcpServers.toString())
-        mcpManager.saveServers(mcpServers)
-        val mcpServerIds = mcpServers.map(SharedMcpServerConfig::id).toSet()
         val enabledSkillIds = installedSkills
             .filter(SharedInstalledSkill::isEnabled)
             .map(SharedInstalledSkill::id)
@@ -150,7 +141,7 @@ class SharedAppDataManager(
             session.copy(
                 selectedSkillIds = session.selectedSkillIds.filter(enabledSkillIds::contains),
                 activeSkills = emptyList(),
-                activeMcpServerIds = session.activeMcpServerIds.filter(mcpServerIds::contains),
+                activeMcpServerIds = emptyList(),
             )
         }
         val currentSessionId = resolveSharedCurrentSessionId(
@@ -175,7 +166,7 @@ class SharedAppDataManager(
             sessions = sessions,
             currentSessionId = currentSessionId,
             installedSkills = installedSkills,
-            mcpServers = mcpServers,
+            mcpServers = emptyList(),
         )
     }
 }

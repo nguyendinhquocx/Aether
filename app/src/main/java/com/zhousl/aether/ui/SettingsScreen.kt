@@ -150,7 +150,6 @@ import com.zhousl.aether.data.AppThemeMode
 import com.zhousl.aether.data.LlmProviderConfig
 import com.zhousl.aether.data.PiProviderCatalog
 import com.zhousl.aether.data.LocalRuntimeId
-import com.zhousl.aether.data.McpServerTestOperation
 import com.zhousl.aether.data.InstalledPiExtension
 import com.zhousl.aether.data.PiExtensionCatalogEntry
 import com.zhousl.aether.data.PiExtensionInstallKind
@@ -174,7 +173,6 @@ import com.zhousl.aether.data.pi.PiProviderAuthState
 import com.zhousl.aether.data.findModelOption
 import com.zhousl.aether.data.normalizeLlmInactivityReconnectTimeoutSeconds
 import com.zhousl.aether.data.normalizeOldCommandHistoryRetentionHours
-import com.zhousl.aether.data.normalizeTavilyBaseUrl
 import com.zhousl.aether.data.quickActionLabel
 import com.zhousl.aether.data.resolveAutomaticModelKey
 import com.zhousl.aether.data.sortedForAutomaticModelPurpose
@@ -215,7 +213,6 @@ private enum class SettingsPage {
     AddProvider,
     EditProvider,
     Personalization,
-    WebTools,
     Reliability,
     ExtensionSettings,
     ExtensionSettingsCategory,
@@ -223,9 +220,6 @@ private enum class SettingsPage {
     AddSkill,
     Extensions,
     PackageDetail,
-    McpServers,
-    AddMcpServer,
-    EditMcpServer,
     ScheduledTasks,
     AddScheduledTask,
     EditScheduledTask,
@@ -249,12 +243,10 @@ private fun SettingsPage.depth(): Int = when (this) {
     SettingsPage.General,
     SettingsPage.Providers,
     SettingsPage.Personalization,
-    SettingsPage.WebTools,
     SettingsPage.Reliability,
     SettingsPage.ExtensionSettings,
     SettingsPage.Skills,
     SettingsPage.Extensions,
-    SettingsPage.McpServers,
     SettingsPage.ScheduledTasks,
     SettingsPage.Termux,
     SettingsPage.Alpine,
@@ -268,8 +260,6 @@ private fun SettingsPage.depth(): Int = when (this) {
     SettingsPage.EditProvider,
     SettingsPage.AddSkill,
     SettingsPage.PackageDetail,
-    SettingsPage.AddMcpServer,
-    SettingsPage.EditMcpServer,
     SettingsPage.AddScheduledTask,
     SettingsPage.EditScheduledTask,
     SettingsPage.AlpineTerminal,
@@ -416,8 +406,6 @@ private fun settingsTopOverlayTailGradient(): Brush = Brush.verticalGradient(
 @Composable
 fun SettingsScreen(
     systemPrompt: String,
-    tavilyApiKey: String,
-    tavilyBaseUrl: String,
     llmInactivityReconnectTimeoutSeconds: Int,
     keepTasksRunningInBackground: Boolean,
     notifyOnTaskCompletion: Boolean,
@@ -460,13 +448,10 @@ fun SettingsScreen(
     selectedPiPackageSource: String,
     isLoadingPiPackageDetails: Boolean,
     piPackageDetailsError: String,
-    mcpServers: List<com.zhousl.aether.data.McpServerConfig>,
     isFetchingModels: Boolean,
     providerAuthState: PiProviderAuthState,
     appUpdate: AppUpdateUiState,
     onSave: (
-        String,
-        String,
         String,
         Int,
         Boolean,
@@ -475,15 +460,9 @@ fun SettingsScreen(
         Boolean,
         Int,
         List<TermuxEnvironmentVariable>,
-        Boolean,
-        AgentModeAuthorizationMethod,
-        AppLanguage,
-        AppThemeMode,
-        String,
-        String,
-        String,
-        String,
     ) -> Unit,
+    onSaveDefaultModelKeys: (String, String, String, String) -> Unit,
+    onSaveAgentModeAuthorization: (Boolean, AgentModeAuthorizationMethod) -> Unit,
     onUpdateLanguage: (AppLanguage) -> Unit,
     onUpdateThemeMode: (AppThemeMode) -> Unit,
     onUpsertProviderConfig: (LlmProviderConfig) -> Unit,
@@ -507,11 +486,6 @@ fun SettingsScreen(
     onImportPiExtension: () -> Unit,
     onAllowNativeModsOnNextStart: () -> Unit,
     onDisableNativeModsOnNextStart: () -> Unit,
-    onSaveHttpMcpServer: (String?, String, String, String) -> Unit,
-    onSaveStdIoMcpServer: (String?, String, String, String, String, String, LocalRuntimeId?) -> Unit,
-    onToggleMcpServerEnabled: (String, Boolean) -> Unit,
-    onRemoveMcpServer: (String) -> Unit,
-    onTestMcpServer: (String, McpServerTestOperation, (String) -> Unit) -> Unit,
     onSaveScheduledTask: (String?, String, String, ScheduledTaskSchedule, Boolean) -> Unit,
     onToggleScheduledTaskEnabled: (String, Boolean) -> Unit,
     onRemoveScheduledTask: (String) -> Unit,
@@ -558,12 +532,6 @@ fun SettingsScreen(
     // Mutable field values - survive recomposition & config changes
     var systemPromptValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(systemPrompt))
-    }
-    var tavilyApiKeyValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(tavilyApiKey))
-    }
-    var tavilyBaseUrlValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(tavilyBaseUrl))
     }
     var llmInactivityReconnectTimeoutValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(llmInactivityReconnectTimeoutSeconds.toString()))
@@ -618,26 +586,12 @@ fun SettingsScreen(
 
     // Track which provider is being edited
     var editingProviderId by rememberSaveable { mutableStateOf<String?>(null) }
-    var editingMcpServerId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingScheduledTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastObservedRootSetupIssue by rememberSaveable { mutableStateOf(rootSetupState.issue) }
-
-    LaunchedEffect(rootSetupState.issue) {
-        if (
-            rootSetupState.issue == RootSetupIssue.Ready &&
-            lastObservedRootSetupIssue != RootSetupIssue.Ready
-        ) {
-            agentModeAuthorizationEnabledValue = true
-            agentModeAuthorizationMethodValue = AgentModeAuthorizationMethod.Root
-        }
-        lastObservedRootSetupIssue = rootSetupState.issue
-    }
 
     fun persistSettings() {
         onSave(
             systemPromptValue.text,
-            tavilyApiKeyValue.text,
-            normalizeTavilyBaseUrl(tavilyBaseUrlValue.text),
             normalizeLlmInactivityReconnectTimeoutSeconds(
                 llmInactivityReconnectTimeoutValue.text.trim().toIntOrNull()
             ),
@@ -649,15 +603,19 @@ fun SettingsScreen(
                 oldCommandHistoryRetentionHoursValue.text.trim().toIntOrNull()
             ),
             termuxEnvironmentVariablesValue,
-            agentModeAuthorizationEnabledValue,
-            agentModeAuthorizationMethodValue,
-            languageValue,
-            themeModeValue,
-            defaultChatModelKeyValue,
-            defaultTitleModelKeyValue,
-            defaultNamingModelKeyValue,
-            defaultCompactingModelKeyValue,
         )
+    }
+
+    LaunchedEffect(rootSetupState.issue) {
+        if (
+            rootSetupState.issue == RootSetupIssue.Ready &&
+            lastObservedRootSetupIssue != RootSetupIssue.Ready
+        ) {
+            agentModeAuthorizationEnabledValue = true
+            agentModeAuthorizationMethodValue = AgentModeAuthorizationMethod.Root
+            onSaveAgentModeAuthorization(true, AgentModeAuthorizationMethod.Root)
+        }
+        lastObservedRootSetupIssue = rootSetupState.issue
     }
 
     fun persistAndExit() {
@@ -728,7 +686,6 @@ fun SettingsScreen(
         SettingsPage.PackageDetail -> SettingsPage.Extensions
         SettingsPage.ExtensionSettings -> SettingsPage.Hub
         SettingsPage.ExtensionSettingsCategory -> SettingsPage.ExtensionSettings
-        SettingsPage.AddMcpServer, SettingsPage.EditMcpServer -> SettingsPage.McpServers
         SettingsPage.AddScheduledTask, SettingsPage.EditScheduledTask -> SettingsPage.ScheduledTasks
         SettingsPage.AlpineTerminal,
         SettingsPage.AlpineFiles,
@@ -778,7 +735,6 @@ fun SettingsScreen(
                     }
                 },
                 systemPromptSnippet = systemPromptValue.text.take(60),
-                tavilyConfigured = tavilyApiKeyValue.text.isNotBlank(),
                 reliabilitySummary = buildString {
                     append(
                         stringResource(
@@ -812,7 +768,6 @@ fun SettingsScreen(
                     selectedExtensionSettingsCategoryId = ""
                     currentPage = SettingsPage.ExtensionSettings.name
                 },
-                mcpServerCount = mcpServers.size,
                 scheduledTaskCount = scheduledTasks.size,
                 statisticsSummary = buildSettingsStatisticsSummary(usageStatisticsSnapshots),
                 onReplayOnboarding = ::persistAndReplayOnboarding,
@@ -835,11 +790,13 @@ fun SettingsScreen(
                 onLanguageSelected = {
                     languageValue = it
                     onUpdateLanguage(it)
+                    persistSettings()
                 },
                 selectedThemeMode = themeModeValue,
                 onThemeModeSelected = {
                     themeModeValue = it
                     onUpdateThemeMode(it)
+                    persistSettings()
                 },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
@@ -883,7 +840,12 @@ fun SettingsScreen(
                 automaticSubtitle = stringResource(R.string.settings_prioritize_sota_models),
                 onSelected = {
                     defaultChatModelKeyValue = it
-                    persistSettings()
+                    onSaveDefaultModelKeys(
+                        defaultChatModelKeyValue,
+                        defaultTitleModelKeyValue,
+                        defaultNamingModelKeyValue,
+                        defaultCompactingModelKeyValue,
+                    )
                 },
                 onBack = { currentPage = SettingsPage.DefaultModels.name },
             )
@@ -902,7 +864,12 @@ fun SettingsScreen(
                 automaticSubtitle = stringResource(R.string.settings_prioritize_sota_models),
                 onSelected = {
                     defaultTitleModelKeyValue = it
-                    persistSettings()
+                    onSaveDefaultModelKeys(
+                        defaultChatModelKeyValue,
+                        defaultTitleModelKeyValue,
+                        defaultNamingModelKeyValue,
+                        defaultCompactingModelKeyValue,
+                    )
                 },
                 onBack = { currentPage = SettingsPage.DefaultModels.name },
             )
@@ -921,7 +888,12 @@ fun SettingsScreen(
                 automaticSubtitle = stringResource(R.string.settings_prioritize_sota_models),
                 onSelected = {
                     defaultNamingModelKeyValue = it
-                    persistSettings()
+                    onSaveDefaultModelKeys(
+                        defaultChatModelKeyValue,
+                        defaultTitleModelKeyValue,
+                        defaultNamingModelKeyValue,
+                        defaultCompactingModelKeyValue,
+                    )
                 },
                 onBack = { currentPage = SettingsPage.DefaultModels.name },
             )
@@ -940,7 +912,12 @@ fun SettingsScreen(
                 automaticSubtitle = stringResource(R.string.settings_prioritize_efficient_summary_models),
                 onSelected = {
                     defaultCompactingModelKeyValue = it
-                    persistSettings()
+                    onSaveDefaultModelKeys(
+                        defaultChatModelKeyValue,
+                        defaultTitleModelKeyValue,
+                        defaultNamingModelKeyValue,
+                        defaultCompactingModelKeyValue,
+                    )
                 },
                 onBack = { currentPage = SettingsPage.DefaultModels.name },
             )
@@ -985,27 +962,30 @@ fun SettingsScreen(
             SettingsPage.Personalization -> PersonalizationPage(
                 title = stringResource(R.string.settings_personalization),
                 systemPromptValue = systemPromptValue,
-                onSystemPromptChanged = { systemPromptValue = it },
-                onBack = { currentPage = SettingsPage.Hub.name },
-            )
-
-            SettingsPage.WebTools -> WebToolsPage(
-                title = stringResource(R.string.settings_web_tools),
-                tavilyApiKeyValue = tavilyApiKeyValue,
-                onTavilyApiKeyChanged = { tavilyApiKeyValue = it },
-                tavilyBaseUrlValue = tavilyBaseUrlValue,
-                onTavilyBaseUrlChanged = { tavilyBaseUrlValue = it },
+                onSystemPromptChanged = {
+                    systemPromptValue = it
+                    persistSettings()
+                },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
 
             SettingsPage.Reliability -> ReliabilityPage(
                 title = stringResource(R.string.settings_reliability),
                 llmInactivityReconnectTimeoutValue = llmInactivityReconnectTimeoutValue,
-                onLlmInactivityReconnectTimeoutChanged = { llmInactivityReconnectTimeoutValue = it },
+                onLlmInactivityReconnectTimeoutChanged = {
+                    llmInactivityReconnectTimeoutValue = it
+                    persistSettings()
+                },
                 keepTasksRunningInBackground = keepTasksRunningInBackgroundValue,
-                onKeepTasksRunningInBackgroundChanged = { keepTasksRunningInBackgroundValue = it },
+                onKeepTasksRunningInBackgroundChanged = {
+                    keepTasksRunningInBackgroundValue = it
+                    persistSettings()
+                },
                 notifyOnTaskCompletion = notifyOnTaskCompletionValue,
-                onNotifyOnTaskCompletionChanged = { notifyOnTaskCompletionValue = it },
+                onNotifyOnTaskCompletionChanged = {
+                    notifyOnTaskCompletionValue = it
+                    persistSettings()
+                },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
             SettingsPage.ExtensionSettings -> {
@@ -1136,48 +1116,6 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsPage.McpServers -> McpServersListPage(
-                title = stringResource(R.string.settings_mcp_servers),
-                mcpServers = mcpServers,
-                onToggleMcpServerEnabled = onToggleMcpServerEnabled,
-                onRemoveMcpServer = onRemoveMcpServer,
-                onTestMcpServer = onTestMcpServer,
-                onEdit = { serverId ->
-                    editingMcpServerId = serverId
-                    currentPage = SettingsPage.EditMcpServer.name
-                },
-                onAddNew = { currentPage = SettingsPage.AddMcpServer.name },
-                onBack = { currentPage = SettingsPage.Hub.name },
-            )
-
-            SettingsPage.AddMcpServer -> AddMcpServerPage(
-                title = stringResource(R.string.settings_mcp_servers),
-                existingServer = null,
-                onSaveHttpMcpServer = { serverId, name, url, headers ->
-                    onSaveHttpMcpServer(serverId, name, url, headers)
-                    currentPage = SettingsPage.McpServers.name
-                },
-                onSaveStdIoMcpServer = { serverId, name, cmd, args, wd, env, runtimeEnvironment ->
-                    onSaveStdIoMcpServer(serverId, name, cmd, args, wd, env, runtimeEnvironment)
-                    currentPage = SettingsPage.McpServers.name
-                },
-                onBack = { currentPage = SettingsPage.McpServers.name },
-            )
-
-            SettingsPage.EditMcpServer -> AddMcpServerPage(
-                title = stringResource(R.string.settings_mcp_servers),
-                existingServer = mcpServers.firstOrNull { it.id == editingMcpServerId },
-                onSaveHttpMcpServer = { serverId, name, url, headers ->
-                    onSaveHttpMcpServer(serverId, name, url, headers)
-                    currentPage = SettingsPage.McpServers.name
-                },
-                onSaveStdIoMcpServer = { serverId, name, cmd, args, wd, env, runtimeEnvironment ->
-                    onSaveStdIoMcpServer(serverId, name, cmd, args, wd, env, runtimeEnvironment)
-                    currentPage = SettingsPage.McpServers.name
-                },
-                onBack = { currentPage = SettingsPage.McpServers.name },
-            )
-
             SettingsPage.ScheduledTasks -> ScheduledTasksPage(
                 tasks = scheduledTasks,
                 onToggleEnabled = onToggleScheduledTaskEnabled,
@@ -1214,8 +1152,14 @@ fun SettingsScreen(
                 rootSetupState = rootSetupState,
                 selectedWorkspaceMode = agentWorkspaceModeValue,
                 environmentVariables = termuxEnvironmentVariablesValue,
-                onWorkspaceModeSelected = { agentWorkspaceModeValue = it },
-                onEnvironmentVariablesChanged = { termuxEnvironmentVariablesValue = it },
+                onWorkspaceModeSelected = {
+                    agentWorkspaceModeValue = it
+                    persistSettings()
+                },
+                onEnvironmentVariablesChanged = {
+                    termuxEnvironmentVariablesValue = it
+                    persistSettings()
+                },
                 onRequestTermuxPermission = onRequestTermuxPermission,
                 onOpenAppPermissions = onOpenAppPermissions,
                 onOpenTermuxSettings = onOpenTermuxSettings,
@@ -1279,8 +1223,14 @@ fun SettingsScreen(
                 agentModeAuthorizationMethod = agentModeAuthorizationMethodValue,
                 agentModeAuthorizationState = agentModeAuthorizationState,
                 rootSetupState = rootSetupState,
-                onAgentModeAuthorizationEnabledChanged = { agentModeAuthorizationEnabledValue = it },
-                onAgentModeAuthorizationMethodChanged = { agentModeAuthorizationMethodValue = it },
+                onAgentModeAuthorizationEnabledChanged = {
+                    agentModeAuthorizationEnabledValue = it
+                    onSaveAgentModeAuthorization(it, agentModeAuthorizationMethodValue)
+                },
+                onAgentModeAuthorizationMethodChanged = {
+                    agentModeAuthorizationMethodValue = it
+                    onSaveAgentModeAuthorization(agentModeAuthorizationEnabledValue, it)
+                },
                 agentModeDisplayState = agentModeDisplayState,
                 onRequestShizukuPermission = onRequestShizukuPermission,
                 onRefreshAgentModeAuthorization = onRefreshAgentModeAuthorization,
@@ -1335,8 +1285,14 @@ fun SettingsScreen(
                 },
                 autoCleanOldCommandHistory = autoCleanOldCommandHistoryValue,
                 oldCommandHistoryRetentionHours = oldCommandHistoryRetentionHoursValue,
-                onAutoCleanOldCommandHistoryChanged = { autoCleanOldCommandHistoryValue = it },
-                onOldCommandHistoryRetentionHoursChanged = { oldCommandHistoryRetentionHoursValue = it },
+                onAutoCleanOldCommandHistoryChanged = {
+                    autoCleanOldCommandHistoryValue = it
+                    persistSettings()
+                },
+                onOldCommandHistoryRetentionHoursChanged = {
+                    oldCommandHistoryRetentionHoursValue = it
+                    persistSettings()
+                },
                 termuxReadyForTesting = developerTermuxReadyOverride ?: termuxSetupState.isReady,
                 onTermuxReadyForTestingChanged = onSetDeveloperTermuxReadyOverride,
                 onBack = { currentPage = SettingsPage.Hub.name },
@@ -1366,7 +1322,6 @@ private fun SettingsHub(
     generalSettingsSummary: String,
     activeProviderName: String,
     systemPromptSnippet: String,
-    tavilyConfigured: Boolean,
     reliabilitySummary: String,
     termuxReady: Boolean,
     alpineReady: Boolean,
@@ -1377,7 +1332,6 @@ private fun SettingsHub(
     piExtensionsLoaded: Boolean,
     extensionSettings: List<com.zhousl.aether.data.AetherAppExtensionSettingsPage>,
     onOpenExtensionSettings: (String) -> Unit,
-    mcpServerCount: Int,
     scheduledTaskCount: Int,
     statisticsSummary: String,
     onReplayOnboarding: () -> Unit,
@@ -3690,48 +3644,6 @@ private fun settingsTrailingIcon(name: String): ImageVector? {
 
 
 @Composable
-private fun WebToolsPage(
-    title: String,
-    tavilyApiKeyValue: TextFieldValue,
-    onTavilyApiKeyChanged: (TextFieldValue) -> Unit,
-    tavilyBaseUrlValue: TextFieldValue,
-    onTavilyBaseUrlChanged: (TextFieldValue) -> Unit,
-    onBack: () -> Unit,
-) {
-    SubPageScaffold(
-        title = title,
-        onBack = onBack,
-        trailingIcon = Icons.Rounded.Check,
-        onTrailingAction = onBack,
-    ) {
-        SettingsCardGroup {
-            ChatGptTextField(
-                label = stringResource(R.string.settings_tavily_api_key),
-                value = tavilyApiKeyValue,
-                onValueChange = onTavilyApiKeyChanged,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                isSecret = true,
-            )
-            CardDivider()
-            ChatGptTextField(
-                label = stringResource(R.string.settings_tavily_base_url),
-                value = tavilyBaseUrlValue,
-                onValueChange = onTavilyBaseUrlChanged,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.settings_web_tools_description),
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-    }
-}
-
-@Composable
 private fun SkillsListPage(
     title: String,
     installedSkills: List<com.zhousl.aether.data.InstalledSkill>,
@@ -5007,205 +4919,6 @@ private fun formatExtensionDownloads(downloads: Long): String = when {
 }
 
 // -----------------------------------------------------------------------------
-// MCP Servers List Page (Refactored)
-// -----------------------------------------------------------------------------
-
-@Composable
-private fun McpServersListPage(
-    title: String,
-    mcpServers: List<com.zhousl.aether.data.McpServerConfig>,
-    onToggleMcpServerEnabled: (String, Boolean) -> Unit,
-    onRemoveMcpServer: (String) -> Unit,
-    onTestMcpServer: (String, McpServerTestOperation, (String) -> Unit) -> Unit,
-    onEdit: (String) -> Unit,
-    onAddNew: () -> Unit,
-    onBack: () -> Unit,
-) {
-    var testResultText by rememberSaveable { mutableStateOf("") }
-    SubPageScaffold(
-        title = title,
-        onBack = onBack,
-        trailingIcon = Icons.Rounded.Add,
-        onTrailingAction = onAddNew,
-    ) {
-        Text(
-            text = stringResource(R.string.settings_mcp_servers_description),
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        if (mcpServers.isEmpty()) {
-            SettingsCardGroup {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        stringResource(R.string.settings_no_mcp_servers),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = AetherOnSurface,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        stringResource(R.string.settings_add_mcp_server_description),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = AetherOnSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    SettingsActionButton(
-                        label = stringResource(R.string.settings_add_server),
-                        onClick = onAddNew,
-                    )
-                }
-            }
-        } else {
-            mcpServers.forEach { server ->
-                McpServerCard(
-                    server = server,
-                    onToggleEnabled = { enabled -> onToggleMcpServerEnabled(server.id, enabled) },
-                    onEdit = { onEdit(server.id) },
-                    onRemove = { onRemoveMcpServer(server.id) },
-                    onTest = { operation ->
-                        onTestMcpServer(server.id, operation) { result ->
-                            testResultText = result
-                        }
-                    },
-                )
-                Spacer(Modifier.height(12.dp))
-            }
-            if (testResultText.isNotBlank()) {
-                SettingsCardGroup {
-                    Text(
-                        text = testResultText,
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AetherOnSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun McpServerCard(
-    server: com.zhousl.aether.data.McpServerConfig,
-    onToggleEnabled: (Boolean) -> Unit,
-    onEdit: () -> Unit,
-    onRemove: () -> Unit,
-    onTest: (McpServerTestOperation) -> Unit,
-) {
-    var expanded by rememberSaveable(server.id) { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(AetherSurfaceHigh)
-            .animateContentSize()
-            .padding(16.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = server.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = AetherOnSurface,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = server.transport.transportType.storageValue.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AetherOnSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                ActionPreviewPill(label = server.quickActionLabel())
-            }
-            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    if (expanded) Icons.Rounded.ArrowDropDown else Icons.AutoMirrored.Rounded.ArrowForwardIos,
-                    contentDescription = if (expanded) stringResource(R.string.action_collapse) else stringResource(R.string.action_expand),
-                    tint = AetherOnSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Rounded.Edit,
-                    contentDescription = stringResource(R.string.action_edit),
-                    tint = AetherOnSurface,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Rounded.Delete,
-                    contentDescription = stringResource(R.string.action_remove),
-                    tint = Color(0xFFD25757),
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        SettingsToggleRow(
-            title = "",
-            subtitle = "",
-            checked = server.isEnabled,
-            onCheckedChange = onToggleEnabled,
-        )
-        if (expanded) {
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_mcp_tools),
-                    onClick = { onTest(McpServerTestOperation.ListTools) },
-                    modifier = Modifier.weight(1f),
-                )
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_mcp_resources),
-                    onClick = { onTest(McpServerTestOperation.ListResources) },
-                    modifier = Modifier.weight(1f),
-                )
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_mcp_prompts),
-                    onClick = { onTest(McpServerTestOperation.ListPrompts) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(Modifier.height(14.dp))
-            DetailLine(stringResource(R.string.settings_server_id), server.id)
-            DetailLine(stringResource(R.string.settings_quick_action), server.quickActionLabel())
-            DetailLine(stringResource(R.string.settings_transport), server.transport.transportType.storageValue.uppercase())
-            when (val transport = server.transport) {
-                is com.zhousl.aether.data.McpTransportConfig.StreamableHttp -> {
-                    DetailLine("URL", transport.url)
-                    DetailLine(stringResource(R.string.settings_headers), transport.headers.size.toString())
-                }
-
-                is com.zhousl.aether.data.McpTransportConfig.StdIo -> {
-                    DetailLine(stringResource(R.string.settings_command), transport.command)
-                    if (transport.workingDirectory.isNotBlank()) {
-                        DetailLine(stringResource(R.string.settings_working_dir), transport.workingDirectory)
-                    }
-                    DetailLine(stringResource(R.string.settings_environment), transport.environment.size.toString())
-                }
-            }
-            DetailLine(stringResource(R.string.settings_connect_timeout), "${server.connectTimeoutMillis} ms")
-            DetailLine(stringResource(R.string.settings_request_timeout), "${server.requestTimeoutMillis} ms")
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------
 // Scheduled Tasks
 // -----------------------------------------------------------------------------
 
@@ -5536,213 +5249,6 @@ private fun ScheduledTaskEditPage(
             color = AetherOnSurfaceVariant,
             modifier = Modifier.padding(horizontal = 4.dp),
         )
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Add MCP Server Page
-// -----------------------------------------------------------------------------
-
-@Composable
-private fun AddMcpServerPage(
-    title: String,
-    existingServer: com.zhousl.aether.data.McpServerConfig?,
-    onSaveHttpMcpServer: (String?, String, String, String) -> Unit,
-    onSaveStdIoMcpServer: (String?, String, String, String, String, String, LocalRuntimeId?) -> Unit,
-    onBack: () -> Unit,
-) {
-    val isEditing = existingServer != null
-    val existingHttpTransport = existingServer?.transport as? com.zhousl.aether.data.McpTransportConfig.StreamableHttp
-    val existingStdIoTransport = existingServer?.transport as? com.zhousl.aether.data.McpTransportConfig.StdIo
-    var selectedTab by rememberSaveable(existingServer?.id) {
-        mutableIntStateOf(if (existingStdIoTransport != null) 1 else 0)
-    }
-
-    var httpServerNameValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(existingServer?.displayName.orEmpty()))
-    }
-    var httpServerUrlValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(existingHttpTransport?.url.orEmpty()))
-    }
-    var httpHeadersValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(
-            TextFieldValue(
-                existingHttpTransport?.headers
-                    ?.joinToString("\n") { header -> "${header.key}=${header.value}" }
-                    .orEmpty()
-            )
-        )
-    }
-
-    var stdioServerNameValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(existingServer?.displayName.orEmpty()))
-    }
-    var stdioCommandValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(existingStdIoTransport?.command.orEmpty()))
-    }
-    var stdioArgumentsValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(existingStdIoTransport?.arguments?.joinToString(" ").orEmpty()))
-    }
-    var stdioWorkingDirectoryValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(existingStdIoTransport?.workingDirectory.orEmpty()))
-    }
-    var stdioEnvValue by rememberSaveable(existingServer?.id, stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(
-            TextFieldValue(
-                existingStdIoTransport?.environment
-                    ?.joinToString("\n") { env -> "${env.key}=${env.value}" }
-                    .orEmpty()
-            )
-        )
-    }
-    var stdioRuntimeEnvironment by rememberSaveable(existingServer?.id) {
-        mutableStateOf(existingStdIoTransport?.runtimeEnvironment)
-    }
-
-    val tabOptions = listOf("HTTP", stringResource(R.string.settings_stdio))
-
-    SubPageScaffold(title = title, onBack = onBack) {
-        Text(
-            text = if (isEditing) {
-                stringResource(R.string.settings_update_mcp_server_description)
-            } else {
-                stringResource(R.string.settings_add_mcp_server_page_description)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        // Segmented button row
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            tabOptions.forEachIndexed { index, label ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = tabOptions.size),
-                    onClick = { selectedTab = index },
-                    selected = selectedTab == index,
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = AetherPrimary,
-                        activeContentColor = Color.White,
-                        inactiveContainerColor = AetherSurfaceHigh,
-                        inactiveContentColor = AetherOnSurface,
-                    ),
-                ) {
-                    Text(label)
-                }
-            }
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        when (selectedTab) {
-            0 -> {
-                // HTTP server
-                SettingsCardGroup {
-                    ChatGptTextField(stringResource(R.string.settings_server_name), httpServerNameValue) { httpServerNameValue = it }
-                    CardDivider()
-                    ChatGptTextField(stringResource(R.string.settings_server_url), httpServerUrlValue) { httpServerUrlValue = it }
-                    CardDivider()
-                    ChatGptTextField(stringResource(R.string.settings_headers), httpHeadersValue, minLines = 2) { httpHeadersValue = it }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    stringResource(R.string.settings_optional_headers_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AetherOnSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-                SettingsActionButton(
-                    label = if (isEditing) stringResource(R.string.settings_save_http_server) else stringResource(R.string.settings_add_http_server),
-                    onClick = {
-                        if (httpServerNameValue.text.isNotBlank() && httpServerUrlValue.text.isNotBlank()) {
-                            onSaveHttpMcpServer(
-                                existingServer?.id,
-                                httpServerNameValue.text,
-                                httpServerUrlValue.text,
-                                httpHeadersValue.text,
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            1 -> {
-                // Stdio server
-                SettingsCardGroup {
-                    ChatGptTextField(stringResource(R.string.settings_server_name), stdioServerNameValue) { stdioServerNameValue = it }
-                    CardDivider()
-                    ChatGptTextField(stringResource(R.string.settings_command), stdioCommandValue, minLines = 2) { stdioCommandValue = it }
-                    CardDivider()
-                    ChatGptTextField(stringResource(R.string.settings_arguments), stdioArgumentsValue, minLines = 2) { stdioArgumentsValue = it }
-                    CardDivider()
-                    ChatGptTextField(stringResource(R.string.settings_working_directory), stdioWorkingDirectoryValue) { stdioWorkingDirectoryValue = it }
-                    CardDivider()
-                    ChatGptTextField(stringResource(R.string.settings_environment), stdioEnvValue, minLines = 2) { stdioEnvValue = it }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    stringResource(R.string.settings_optional_environment_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AetherOnSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-                SettingsCardGroup {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = stringResource(R.string.settings_runtime_environment),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = AetherOnSurface,
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_runtime_environment_default_help),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AetherOnSurfaceVariant,
-                        )
-                        SettingsChoiceRow(
-                            title = stringResource(R.string.settings_default_runtime),
-                            subtitle = stringResource(R.string.settings_default_runtime_help),
-                            selected = stdioRuntimeEnvironment == null,
-                            onClick = { stdioRuntimeEnvironment = null },
-                        )
-                        SettingsChoiceRow(
-                            title = "Termux",
-                            subtitle = stringResource(R.string.settings_runtime_termux_stdio_subtitle),
-                            selected = stdioRuntimeEnvironment == LocalRuntimeId.Termux,
-                            onClick = { stdioRuntimeEnvironment = LocalRuntimeId.Termux },
-                        )
-                        SettingsChoiceRow(
-                            title = "Alpine",
-                            subtitle = stringResource(R.string.settings_runtime_alpine_stdio_subtitle),
-                            selected = stdioRuntimeEnvironment == LocalRuntimeId.Alpine,
-                            onClick = { stdioRuntimeEnvironment = LocalRuntimeId.Alpine },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsActionButton(
-                    label = if (isEditing) stringResource(R.string.settings_save_stdio_server) else stringResource(R.string.settings_add_stdio_server),
-                    onClick = {
-                        if (stdioServerNameValue.text.isNotBlank() && stdioCommandValue.text.isNotBlank()) {
-                            onSaveStdIoMcpServer(
-                                existingServer?.id,
-                                stdioServerNameValue.text,
-                                stdioCommandValue.text,
-                                stdioArgumentsValue.text,
-                                stdioWorkingDirectoryValue.text,
-                                stdioEnvValue.text,
-                                stdioRuntimeEnvironment,
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
     }
 }
 

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { flushCompileCache } from "node:module";
 import { createInterface } from "node:readline";
-import { stdin as input, stdout as output, stderr } from "node:process";
+import { stdin as input, stderr } from "node:process";
 import {
   aetherAppExtensionSnapshot,
   configureAetherExtensionTransport,
@@ -16,6 +16,9 @@ import {
   removeExtensionPackage,
   updateExtensionPackage,
 } from "./extension-packages.js";
+import { reserveProtocolStdout, writeProtocolFrame } from "./protocol-output.js";
+
+reserveProtocolStdout();
 
 const BRIDGE_VERSION = "2.0.0-alpha.0";
 const PI_AI_VERSION = "0.84.1";
@@ -72,7 +75,7 @@ function errorMessage(error: unknown): string {
 }
 
 function writeFrame(frame: JsonObject): void {
-  output.write(`${JSON.stringify(frame)}\n`);
+  writeProtocolFrame(frame);
 }
 
 function writeEvent(id: string, event: string, payload: JsonObject = {}): void {

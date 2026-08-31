@@ -77,6 +77,7 @@ import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Public
@@ -157,6 +158,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.core.graphics.PathParser
 import com.zhousl.aether.R
 import com.zhousl.aether.data.InstalledSkill
+import com.zhousl.aether.data.CreateExtensionSkillId
 import com.zhousl.aether.data.AppLanguage
 import com.zhousl.aether.data.AgentModeDisplayState
 import com.zhousl.aether.data.AlpineChromeViewerUrl
@@ -2871,9 +2873,9 @@ private fun ConversationComposerBar(
                                             val selected = selectedSkillSet.contains(skill.id)
                                             ComposerPlusMenuRow(
                                                 title = skill.quickActionLabel(),
-                                                icon = Icons.Rounded.Extension,
+                                                icon = skill.composerIcon(),
                                                 selected = selected,
-                                                iconTint = Color(0xFF9C6B2F),
+                                                iconTint = skill.composerIconTint(),
                                                 iconContainerColor = AetherSurfaceHigh,
                                                 onClick = {
                                                     runAfterAttachmentMenuDismiss {
@@ -3023,7 +3025,8 @@ private fun ComposerActionTray(
         skills.forEach { skill ->
             ComposerActionChip(
                 label = skill.quickActionLabel(),
-                icon = Icons.Rounded.Extension,
+                icon = skill.composerIcon(),
+                iconTint = skill.composerIconTint(),
                 onRemove = { onRemoveSkill(skill.id) },
             )
         }
@@ -3040,6 +3043,12 @@ private fun ComposerActionTray(
         }
     }
 }
+
+private fun InstalledSkill.composerIcon(): ImageVector =
+    if (id == CreateExtensionSkillId) Icons.Rounded.LibraryAdd else Icons.Rounded.Extension
+
+private fun InstalledSkill.composerIconTint(): Color =
+    if (id == CreateExtensionSkillId) AetherPrimary else Color(0xFF9C6B2F)
 
 @Composable
 private fun AgentModePreviewPanel(
@@ -3775,6 +3784,7 @@ private fun agentModePreviewBackdropBrush(): Brush = Brush.linearGradient(
 private fun ComposerActionChip(
     label: String,
     icon: ImageVector,
+    iconTint: Color = Color(0xFF4F8CFF),
     onRemove: () -> Unit,
 ) {
     Row(
@@ -3789,7 +3799,7 @@ private fun ComposerActionChip(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color(0xFF4F8CFF),
+            tint = iconTint,
             modifier = Modifier.size(16.dp),
         )
         Text(

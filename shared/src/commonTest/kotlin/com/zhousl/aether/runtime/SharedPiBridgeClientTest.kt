@@ -41,6 +41,19 @@ class SharedPiBridgeClientTest {
     }
 
     @Test
+    fun malformedOutputDoesNotFailThePendingAgentRequest() = runTest {
+        val client = SharedPiBridgeClient(
+            transport = FakeBridgeTransport(ProtocolFakeProcess(emitMalformedOutput = true)),
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        val response = client.request(type = "run_turn", timeoutMillis = null)
+
+        assertEquals("ready", response["status"]?.jsonPrimitive?.content)
+        client.close()
+    }
+
+    @Test
     fun allowsEventHandlerToSendNestedBridgeRequest() = runTest {
         val process = NestedRequestFakeProcess()
         val client = SharedPiBridgeClient(
@@ -290,7 +303,9 @@ private class DeferredResponseFakeProcess : RuntimeProcess {
     override suspend fun signal(signal: RuntimeProcessSignal) = Unit
 }
 
-private class ProtocolFakeProcess : RuntimeProcess {
+private class ProtocolFakeProcess(
+    private val emitMalformedOutput: Boolean = false,
+) : RuntimeProcess {
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
     override val pid: Int = 7
     override val stdout: Flow<ByteArray> = output.receiveAsFlow()
@@ -299,6 +314,9 @@ private class ProtocolFakeProcess : RuntimeProcess {
     override suspend fun writeStdin(bytes: ByteArray) {
         val request = Json.parseToJsonElement(bytes.decodeToString().trim()).jsonObject
         val id = request["id"]!!.jsonPrimitive.content
+        if (emitMalformedOutput) {
+            output.send("added 1 package in 7s\n".encodeToByteArray())
+        }
         output.send(frame("event", id, buildJsonObject { put("message", "working") }, "auth_progress"))
         output.send(frame("response", id, buildJsonObject { put("status", "ready") }))
     }

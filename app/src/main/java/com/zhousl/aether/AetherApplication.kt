@@ -227,6 +227,7 @@ class AetherAppRuntime(
         rootSetupController = rootSetupController,
         agentModeController = agentModeController,
         skillManager = skillManager,
+        piExtensionManager = piExtensionManager,
         scheduledTaskManager = scheduledTaskManager,
         notificationController = notificationController,
         appForegroundTracker = appForegroundTracker,
@@ -257,6 +258,16 @@ class AetherAppRuntime(
         }
         appScope.launch {
             settingsRepository.migrateLegacyProvidersToPi()
+        }
+        appScope.launch {
+            settingsRepository.repairBuiltInSkillSelectionDefaults()
+            skillManager.syncBuiltInSkills().onFailure { throwable ->
+                diagnosticLogger.exception(
+                    category = "skills",
+                    event = "builtin_sync_failed",
+                    throwable = throwable,
+                )
+            }
         }
         appScope.launch {
             if (settingsRepository.settings.first().privacyPolicyAccepted) {

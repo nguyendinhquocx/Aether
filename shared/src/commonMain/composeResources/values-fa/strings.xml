@@ -230,39 +230,8 @@
     <string name="settings_root_setup_body_failed">پس از اعطای su به Aether دوباره امتحان کنید یا با اقدامات تنظیم دستی زیر ادامه دهید.</string>
     <string name="settings_model_providers">ارائه دهندگان مدل</string>
     <string name="settings_personalization">شخصی سازی</string>
-    <string name="settings_web_tools">ابزارهای وب</string>
     <string name="settings_reliability">قابلیت اطمینان</string>
     <string name="settings_agent_skills">مهارت های عامل</string>
-    <string name="settings_mcp_servers">سرورهای MCP</string>
-    <string name="settings_mcp_servers_description">سرورهای MCP را مدیریت کنید، هر پیکربندی انتقال را بررسی کنید و فقط اتصالاتی را که می خواهید فعال نگه دارید.</string>
-    <string name="settings_no_mcp_servers">هنوز هیچ سرور MCP وجود ندارد. یک سرور برای استفاده از ابزارهای خارجی اضافه کنید.</string>
-    <string name="settings_add_mcp_server_description">برای گسترش قابلیت ها، سرورهای HTTP یا stdio را اضافه کنید.</string>
-    <string name="settings_add_server">افزودن سرور</string>
-    <string name="settings_mcp_tools">ابزار</string>
-    <string name="settings_mcp_resources">منابع</string>
-    <string name="settings_mcp_prompts">درخواست می کند</string>
-    <string name="settings_server_id">شناسه سرور</string>
-    <string name="settings_quick_action">اقدام سریع</string>
-    <string name="settings_transport">حمل و نقل</string>
-    <string name="settings_headers">سرصفحه ها</string>
-    <string name="settings_command">فرمان</string>
-    <string name="settings_working_dir">کارگردان کار</string>
-    <string name="settings_working_directory">دایرکتوری کاری</string>
-    <string name="settings_environment">محیط زیست</string>
-    <string name="settings_connect_timeout">مهلت زمانی اتصال</string>
-    <string name="settings_request_timeout">درخواست مهلت زمانی</string>
-    <string name="settings_stdio">Stdio</string>
-    <string name="settings_update_mcp_server_description">پیکربندی انتقال و منبع اقدام سریع را برای این سرور MCP به روز کنید.</string>
-    <string name="settings_add_mcp_server_page_description">یک سرور HTTP برای APIهای راه دور یا یک سرور stdio برای فرآیندهای محلی Termux اضافه کنید.</string>
-    <string name="settings_server_name">نام سرور</string>
-    <string name="settings_server_url">آدرس سرور</string>
-    <string name="settings_optional_headers_hint">سرصفحه اختیاری، یک KEY=VALUE در هر خط.</string>
-    <string name="settings_save_http_server">سرور HTTP را ذخیره کنید</string>
-    <string name="settings_add_http_server">سرور HTTP را اضافه کنید</string>
-    <string name="settings_arguments">استدلال ها</string>
-    <string name="settings_optional_environment_hint">متغیرهای محیطی اختیاری، یک KEY=VALUE در هر خط.</string>
-    <string name="settings_save_stdio_server">سرور Stdio را ذخیره کنید</string>
-    <string name="settings_add_stdio_server">سرور Stdio را اضافه کنید</string>
     <string name="settings_termux">ترموکس</string>
     <string name="settings_agent_mode">حالت عامل</string>
     <string name="settings_statistics">آمار</string>
@@ -346,7 +315,7 @@
     <string name="settings_import_app_data">داده های برنامه را وارد کنید</string>
     <string name="settings_export_app_data">صادرات داده های برنامه</string>
     <string name="settings_export_app_data_warning_title">داده های حساس برنامه صادر شود؟</string>
-    <string name="settings_export_app_data_warning_message">این نسخه پشتیبان کامل شامل اعتبار ارائه دهنده، هدرهای سفارشی، متغیرهای محیطی، پیکربندی MCP و سایر تنظیمات خصوصی است. آن را ایمن ذخیره کنید و آن را به اشتراک نگذارید.</string>
+    <string name="settings_export_app_data_warning_message">این نسخه پشتیبان کامل شامل اعتبار ارائه دهنده، هدرهای سفارشی، متغیرهای محیطی و سایر تنظیمات خصوصی است. آن را ایمن ذخیره کنید و آن را به اشتراک نگذارید.</string>
     <string name="settings_logs">سیاههها</string>
     <string name="settings_logs_description">خروجی Aether logcat اخیر و متادیتاهای تشخیصی را صادر کنید.</string>
     <string name="settings_export_logs">صادرات سیاهههای مربوط</string>
@@ -358,7 +327,7 @@
     <string name="settings_treat_termux_as_ready">با Termux به عنوان آماده رفتار کنید</string>
     <string name="settings_termux_ready_toggle_subtitle">روشن = آماده خاموش = آماده نیست</string>
     <string name="settings_replay_follow_up_tour">پخش مجدد تور پیگیری</string>
-    <string name="settings_replay_follow_up_tour_description">از انتخاب مسیر شروع می‌شود، سپس از طریق تنظیمات محلی و Tavily می‌رود.</string>
+    <string name="settings_replay_follow_up_tour_description">از انتخاب مسیر شروع می‌شود، سپس تنظیمات محلی و مجوز Agent Mode را طی می‌کند.</string>
     <string name="settings_replay_second_part">پخش مجدد قسمت دوم</string>
     <string name="settings_update_downloading_percent">در حال دانلود %1$d%%</string>
     <string name="settings_update_downloading">در حال دانلود به روز رسانی</string>
@@ -373,7 +342,6 @@
     <string name="settings_github">گیت هاب</string>
     <string name="settings_privacy_policy">سیاست حفظ حریم خصوصی</string>
     <string name="settings_download_and_install">دانلود و نصب کنید</string>
-    <string name="settings_mcp_server_count_summary">%1$d سرور</string>
     <string name="settings_root_setup_progress_body_running">اتر در حال درخواست su است، دسترسی به فرمان Termux را فعال می کند و حالت عامل ریشه را آماده می کند.</string>
     <string name="settings_root_setup_progress_body_ready">دسترسی به فرمان Termux و مجوز حالت عامل ریشه آماده است.</string>
     <string name="settings_root_setup_progress_body_available">راه اندازی را برای اعطای su و تکمیل پیکربندی دسترسی محلی شروع کنید.</string>
@@ -394,8 +362,6 @@
     <string name="settings_general_summary">%1$s / %2$s</string>
     <string name="settings_enabled_providers_count">%1$d ارائه‌دهنده فعال است</string>
     <string name="settings_custom_instructions">دستورالعمل های سفارشی</string>
-    <string name="settings_tavily_configured">جستجوی Tavily پیکربندی شد</string>
-    <string name="settings_tavily_not_configured">واکشی URL آماده است، Tavily پیکربندی نشده است</string>
     <string name="settings_background_runs_on">پس زمینه اجرا می شود</string>
     <string name="settings_background_runs_off">پس زمینه اجرا می شود</string>
     <string name="settings_connected">متصل شد</string>
@@ -411,7 +377,7 @@
     <string name="settings_default_title_model">مدل عنوان پیش فرض</string>
     <string name="settings_default_title_model_subtitle">زمانی استفاده می شود که Aether به طور خودکار عناوین مکالمه را تولید کند.</string>
     <string name="settings_default_naming_model">مدل نامگذاری پیش فرض</string>
-    <string name="settings_default_naming_model_subtitle">برای نام‌گذاری خودکار جریان‌ها مانند مهارت‌های عامل و برچسب‌های MCP استفاده می‌شود.</string>
+    <string name="settings_default_naming_model_subtitle">برای نام‌گذاری خودکار جریان‌ها مانند مهارت‌های عامل استفاده می‌شود.</string>
     <string name="settings_default_compacting_model">مدل فشرده سازی پیش فرض</string>
     <string name="settings_default_compacting_model_subtitle">هنگامی که / compact مکالمه فعلی را خلاصه می کند استفاده می شود.</string>
     <string name="settings_prioritize_sota_models">مدل های SOTA را اولویت بندی کنید</string>
@@ -427,9 +393,6 @@
     <string name="settings_enable_provider_model_first">ابتدا حداقل یک مدل ارائه دهنده را فعال کنید، سپس برای انتخاب یک پیش فرض به اینجا بازگردید.</string>
     <string name="settings_search_models">جستجوی مدل ها</string>
     <string name="settings_no_models_match_search">هیچ مدلی با این جستجو مطابقت ندارد.</string>
-    <string name="settings_tavily_api_key">کلید API Tavily</string>
-    <string name="settings_tavily_base_url">URL پایگاه Tavily</string>
-    <string name="settings_web_tools_description">fetch_web_url بدون تنظیمات اضافی کار می کند. tavily_search از این کلید API و URL پایه استفاده می کند. URL را برای استفاده از نقطه پایانی رسمی Tavily خالی بگذارید.</string>
     <string name="settings_multitasking">چند وظیفه ای</string>
     <string name="settings_keep_tasks_running_background">وظایف را در پس زمینه در حال اجرا نگه دارید</string>
     <string name="settings_keep_tasks_running_background_subtitle">از یک سرویس پیش‌زمینه Android استفاده می‌کند تا پس از ترک Aether، چت‌های فعال همچنان به کار خود ادامه دهند.</string>
@@ -688,8 +651,6 @@
     <string name="onboarding_agent_mode_shizuku_subtitle">هنگام نصب برنامه از سرویس شیزوکو بالا استفاده کنید.</string>
     <string name="onboarding_agent_mode_root_subtitle">از پوسته ریشه برای ورودی ممتاز در دستگاه های روت شده استفاده کنید.</string>
     <string name="onboarding_agent_mode_skip_subtitle">حالت Agent را خاموش بگذارید و بعداً از تنظیمات آن را فعال کنید.</string>
-    <string name="onboarding_tavily_message">اگر می‌خواهید بعداً پاسخ‌های وب تازه‌تری دریافت کنید، می‌توانید جستجو را در اینجا اضافه کنید.</string>
-    <string name="onboarding_tavily_optional_body">این اختیاری است. واکشی URL در حال حاضر بدون آن کار می کند.</string>
     <string name="onboarding_paste_it_here">آن را اینجا بچسبانید</string>
 
     <!-- Conversation -->
@@ -837,9 +798,7 @@
     <string name="settings_runtime_environment_default_help">این را به عنوان پیش‌فرض بگذارید تا از پیش‌فرض زمان اجرا کاربر پیروی کند.</string>
     <string name="settings_default_runtime">زمان اجرا پیش فرض</string>
     <string name="settings_default_runtime_help">استفاده از تنظیمات &gt; پیش فرض های زمان اجرا</string>
-    <string name="settings_runtime_termux_stdio_subtitle">این سرور stdio را از طریق Termux اجرا کنید.</string>
-    <string name="settings_runtime_alpine_stdio_subtitle">این سرور stdio را در داخل Alpine اجرا کنید.</string>
-    <string name="settings_alpine_description">محیط لینوکس داخلی Aether یک برنامه خصوصی و مستقل از Termux است. از آن برای اسکریپت های پوسته، ابزارهای توسعه و سرورهای stdio MCP استفاده کنید.</string>
+    <string name="settings_alpine_description">محیط لینوکس داخلی Aether یک برنامه خصوصی و مستقل از Termux است. از آن برای اسکریپت های پوسته و ابزارهای توسعه استفاده کنید.</string>
     <string name="settings_open_terminal">ترمینال را باز کنید</string>
     <string name="settings_open_chrome">باز کردن مرورگر</string>
     <string name="settings_chrome_environment">مرورگر عامل</string>

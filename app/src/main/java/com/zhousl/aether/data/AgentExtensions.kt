@@ -46,7 +46,8 @@ enum class SkillInstallKind(
     RemoteZip("remote_zip"),
     GitHub("github"),
     PiPackage("pi_package"),
-    PiDiscovered("pi_discovered");
+    PiDiscovered("pi_discovered"),
+    BuiltIn("builtin");
 
     companion object {
         fun fromStorage(value: String?): SkillInstallKind =
@@ -191,41 +192,6 @@ internal fun SkillResourceEntry.toJson(): JSONObject = JSONObject().apply {
     put("kind", kind.storageValue)
 }
 
-internal fun McpServerConfig.toJson(): JSONObject = JSONObject().apply {
-    put("id", id)
-    put("displayName", displayName)
-    put("actionLabel", actionLabel)
-    put("transport", transport.toJson())
-    put("isEnabled", isEnabled)
-    put("connectTimeoutMillis", connectTimeoutMillis)
-    put("requestTimeoutMillis", requestTimeoutMillis)
-    put("createdAtMillis", createdAtMillis)
-    put("updatedAtMillis", updatedAtMillis)
-}
-
-internal fun McpTransportConfig.toJson(): JSONObject = JSONObject().apply {
-    put("type", transportType.storageValue)
-    when (this@toJson) {
-        is McpTransportConfig.StdIo -> {
-            put("command", command)
-            put("arguments", JSONArray().apply { arguments.forEach(::put) })
-            put("workingDirectory", workingDirectory)
-            put("environment", JSONArray().apply { environment.forEach { put(it.toJson()) } })
-            runtimeEnvironment?.let { put("runtimeEnvironment", it.storageValue) }
-        }
-
-        is McpTransportConfig.StreamableHttp -> {
-            put("url", url)
-            put("headers", JSONArray().apply { headers.forEach { put(it.toJson()) } })
-        }
-    }
-}
-
-internal fun McpKeyValue.toJson(): JSONObject = JSONObject().apply {
-    put("key", key)
-    put("value", value)
-}
-
 internal fun parseInstalledSkills(rawValue: String): List<InstalledSkill> {
     if (rawValue.isBlank()) return emptyList()
     return runCatching {
@@ -295,49 +261,11 @@ internal fun parseActiveSkillContexts(rawValue: String): List<ActiveSkillContext
     }.getOrDefault(emptyList())
 }
 
-internal fun parseMcpServerConfigs(rawValue: String): List<McpServerConfig> {
-    if (rawValue.isBlank()) return emptyList()
-    return runCatching {
-        val array = JSONArray(rawValue)
-        buildList {
-            for (index in 0 until array.length()) {
-                val json = array.optJSONObject(index) ?: continue
-                val transportJson = json.optJSONObject("transport") ?: continue
-                val transport = parseMcpTransportConfig(transportJson) ?: continue
-                val displayName = json.optString("displayName")
-                val legacyEnabled = json.optBoolean("isEnabled", true)
-                val legacyTrusted = if (json.has("isTrusted")) {
-                    json.optBoolean("isTrusted", false)
-                } else {
-                    true
-                }
-                add(
-                    McpServerConfig(
-                        id = json.optString("id").ifBlank { "mcp-$index" },
-                        displayName = displayName,
-                        actionLabel = json.optString("actionLabel")
-                            .ifBlank { generateQuickActionLabel(displayName, transport.quickActionSource()) },
-                        transport = transport,
-                        isEnabled = legacyEnabled && legacyTrusted,
-                        connectTimeoutMillis = json.optLong("connectTimeoutMillis", 15_000L),
-                        requestTimeoutMillis = json.optLong("requestTimeoutMillis", 60_000L),
-                        createdAtMillis = json.optLong("createdAtMillis", System.currentTimeMillis()),
-                        updatedAtMillis = json.optLong("updatedAtMillis", System.currentTimeMillis()),
-                    )
-                )
-            }
-        }
-    }.getOrDefault(emptyList())
-}
-
 internal fun serializeInstalledSkills(skills: List<InstalledSkill>): String =
     JSONArray().apply { skills.forEach { put(it.toJson()) } }.toString()
 
 internal fun serializeActiveSkillContexts(activeSkills: List<ActiveSkillContext>): String =
     JSONArray().apply { activeSkills.forEach { put(it.toJson()) } }.toString()
-
-internal fun serializeMcpServerConfigs(servers: List<McpServerConfig>): String =
-    JSONArray().apply { servers.forEach { put(it.toJson()) } }.toString()
 
 private fun parseSkillInstallSource(json: JSONObject?): SkillInstallSource =
     SkillInstallSource(
@@ -361,44 +289,6 @@ private fun parseSkillResourceEntries(array: JSONArray?): List<SkillResourceEntr
                     kind = SkillResourceKind.fromStorage(json.optString("kind")),
                 )
             )
-        }
-    }
-}
-
-private fun parseMcpTransportConfig(json: JSONObject): McpTransportConfig? =
-    when (McpTransportType.fromStorage(json.optString("type"))) {
-        McpTransportType.StdIo -> {
-            val environmentValue = json.opt("environment")
-            McpTransportConfig.StdIo(
-                command = json.optString("command"),
-                arguments = json.optJSONArray("arguments").toStringList()
-                    .ifEmpty { json.optJSONArray("args").toStringList() },
-                workingDirectory = json.optString("workingDirectory"),
-                environment = parseKeyValues(environmentValue as? JSONArray),
-                runtimeEnvironment = LocalRuntimeId.fromStorage(
-                    json.optString("runtimeEnvironment").ifBlank {
-                        json.optString("runtime_environment")
-                    }.ifBlank {
-                        environmentValue as? String ?: ""
-                    },
-                ),
-            )
-        }
-
-        McpTransportType.StreamableHttp -> McpTransportConfig.StreamableHttp(
-            url = json.optString("url"),
-            headers = parseKeyValues(json.optJSONArray("headers")),
-        )
-    }
-
-private fun parseKeyValues(array: JSONArray?): List<McpKeyValue> {
-    if (array == null) return emptyList()
-    return buildList {
-        for (index in 0 until array.length()) {
-            val json = array.optJSONObject(index) ?: continue
-            val key = json.optString("key").trim()
-            if (key.isEmpty()) continue
-            add(McpKeyValue(key = key, value = json.optString("value")))
         }
     }
 }

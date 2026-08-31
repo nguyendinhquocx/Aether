@@ -66,6 +66,7 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     private var directoryPickerListener: NativePickedDirectoryListener?
     private var fileExportListener: NativeFileExportListener?
     private var fileExportURL: URL?
+    private var guestFileExportCompletion: ((Result<Void, Error>) -> Void)?
     private var previewURL: URL?
     private var authenticationSession: ASWebAuthenticationSession?
     private let backgroundExecution = AetherBackgroundExecutionCoordinator.shared
@@ -906,6 +907,51 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         }
     }
 
+    func exportGuestFile(
+        path: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        operations.async { [self] in
+            do {
+                guard path.hasPrefix("/"), path != "/" else {
+                    throw RuntimeHostError.operationFailed("The Alpine file path is invalid.")
+                }
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("AetherAlpineExports", isDirectory: true)
+                    .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let name = URL(fileURLWithPath: path).lastPathComponent.replacingOccurrences(of: "/", with: "-")
+                let source = directory.appendingPathComponent(name, isDirectory: false)
+                do {
+                    try runtime.exportFile(path, to: source)
+                } catch {
+                    try? FileManager.default.removeItem(at: directory)
+                    throw error
+                }
+
+                complete { [self] in
+                    guard !hasActiveDocumentPicker else {
+                        try? FileManager.default.removeItem(at: directory)
+                        completion(.failure(RuntimeHostError.operationFailed("Another file picker is already open.")))
+                        return
+                    }
+                    guard let presenter = topViewController() else {
+                        try? FileManager.default.removeItem(at: directory)
+                        completion(.failure(RuntimeHostError.operationFailed("Unable to open the file exporter.")))
+                        return
+                    }
+                    guestFileExportCompletion = completion
+                    fileExportURL = source
+                    let picker = UIDocumentPickerViewController(forExporting: [source], asCopy: true)
+                    picker.delegate = self
+                    presenter.present(picker, animated: true)
+                }
+            } catch {
+                complete { completion(.failure(error)) }
+            }
+        }
+    }
+
     func readGuestFile(
         path: String,
         maximumBytes: Int = 8 * 1024 * 1024,
@@ -1019,6 +1065,10 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        if let completion = takeGuestFileExportCompletion() {
+            completion(.success(()))
+            return
+        }
         if let listener = takeFileExportListener() {
             listener.onCompleted()
             return
@@ -1061,7 +1111,8 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        if let listener = takeFileExportListener() { listener.onCancelled() }
+        if let completion = takeGuestFileExportCompletion() { completion(.success(())) }
+        else if let listener = takeFileExportListener() { listener.onCancelled() }
         else if let listener = takeFilePickerListener() { listener.onCancelled() }
         else if let listener = takeFilesPickerListener() { listener.onCancelled() }
         else { takeDirectoryPickerListener()?.onCancelled() }
@@ -1151,7 +1202,18 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     private var hasActiveDocumentPicker: Bool {
-        filePickerListener != nil || filesPickerListener != nil || directoryPickerListener != nil || fileExportListener != nil
+        filePickerListener != nil || filesPickerListener != nil || directoryPickerListener != nil ||
+            fileExportListener != nil || guestFileExportCompletion != nil
+    }
+
+    private func takeGuestFileExportCompletion() -> ((Result<Void, Error>) -> Void)? {
+        let completion = guestFileExportCompletion
+        guestFileExportCompletion = nil
+        if completion != nil, let url = fileExportURL {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            fileExportURL = nil
+        }
+        return completion
     }
 
     private func takeFileExportListener() -> NativeFileExportListener? {

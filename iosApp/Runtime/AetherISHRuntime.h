@@ -40,6 +40,7 @@ typedef void (^AetherISHExitBlock)(int exitCode, int signal);
 - (nullable NSData *)readFilePrefix:(NSString *)path
                        maximumBytes:(NSUInteger)maximumBytes
                               error:(NSError **)error;
+- (BOOL)exportFile:(NSString *)path toURL:(NSURL *)destinationURL error:(NSError **)error;
 - (BOOL)writeFile:(NSString *)path data:(NSData *)data executable:(BOOL)executable error:(NSError **)error;
 - (BOOL)writeFile:(NSString *)path
              data:(NSData *)data

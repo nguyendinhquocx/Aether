@@ -40,6 +40,8 @@ class RuntimeRouter(
         return runtimeById(runtimeId) to runId.substring(separatorIndex + 1)
     }
 
+    fun alpineWorkspaceDirectory(): String = alpineRuntime.workspaceRoot
+
     fun runtimeWorkspaceDirectory(
         settings: AppSettings,
         termuxWorkspaceDirectory: String,

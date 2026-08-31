@@ -3,8 +3,10 @@ package com.zhousl.aether.runtime
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.zhousl.aether.data.pi.PiKernelBridge
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +14,64 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AlpineRuntimeInstrumentedTest {
+    @Test
+    fun fileManagerListsFilesCreatedInGuestWorkspace() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alpine = AlpineRuntime(context)
+        val setup = alpine.initialize()
+        assertEquals(setup.detail, LocalRuntimeIssue.Ready, setup.issue)
+
+        val fileName = "file-manager-${System.nanoTime()}.txt"
+        val guestPath = "${alpine.workspaceRoot}/$fileName"
+        val fixture = JSONObject(
+            alpine.executeCommand(
+                command = "printf 'visible from file manager' > '$guestPath'",
+                workingDirectory = alpine.workspaceRoot,
+                awaitTimeoutMillis = 30_000L,
+            )
+        )
+        assertTrue(fixture.optString("errmsg"), fixture.optBoolean("ok"))
+
+        try {
+            val entries = AndroidAlpineFileManagerRuntime(alpine).listDirectory(alpine.workspaceRoot)
+            assertTrue(entries.any { it.name == fileName && it.path == guestPath })
+        } finally {
+            alpine.executeCommand("rm -f '$guestPath'", alpine.workspaceRoot, 30_000L)
+        }
+    }
+
+    @Test
+    fun fileManagerExportsBinaryFilesAndSymbolicLinkTargets() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alpine = AlpineRuntime(context)
+        val setup = alpine.initialize()
+        assertEquals(setup.detail, LocalRuntimeIssue.Ready, setup.issue)
+
+        val directory = "/tmp/aether-export-${System.nanoTime()}"
+        val binaryPath = "$directory/payload.bin"
+        val linkPath = "$directory/payload-link"
+        val expected = byteArrayOf(0x00, 0x01, 0x7f, 0x80.toByte(), 0xfe.toByte(), 0xff.toByte())
+        val fixture = JSONObject(
+            alpine.executeCommand(
+                command = "mkdir -p '$directory' && printf '\\000\\001\\177\\200\\376\\377' > '$binaryPath' && ln -s '$binaryPath' '$linkPath'",
+                workingDirectory = alpine.homeDirectory,
+                awaitTimeoutMillis = 30_000L,
+            )
+        )
+        assertTrue(fixture.optString("errmsg"), fixture.optBoolean("ok"))
+
+        try {
+            val runtime = AndroidAlpineFileManagerRuntime(alpine)
+            listOf(binaryPath, linkPath).forEach { guestPath ->
+                val output = ByteArrayOutputStream()
+                runtime.exportFile(guestPath, output)
+                assertArrayEquals(expected, output.toByteArray())
+            }
+        } finally {
+            alpine.executeCommand("rm -rf '$directory'", alpine.homeDirectory, 30_000L)
+        }
+    }
+
     @Test
     fun alpineRuntimeStartsShellFromAppProcess() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

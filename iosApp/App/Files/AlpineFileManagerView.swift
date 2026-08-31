@@ -71,9 +71,9 @@ private final class AlpineDirectoryModel: ObservableObject {
     @Published var entries: [AlpineFileEntry] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var showsHiddenFiles = false
     @Published var sortOrder: SortOrder = .name
     @Published var isImporting = false
+    @Published var isExporting = false
 
     let host: AetherRuntimeHost
     let path: String
@@ -97,7 +97,6 @@ private final class AlpineDirectoryModel: ObservableObject {
 
     func visibleEntries(matching query: String) -> [AlpineFileEntry] {
         entries
-            .filter { showsHiddenFiles || !$0.name.hasPrefix(".") }
             .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
             .sorted { lhs, rhs in
                 if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
@@ -144,6 +143,18 @@ private final class AlpineDirectoryModel: ObservableObject {
             switch result {
             case .success: self?.load()
             case let .failure(error): self?.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func download(_ entry: AlpineFileEntry) {
+        guard !entry.isDirectory, !isExporting else { return }
+        isExporting = true
+        host.exportGuestFile(path: entry.path) { [weak self] result in
+            guard let self else { return }
+            self.isExporting = false
+            if case let .failure(error) = result {
+                self.errorMessage = error.localizedDescription
             }
         }
     }
@@ -220,6 +231,14 @@ private struct AlpineDirectoryView: View {
                         } label: {
                             Label("Rename", systemImage: "pencil")
                         }
+                        if !entry.isDirectory {
+                            Button {
+                                model.download(entry)
+                            } label: {
+                                Label("Download", systemImage: "arrow.down.circle")
+                            }
+                            .disabled(model.isExporting)
+                        }
                         Button(role: .destructive) {
                             pendingDeletion = entry
                         } label: {
@@ -254,7 +273,6 @@ private struct AlpineDirectoryView: View {
                             Text(order.rawValue).tag(order)
                         }
                     }
-                    Toggle("Show Hidden Files", isOn: $model.showsHiddenFiles)
                     Button { model.load() } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }

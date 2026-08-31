@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
-import { stdin as input, stdout as output, stderr } from "node:process";
+import { stdin as input, stderr } from "node:process";
 import {
   getSupportedThinkingLevels,
   clampThinkingLevel,
@@ -91,8 +91,10 @@ import {
   invokeAetherAppExtensionAction,
   loadAetherAppExtensions,
 } from "./aether-extensions.js";
-import { bridgeDebug, bridgeDebugEnabled, elapsedMillis } from "./debug.js";
+import { bridgeDebug, bridgeDebugEnabled, bridgeDiagnostic, elapsedMillis } from "./debug.js";
+import { reserveProtocolStdout, writeProtocolFrame } from "./protocol-output.js";
 
+reserveProtocolStdout();
 registerBunOAuthFlows();
 
 const BRIDGE_VERSION = "2.0.0-alpha.0";
@@ -407,7 +409,7 @@ async function clearSharedCredential(providerConfigId: string): Promise<boolean>
 }
 
 function writeFrame(frame: JsonObject): void {
-  output.write(`${JSON.stringify(frame)}\n`);
+  writeProtocolFrame(frame);
 }
 
 function writeEvent(id: string, event: string, payload: JsonObject = {}): void {
@@ -2766,7 +2768,7 @@ async function runNativeAgentTurn(id: string, payload: JsonObject): Promise<Json
   const { state, reused } = await prepareNativeAgentSession(payload, prompt.history);
   const requestedThinkingLevel = thinkingLevelFor(payload) ?? "off";
   state.session.setThinkingLevel(requestedThinkingLevel);
-  bridgeDebug("agent_turn_thinking_level", {
+  bridgeDiagnostic("agent_turn_thinking_level", {
     session_id: state.sessionId,
     requested: requestedThinkingLevel,
     effective: state.session.thinkingLevel,

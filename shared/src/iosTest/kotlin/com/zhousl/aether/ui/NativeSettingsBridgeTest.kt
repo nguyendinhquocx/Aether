@@ -36,7 +36,6 @@ class NativeSettingsBridgeTest {
                 ),
                 providerConfigs = emptyList(),
                 installedSkills = emptyList(),
-                mcpServers = emptyList(),
                 extensionSnapshot = SharedAetherExtensionSnapshot(
                     settings = listOf(
                         SharedAetherExtensionSettingsPage(
@@ -156,7 +155,6 @@ class NativeSettingsBridgeTest {
                 settings = AppSettings(),
                 providerConfigs = listOf(provider),
                 installedSkills = emptyList(),
-                mcpServers = emptyList(),
                 extensionSnapshot = SharedAetherExtensionSnapshot(),
                 capabilities = PlatformCapabilities.Ios,
             )
@@ -229,7 +227,6 @@ class NativeSettingsBridgeTest {
                 settings = AppSettings(),
                 providerConfigs = emptyList(),
                 installedSkills = emptyList(),
-                mcpServers = emptyList(),
                 extensionSnapshot = SharedAetherExtensionSnapshot(),
                 capabilities = PlatformCapabilities.Ios,
                 piExtensions = NativePiExtensionsState(
@@ -309,7 +306,6 @@ class NativeSettingsBridgeTest {
                 settings = AppSettings(),
                 providerConfigs = emptyList(),
                 installedSkills = emptyList(),
-                mcpServers = emptyList(),
                 extensionSnapshot = SharedAetherExtensionSnapshot(),
                 capabilities = PlatformCapabilities.Ios,
                 statistics = statistics,

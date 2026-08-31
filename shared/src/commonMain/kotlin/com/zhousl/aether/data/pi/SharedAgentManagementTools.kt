@@ -200,19 +200,38 @@ class SharedAgentManagementTools(
         val action = arguments.string("action").lowercase()
         val sessionId = currentSessionId()
         val response = when (action) {
-            "list" -> bridge.listExtensions(sessionId)
+            "list" -> JsonObject(
+                bridge.listExtensions(sessionId) + bridge.listExtensionPackages(),
+            )
+            "install_package" -> {
+                val source = arguments.requiredExtensionPackageSource(action)
+                bridge.installExtensionPackage(source)
+            }
+            "update_package" -> {
+                val source = arguments.requiredExtensionPackageSource(action)
+                bridge.updateExtensionPackage(source)
+            }
+            "remove_package" -> {
+                val source = arguments.requiredExtensionPackageSource(action)
+                bridge.removeExtensionPackage(source)
+            }
             "reload" -> bridge.reloadExtensions(sessionId)
             "invoke_command" -> {
                 val command = arguments.string("command")
                 require(command.isNotBlank()) { "command is required for invoke_command." }
                 bridge.invokeExtensionCommand(sessionId, command, arguments.string("args"))
             }
-            else -> error("Unsupported Pi extension action '$action'.")
+            else -> error("Unsupported Aether extension action '$action'.")
         }
-        return agentToolSuccess("Completed Pi extension action '$action'.") {
+        return agentToolSuccess("Completed Aether extension action '$action'.") {
             response.forEach { (key, value) -> put(key, value) }
         }
     }
+
+    private fun JsonObject.requiredExtensionPackageSource(action: String): String =
+        string("source").trim().also { source ->
+            require(source.isNotBlank()) { "source is required for $action." }
+        }
 
     private suspend fun manageDeveloper(arguments: JsonObject): SharedHostToolResult {
         require(arguments.string("action").ifBlank { "read_diagnostics" } == "read_diagnostics") {
@@ -263,11 +282,14 @@ private fun kotlinx.serialization.json.JsonArrayBuilder.addSelfManagementDefinit
     ))
     add(agentToolDefinition(
         "aether_extension_manage",
-        "List or reload Pi extensions for the current session, or invoke a registered command.",
+        "List, install, update, remove, or reload Aether/Pi extension packages, or invoke a registered command. Package sources use npm:, including npm:<name>@file:<absolute-directory>.",
         "sequential",
         listOf("action"),
         mapOf(
-            "action" to agentStringSchema("One of list, reload, invoke_command."),
+            "action" to agentStringSchema(
+                "One of list, install_package, update_package, remove_package, reload, invoke_command.",
+            ),
+            "source" to agentStringSchema("npm: package source to install, update, or remove."),
             "command" to agentStringSchema("Registered extension command."),
             "args" to agentStringSchema("Raw command argument string."),
         ),

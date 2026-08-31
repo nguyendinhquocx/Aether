@@ -102,9 +102,10 @@ class PiAgentRunner(
                         chromeEnabled = chromeEnabled,
                     )
                 }
+                val modelConfig = settings.toPiModelConfig(thinkingLevelMap, isReasoningModel)
                 val payload = JSONObject().apply {
                     val extensionLoadOptions = piExtensionStateRepository?.loadOptions()
-                    put("model_config", settings.toPiModelConfig(thinkingLevelMap, isReasoningModel).toJson())
+                    put("model_config", modelConfig.toJson())
                     put("session_id", resolvedSessionId)
                     if (sessionFile.isNotBlank()) put("session_file", sessionFile)
                     put("system_prompt", prompt())
@@ -142,6 +143,23 @@ class PiAgentRunner(
                         ),
                     )
                 }
+                val requestedThinkingLevel = settings.toPiThinkingLevel()
+                diagnosticLogger.event(
+                    category = "pi_agent",
+                    event = "reasoning_effort_resolved",
+                    sessionId = resolvedSessionId,
+                    details = mapOf(
+                        "configured_effort" to settings.reasoningEffort,
+                        "normalized_effort" to requestedThinkingLevel,
+                        "model_config_reasoning" to modelConfig.reasoning,
+                        "reasoning_model_catalog_match" to isReasoningModel,
+                        "mapped_effort" to thinkingLevelMap[requestedThinkingLevel].orEmpty(),
+                        "thinking_level_map" to thinkingLevelMap,
+                        "provider" to settings.piProviderId,
+                        "model" to settings.modelId,
+                        "session_file_present" to sessionFile.isNotBlank(),
+                    ),
+                )
 
                 coroutineScope {
                     val parallelHostToolJobs = ConcurrentHashMap<String, Job>()

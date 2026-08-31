@@ -83,6 +83,11 @@ class RuntimeRouterTest {
     }
 
     @Test
+    fun alpineWorkspaceDirectoryDoesNotFollowTheConfiguredDefault() {
+        assertEquals("/workspace", router.alpineWorkspaceDirectory())
+    }
+
+    @Test
     fun noConfiguredRuntimeReturnsNullForDefault() {
         assertNull(router.runtimeFor(AppSettings(), null))
     }

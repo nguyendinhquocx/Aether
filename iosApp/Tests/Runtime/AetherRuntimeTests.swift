@@ -232,6 +232,43 @@ final class AetherRuntimeTests: XCTestCase {
         wait(for: [removed], timeout: 10)
     }
 
+    func testAlpineFileManagerExportsBinaryFilesAndSymbolicLinkTargets() throws {
+        try initializeRuntime()
+        let directory = "/tmp/aether-export-\(UUID().uuidString)"
+        let binaryPath = "\(directory)/payload.bin"
+        let linkPath = "\(directory)/payload-link"
+        let expected = Data([0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff])
+
+        let created = expectation(description: "export fixture directory created")
+        let createListener = UnitCapture(expectation: created)
+        host.createDirectories(path: directory, listener: createListener)
+        wait(for: [created], timeout: 10)
+        if let error = createListener.error { throw RuntimeTestError.failed(error) }
+
+        let written = expectation(description: "binary export fixture written")
+        let writeListener = UnitCapture(expectation: written)
+        host.writeFile(
+            path: binaryPath,
+            bytes: expected.kotlinByteArray,
+            executable: false,
+            listener: writeListener
+        )
+        wait(for: [written], timeout: 10)
+        if let error = writeListener.error { throw RuntimeTestError.failed(error) }
+
+        let linked = try run("/bin/ln", arguments: ["-s", binaryPath, linkPath])
+        XCTAssertEqual(linked.exitCode, 0, linked.stderr)
+        defer { _ = try? run("/bin/rm", arguments: ["-rf", directory]) }
+
+        for guestPath in [binaryPath, linkPath] {
+            let destination = FileManager.default.temporaryDirectory
+                .appendingPathComponent("aether-export-test-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: destination) }
+            try AetherISHRuntime.shared().exportFile(guestPath, to: destination)
+            XCTAssertEqual(try Data(contentsOf: destination), expected)
+        }
+    }
+
     func testRetryResetAllowsMountedRuntimeToInitializeAgain() throws {
         try initializeRuntime()
 

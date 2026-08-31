@@ -36,7 +36,6 @@ enum class OnboardingStep {
     LocalRuntimeChoice,
     AlpineSetup,
     AgentModeAuthorization,
-    TavilySetup,
 }
 
 enum class RootSetupProgressReturnPage {

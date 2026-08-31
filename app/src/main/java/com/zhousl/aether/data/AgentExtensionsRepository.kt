@@ -58,49 +58,9 @@ class AgentExtensionsRepository(
         }
     }
 
-    suspend fun updateMcpServers(servers: List<McpServerConfig>) {
-        // Intentionally ignored: Pi Coding Agent Extensions own external integrations.
-    }
-
-    suspend fun upsertMcpServer(server: McpServerConfig) {
-        val updatedServers = extensionState.firstValue()
-            .mcpServers
-            .filterNot { it.id == server.id } + server
-        updateMcpServers(updatedServers.sortedBy { it.displayName.lowercase() })
-    }
-
-    suspend fun removeMcpServer(serverId: String) {
-        val updatedServers = extensionState.firstValue()
-            .mcpServers
-            .filterNot { it.id == serverId }
-        updateMcpServers(updatedServers)
-    }
-
-    suspend fun setMcpServerEnabled(
-        serverId: String,
-        enabled: Boolean,
-    ) {
-        mutateServers { server ->
-            if (server.id == serverId) {
-                server.copy(
-                    isEnabled = enabled,
-                    updatedAtMillis = System.currentTimeMillis(),
-                )
-            } else {
-                server
-            }
-        }
-    }
-
     private suspend fun mutateSkills(transform: (InstalledSkill) -> InstalledSkill) {
         updateInstalledSkills(
             extensionState.firstValue().installedSkills.map(transform)
-        )
-    }
-
-    private suspend fun mutateServers(transform: (McpServerConfig) -> McpServerConfig) {
-        updateMcpServers(
-            extensionState.firstValue().mcpServers.map(transform)
         )
     }
 

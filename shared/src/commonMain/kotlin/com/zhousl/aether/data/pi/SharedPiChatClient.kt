@@ -3,6 +3,8 @@ package com.zhousl.aether.data.pi
 import com.zhousl.aether.data.LlmProviderConfig
 import com.zhousl.aether.data.PiProviderCatalog
 import com.zhousl.aether.data.ProviderAuthMethod
+import com.zhousl.aether.data.SharedDiagnosticLogger
+import com.zhousl.aether.data.normalizeReasoningEffort
 import com.zhousl.aether.data.normalizeLlmUserAgent
 import com.zhousl.aether.data.platformDefaultSystemPrompt
 import com.zhousl.aether.data.platformRandomUuid
@@ -173,14 +175,17 @@ class SharedPiChatClient(
             is SharedSessionAwareHostToolExecutor -> executor.definitions(resolvedSessionId)
             else -> executor?.definitions ?: JsonArray(emptyList())
         }
+        val normalizedReasoning = normalizeReasoningEffort(reasoning)
+        val resolvedReasoningEnabled = isReasoningModel ?: (
+            normalizedReasoning != "off" || thinkingLevelMap["off"] == "none"
+        )
+        val modelConfig = config.toSharedPiModelConfig(
+            timeoutMillis = timeoutMillis,
+            reasoningEnabled = resolvedReasoningEnabled,
+            thinkingLevelMap = thinkingLevelMap,
+        )
         val payload = buildJsonObject {
-            put("model_config", config.toSharedPiModelConfig(
-                timeoutMillis = timeoutMillis,
-                reasoningEnabled = isReasoningModel ?: (
-                    reasoning != "off" || thinkingLevelMap["off"] == "none"
-                ),
-                thinkingLevelMap = thinkingLevelMap,
-            ))
+            put("model_config", modelConfig)
             put("session_id", resolvedSessionId)
             put("system_prompt", systemPrompt.ifBlank { platformDefaultSystemPrompt() })
             put("messages", messages.withSkillCommand(skillCommand).toPiMessages())
@@ -194,10 +199,26 @@ class SharedPiChatClient(
             put("skill_paths", buildJsonArray {
                 skillPaths.distinct().forEach { add(JsonPrimitive(it)) }
             })
-            put("reasoning", reasoning)
+            put("reasoning", normalizedReasoning)
             extensionLoadOptions.toPayload().forEach { (key, value) -> put(key, value) }
             put("host_tools", hostToolDefinitions)
         }
+        SharedDiagnosticLogger.event(
+            category = "pi_agent",
+            event = "reasoning_effort_resolved",
+            sessionId = resolvedSessionId,
+            details = mapOf(
+                "configured_effort" to reasoning,
+                "normalized_effort" to normalizedReasoning,
+                "model_config_reasoning" to resolvedReasoningEnabled,
+                "reasoning_model_catalog_match" to isReasoningModel,
+                "mapped_effort" to thinkingLevelMap[normalizedReasoning].orEmpty(),
+                "thinking_level_map" to thinkingLevelMap,
+                "provider" to config.piProviderId,
+                "model" to config.modelId,
+                "session_id_was_generated" to sessionId.isBlank(),
+            ),
+        )
         onStreamingStatus(
             SharedPiStreamingStatus(
                 text = "Thinking",

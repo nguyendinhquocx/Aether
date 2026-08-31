@@ -22,8 +22,7 @@ background execution, and native mods are also unavailable on iOS.
 ## Network use
 
 Network requests are initiated for user-configured AI providers, OAuth login,
-optional web search and URL fetching, user-configured HTTP MCP servers, npm
-extension installation, Alpine package installation, and App Store version
+web access extensions, npm extension installation, Alpine package installation, and App Store version
 lookup. Provider credentials remain in the app's private storage and are sent
 only to the provider selected by the user. Aether does not track users or sell
 data.

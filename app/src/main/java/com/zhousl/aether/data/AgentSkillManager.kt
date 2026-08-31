@@ -134,12 +134,51 @@ class AgentSkillManager(
         }
     }
 
+    suspend fun syncBuiltInSkills(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val installedSkills = extensionsRepository.extensionState.firstValue().installedSkills
+            BuiltInAgentSkills.forEach { builtIn ->
+                val workingDirectory = createTempDirectory()
+                try {
+                    File(workingDirectory, SkillFileName).writeText(builtIn.markdown)
+                    val checksum = sha256OfDirectory(workingDirectory)
+                    val existing = installedSkills.firstOrNull { it.id == builtIn.id }
+                    if (
+                        existing?.checksumSha256 == checksum &&
+                        existing.source.kind == SkillInstallKind.BuiltIn &&
+                        existing.actionLabel == builtIn.actionLabel &&
+                        validatedInstalledSkillRoot(existing) != null
+                    ) {
+                        return@forEach
+                    }
+                    installParsedSkill(
+                        sourceRoot = workingDirectory,
+                        source = SkillInstallSource(
+                            kind = SkillInstallKind.BuiltIn,
+                            label = builtIn.id,
+                            uri = "builtin:${builtIn.id}",
+                        ),
+                        skillIdOverride = builtIn.id,
+                        actionLabelOverride = builtIn.actionLabel,
+                        installedAtMillis = existing?.installedAtMillis,
+                        isEnabled = existing?.isEnabled ?: true,
+                    )
+                } finally {
+                    workingDirectory.deleteRecursively()
+                }
+            }
+        }
+    }
+
     suspend fun uninstallSkill(skillId: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val skill = extensionsRepository.extensionState.firstValue()
                 .installedSkills
                 .firstOrNull { it.id == skillId }
                 ?: return@runCatching
+            require(skill.source.kind != SkillInstallKind.BuiltIn) {
+                "Built-in Skills cannot be removed. Disable the Skill instead."
+            }
             if (skill.source.kind == SkillInstallKind.PiDiscovered) {
                 ignoredDiscoveredSkillSources().edit()
                     .putStringSet(
@@ -326,6 +365,7 @@ class AgentSkillManager(
         sourceRoot: File,
         source: SkillInstallSource,
         skillIdOverride: String? = null,
+        actionLabelOverride: String? = null,
         installedAtMillis: Long? = null,
         isEnabled: Boolean = true,
     ): InstalledSkill {
@@ -353,7 +393,8 @@ class AgentSkillManager(
             id = skillId,
             name = parsed.name,
             description = parsed.description,
-            actionLabel = generateQuickActionLabel(parsed.name, parsed.description),
+            actionLabel = actionLabelOverride
+                ?: generateQuickActionLabel(parsed.name, parsed.description),
             license = parsed.license,
             compatibility = parsed.compatibility,
             metadataJson = parsed.metadataJson,

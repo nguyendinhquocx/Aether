@@ -5,6 +5,19 @@ import org.junit.Test
 
 class AgentSkillManagerTest {
     @Test
+    fun createExtensionSkillUsesStableBuiltInIdentity() {
+        val skill = BuiltInAgentSkills.single { it.id == CreateExtensionSkillId }
+
+        assertEquals("create-extension", skill.id)
+        assertEquals("Create Extensions", skill.actionLabel)
+        assertEquals(
+            SkillInstallKind.BuiltIn,
+            SkillInstallKind.fromStorage("builtin"),
+        )
+        org.junit.Assert.assertTrue(skill.markdown.contains("npm:<package-name>@file:"))
+    }
+
+    @Test
     fun discoveredSkillIdsAreStableAndSourceSpecific() {
         val path = "/root/.agents/skills/review/SKILL.md"
 

@@ -2,6 +2,7 @@ package com.zhousl.aether.runtime
 
 import java.io.File
 import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +77,20 @@ class AndroidAlpineFileManagerRuntime(
             throw error
         }
         Unit
+    }
+
+    internal suspend fun exportFile(source: String, output: OutputStream) = withContext(Dispatchers.IO) {
+        val process = alpine.startManagedProcess("cat -- ${shellQuote(source)}", workingDirectory = "/")
+        try {
+            process.inputStream.use { input -> input.copyTo(output) }
+            val exitCode = process.waitFor()
+            val failure = process.errorStream.use { it.readBytes().decodeToString() }.trim()
+            check(exitCode == 0) { failure.ifBlank { "Unable to download $source." } }
+            output.flush()
+        } catch (error: Throwable) {
+            process.destroyForcibly()
+            throw error
+        }
     }
 }
 

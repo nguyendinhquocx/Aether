@@ -52,6 +52,7 @@ class AetherSettingsStore(
     private val dataStore: DataStore<Preferences>,
 ) {
     suspend fun load(): SharedPersistedSettings {
+        repairBuiltInSkillSelectionDefaults()
         val preferences = dataStore.data.first()
         val defaults = AppSettings()
         // The first launch follows the platform language once, then keeps the
@@ -75,9 +76,6 @@ class AetherSettingsStore(
             systemPrompt = preferences[SystemPrompt] ?: serializedSettings.systemPrompt,
             reasoningEffort = preferences[ReasoningEffort]
                 ?.let(::normalizeReasoningEffort) ?: serializedSettings.reasoningEffort,
-            tavilyApiKey = preferences[TavilyApiKey] ?: serializedSettings.tavilyApiKey,
-            tavilyBaseUrl = preferences[TavilyBaseUrl]
-                ?.let(::normalizeTavilyBaseUrl) ?: serializedSettings.tavilyBaseUrl,
             defaultSelectedSkillIds = preferences[DefaultSelectedSkillIds]
                 ?.let(::parsePersistedStringListOrNull) ?: serializedSettings.defaultSelectedSkillIds,
         )
@@ -160,11 +158,10 @@ class AetherSettingsStore(
             preferences[ThemeMode] = settings.themeMode.storageValue
             preferences[SystemPrompt] = settings.systemPrompt
             preferences[ReasoningEffort] = normalizeReasoningEffort(settings.reasoningEffort)
-            preferences[TavilyApiKey] = settings.tavilyApiKey
-            preferences[TavilyBaseUrl] = normalizeTavilyBaseUrl(settings.tavilyBaseUrl)
             preferences[DefaultSelectedSkillIds] = serializePersistedStringList(
                 settings.defaultSelectedSkillIds,
             )
+            preferences[BuiltInSkillSelectionRepaired] = true
         }
     }
 
@@ -196,6 +193,28 @@ class AetherSettingsStore(
     suspend fun saveUiState(route: String) {
         dataStore.edit { preferences ->
             preferences[LastRoute] = route
+        }
+    }
+
+    private suspend fun repairBuiltInSkillSelectionDefaults() {
+        dataStore.edit { preferences ->
+            if (preferences[BuiltInSkillSelectionRepaired] == true) return@edit
+            val defaults = AppSettings()
+            val serializedSettings = parseAppSettings(
+                preferences[AppSettingsJson].orEmpty(),
+                defaults,
+            )
+            if (preferences[BuiltInSkillDefaultsInitialized] == true) {
+                val selectedSkillIds = (
+                preferences[DefaultSelectedSkillIds]
+                    ?.let(::parsePersistedStringListOrNull)
+                    ?: serializedSettings.defaultSelectedSkillIds
+                ).filterNot(BuiltInAgentSkillIds::contains)
+                val updated = serializedSettings.copy(defaultSelectedSkillIds = selectedSkillIds)
+                preferences[DefaultSelectedSkillIds] = serializePersistedStringList(selectedSkillIds)
+                preferences[AppSettingsJson] = serializeAppSettings(updated)
+            }
+            preferences[BuiltInSkillSelectionRepaired] = true
         }
     }
 
@@ -246,11 +265,10 @@ class AetherSettingsStore(
             preferences[ThemeMode] = persisted.appSettings.themeMode.storageValue
             preferences[SystemPrompt] = persisted.appSettings.systemPrompt
             preferences[ReasoningEffort] = normalizeReasoningEffort(persisted.appSettings.reasoningEffort)
-            preferences[TavilyApiKey] = persisted.appSettings.tavilyApiKey
-            preferences[TavilyBaseUrl] = normalizeTavilyBaseUrl(persisted.appSettings.tavilyBaseUrl)
             preferences[DefaultSelectedSkillIds] = serializePersistedStringList(
                 persisted.appSettings.defaultSelectedSkillIds,
             )
+            preferences[BuiltInSkillSelectionRepaired] = true
         }
     }
 
@@ -262,9 +280,13 @@ class AetherSettingsStore(
         val ThemeMode = stringPreferencesKey("theme_mode")
         val SystemPrompt = stringPreferencesKey("system_prompt")
         val ReasoningEffort = stringPreferencesKey("reasoning_effort")
-        val TavilyApiKey = stringPreferencesKey("tavily_api_key")
-        val TavilyBaseUrl = stringPreferencesKey("tavily_base_url")
         val DefaultSelectedSkillIds = stringPreferencesKey("default_selected_skill_ids")
+        val BuiltInSkillDefaultsInitialized = booleanPreferencesKey(
+            "built_in_skill_defaults_initialized_v1",
+        )
+        val BuiltInSkillSelectionRepaired = booleanPreferencesKey(
+            "built_in_skill_selection_repaired_v2",
+        )
         val AppSettingsJson = stringPreferencesKey("app_settings_json")
         val PrivacyPolicyAccepted = booleanPreferencesKey("privacy_policy_accepted")
         val ThinkingCatalogCacheJson = stringPreferencesKey("thinking_catalog_cache_json")

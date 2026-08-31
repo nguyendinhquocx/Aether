@@ -19,4 +19,17 @@ class BridgeFrameCodecTest {
         val encoded = BridgeFrameCodec().encode(buildJsonObject { put("ok", true) }).decodeToString()
         assertEquals("{\"ok\":true}\n", encoded)
     }
+
+    @Test
+    fun skipsMalformedLinesWithoutDiscardingFollowingFrames() {
+        val malformedLines = mutableListOf<String>()
+        val codec = BridgeFrameCodec { line, _ -> malformedLines += line }
+
+        val frames = codec.append(
+            "added 1 package in 7s\n{\"id\":\"install\"}\n".encodeToByteArray(),
+        )
+
+        assertEquals(listOf("added 1 package in 7s"), malformedLines)
+        assertEquals(listOf("install"), frames.map { it["id"].toString().trim('"') })
+    }
 }

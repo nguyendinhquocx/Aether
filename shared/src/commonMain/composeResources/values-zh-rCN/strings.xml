@@ -37,7 +37,6 @@
     <string name="message_aether_up_to_date">Aether 已是最新版本。</string>
     <string name="message_update_check_failed">无法检查更新：%1$s</string>
     <string name="message_fetch_models_failed">获取模型失败：%1$s</string>
-    <string name="message_refresh_mcp_failed">刷新 MCP 工具失败：%1$s</string>
     <string name="common_more">更多</string>
     <string name="common_close">关闭</string>
     <string name="common_skip">跳过</string>
@@ -235,39 +234,8 @@
     <string name="settings_root_setup_body_failed">授予 Aether su 后重试，或继续使用下方的手动配置操作。</string>
     <string name="settings_model_providers">模型提供方</string>
     <string name="settings_personalization">个性化</string>
-    <string name="settings_web_tools">网页工具</string>
     <string name="settings_reliability">可靠性</string>
     <string name="settings_agent_skills">Agent 技能</string>
-    <string name="settings_mcp_servers">MCP 服务器</string>
-    <string name="settings_mcp_servers_description">管理 MCP 服务器，检查每个传输配置，并只保留需要的连接。</string>
-    <string name="settings_no_mcp_servers">没有 MCP 服务器</string>
-    <string name="settings_add_mcp_server_description">添加 HTTP 或 stdio 服务器来扩展能力。</string>
-    <string name="settings_add_server">添加服务器</string>
-    <string name="settings_mcp_tools">工具</string>
-    <string name="settings_mcp_resources">资源</string>
-    <string name="settings_mcp_prompts">提示词</string>
-    <string name="settings_server_id">服务器 ID</string>
-    <string name="settings_quick_action">快捷操作</string>
-    <string name="settings_transport">传输方式</string>
-    <string name="settings_headers">请求头</string>
-    <string name="settings_command">命令</string>
-    <string name="settings_working_dir">工作目录</string>
-    <string name="settings_working_directory">工作目录</string>
-    <string name="settings_environment">环境变量</string>
-    <string name="settings_connect_timeout">连接超时</string>
-    <string name="settings_request_timeout">请求超时</string>
-    <string name="settings_stdio">标准输入输出</string>
-    <string name="settings_update_mcp_server_description">更新此 MCP 服务器的传输配置和快捷操作来源。</string>
-    <string name="settings_add_mcp_server_page_description">添加用于远程 API 的 HTTP 服务器，或用于本地进程的 stdio 服务器。</string>
-    <string name="settings_server_name">服务器名称</string>
-    <string name="settings_server_url">服务器 URL</string>
-    <string name="settings_optional_headers_hint">可选请求头，每行一个 KEY=VALUE。</string>
-    <string name="settings_save_http_server">保存 HTTP 服务器</string>
-    <string name="settings_add_http_server">添加 HTTP 服务器</string>
-    <string name="settings_arguments">参数</string>
-    <string name="settings_optional_environment_hint">可选环境变量，每行一个 KEY=VALUE。</string>
-    <string name="settings_save_stdio_server">保存 Stdio 服务器</string>
-    <string name="settings_add_stdio_server">添加 Stdio 服务器</string>
     <string name="settings_termux">Termux</string>
     <string name="settings_agent_mode">Agent 模式</string>
     <string name="settings_statistics">数据统计</string>
@@ -352,7 +320,7 @@
     <string name="settings_import_app_data">导入应用数据</string>
     <string name="settings_export_app_data">导出应用数据</string>
     <string name="settings_export_app_data_warning_title">导出敏感应用数据？</string>
-    <string name="settings_export_app_data_warning_message">此完整备份包含提供方凭据、自定义请求头、环境变量、MCP 配置及其他隐私设置。请妥善保管，不要分享给他人。</string>
+    <string name="settings_export_app_data_warning_message">此完整备份包含提供方凭据、自定义请求头、环境变量及其他隐私设置。请妥善保管，不要分享给他人。</string>
     <string name="settings_logs">日志</string>
     <string name="settings_logs_description">导出近期 Aether logcat 输出和诊断信息。</string>
     <string name="settings_export_logs">导出日志</string>
@@ -364,7 +332,7 @@
     <string name="settings_treat_termux_as_ready">将 Termux 视为已就绪</string>
     <string name="settings_termux_ready_toggle_subtitle">开启 = 已就绪。关闭 = 未就绪。</string>
     <string name="settings_replay_follow_up_tour">重播后续引导</string>
-    <string name="settings_replay_follow_up_tour_description">从路线选择开始，然后依次经过本地配置和 Tavily。</string>
+    <string name="settings_replay_follow_up_tour_description">从路线选择开始，然后依次经过本地配置和 Agent Mode 授权。</string>
     <string name="settings_replay_second_part">重播第二部分</string>
     <string name="settings_update_downloading_percent">正在下载 %1$d%%</string>
     <string name="settings_update_downloading">正在下载更新</string>
@@ -379,7 +347,6 @@
     <string name="settings_github">GitHub</string>
     <string name="settings_privacy_policy">隐私政策</string>
     <string name="settings_download_and_install">下载并安装</string>
-    <string name="settings_mcp_server_count_summary">%1$d 个服务器</string>
     <string name="settings_root_setup_progress_body_running">Aether 正在请求 su、启用 Termux 命令访问，并准备 Root Agent 模式。</string>
     <string name="settings_root_setup_progress_body_ready">Termux 命令访问和 Root Agent 模式授权已就绪。</string>
     <string name="settings_root_setup_progress_body_available">开始配置后会请求 su，并完成本地访问配置。</string>
@@ -399,9 +366,6 @@
     <string name="settings_general_hint">应用语言与外观</string>
     <string name="settings_enabled_providers_count">已启用 %1$d 个提供方</string>
     <string name="settings_custom_instructions">自定义指令</string>
-    <string name="settings_tavily_configured">已配置 Tavily 搜索</string>
-    <string name="settings_tavily_not_configured">URL 抓取可用，Tavily 未配置</string>
-    <string name="settings_tavily_base_url">Tavily 基础 URL</string>
     <string name="settings_background_runs_on">后台运行已开启</string>
     <string name="settings_background_runs_off">后台运行已关闭</string>
     <string name="settings_connected">已连接</string>
@@ -417,7 +381,7 @@
     <string name="settings_default_title_model">默认标题模型</string>
     <string name="settings_default_title_model_subtitle">用于 Aether 自动生成会话标题。</string>
     <string name="settings_default_naming_model">默认命名模型</string>
-    <string name="settings_default_naming_model_subtitle">用于 Agent Skills、MCP 等自动命名流程。</string>
+    <string name="settings_default_naming_model_subtitle">用于 Agent Skills 等自动命名流程。</string>
     <string name="settings_default_compacting_model">默认压缩模型</string>
     <string name="settings_default_compacting_model_subtitle">用于 /compact 总结当前会话。</string>
     <string name="settings_prioritize_sota_models">优先选择前沿模型</string>
@@ -433,8 +397,6 @@
     <string name="settings_enable_provider_model_first">请先启用至少一个提供方模型，然后再回来选择默认模型。</string>
     <string name="settings_search_models">搜索模型</string>
     <string name="settings_no_models_match_search">没有匹配此搜索的模型。</string>
-    <string name="settings_tavily_api_key">Tavily API 密钥</string>
-    <string name="settings_web_tools_description">fetch_web_url 无需额外配置即可使用。tavily_search 使用此 API Key 和 Base URL；将 URL 留空即可使用官方 Tavily API 地址。</string>
     <string name="settings_multitasking">后台运行</string>
     <string name="settings_keep_tasks_running_background">保持任务在后台运行</string>
     <string name="settings_keep_tasks_running_background_subtitle">使用 Android 前台服务，让活跃聊天在离开 Aether 后继续工作。</string>
@@ -664,7 +626,6 @@
     <string name="onboarding_timeline_welcome">欢迎</string>
     <string name="onboarding_timeline_setup">环境设置</string>
     <string name="onboarding_timeline_provider">AI 配置</string>
-    <string name="onboarding_timeline_search">搜索</string>
     <string name="onboarding_timeline_connection">连接方式</string>
     <string name="onboarding_timeline_provider_choice">服务商</string>
     <string name="onboarding_timeline_credentials">凭据</string>
@@ -710,8 +671,6 @@
     <string name="onboarding_agent_mode_shizuku_subtitle">安装应用后使用提权的 Shizuku 服务。</string>
     <string name="onboarding_agent_mode_root_subtitle">在已 root 的设备上使用 root shell 进行特权输入。</string>
     <string name="onboarding_agent_mode_skip_subtitle">先关闭 Agent 模式，之后再到设置中启用。</string>
-    <string name="onboarding_tavily_message">如果你之后想获得更新鲜的网页答案，可以在这里补上搜索能力。</string>
-    <string name="onboarding_tavily_optional_body">这是可选项。即使不填，URL 抓取也已经可以使用。</string>
     <string name="onboarding_paste_it_here">粘贴到这里</string>
 
     <!-- Conversation -->
@@ -859,9 +818,7 @@
     <string name="settings_runtime_environment_default_help">保持默认时，会跟随用户的默认运行环境。</string>
     <string name="settings_default_runtime">默认运行环境</string>
     <string name="settings_default_runtime_help">使用 设置 &gt; 运行环境默认值。</string>
-    <string name="settings_runtime_termux_stdio_subtitle">通过 Termux 运行这个 stdio server。</string>
-    <string name="settings_runtime_alpine_stdio_subtitle">在 Alpine 中运行这个 stdio server。</string>
-    <string name="settings_alpine_description">Aether 的内置 Linux 环境位于应用私有目录。它适合 shell 脚本、开发工具和 stdio MCP。</string>
+    <string name="settings_alpine_description">Aether 的内置 Linux 环境位于应用私有目录。它适合 shell 脚本和开发工具。</string>
     <string name="settings_open_terminal">打开终端</string>
     <string name="settings_open_chrome">打开浏览器</string>
     <string name="settings_chrome_environment">Agent 浏览器</string>
@@ -883,7 +840,7 @@
     <string name="settings_ready">已就绪</string>
     <string name="settings_initialize">初始化</string>
     <string name="settings_reset_alpine_data">重置 Alpine 数据</string>
-    <string name="settings_reset_alpine_data_warning">这会移除 Aether 管理的 Alpine 数据、Skills、MCP 配置和已安装环境预设状态，且无法撤销。</string>
+    <string name="settings_reset_alpine_data_warning">这会移除 Aether 管理的 Alpine 数据、Skills 和已安装环境预设状态，且无法撤销。</string>
     <string name="common_reset">重置</string>
     <string name="settings_use_as_default_runtime">设为默认运行环境</string>
     <string name="settings_environment_presets">快捷环境配置</string>
@@ -1021,7 +978,6 @@
     <string name="providers_title">模型服务商</string>
     <string name="skills_title">Skills</string>
     <string name="extensions_title">扩展</string>
-    <string name="mcp_title">MCP 服务器</string>
     <string name="alpine_runtime_title">Alpine 运行环境</string>
     <string name="about_title">关于</string>
     <string name="runtime_error">本地运行环境不可用</string>
@@ -1044,14 +1000,11 @@
     <string name="general_subtitle">语言、外观和应用行为</string>
     <string name="personalization_title">个性化</string>
     <string name="personalization_subtitle">自定义指令和偏好</string>
-    <string name="web_tools_title">Web 工具</string>
-    <string name="web_tools_subtitle">搜索和浏览器集成</string>
     <string name="reliability_title">可靠性</string>
     <string name="reliability_subtitle">重连与历史记录行为</string>
     <string name="providers_subtitle">配置模型和身份验证</string>
     <string name="skills_subtitle">已安装的 Agent Skills</string>
     <string name="extensions_subtitle">Pi 与 Aether 脚本扩展</string>
-    <string name="mcp_subtitle">HTTP 与 Alpine stdio 服务器</string>
     <string name="alpine_subtitle">终端、Node 与本地工具已就绪</string>
     <string name="terminal_title">终端</string>
     <string name="terminal_subtitle">Alpine Shell</string>

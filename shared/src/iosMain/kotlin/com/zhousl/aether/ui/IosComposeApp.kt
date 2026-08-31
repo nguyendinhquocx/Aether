@@ -84,6 +84,7 @@ import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Public
@@ -200,6 +201,7 @@ import com.zhousl.aether.data.SharedDiagnosticRedactor
 import com.zhousl.aether.data.SharedActiveSkillContext
 import com.zhousl.aether.data.SharedSkillManager
 import com.zhousl.aether.data.SharedInstalledSkill
+import com.zhousl.aether.data.CreateExtensionSkillId
 import com.zhousl.aether.data.SharedSkillDirectoryEntry
 import com.zhousl.aether.data.generateSharedQuickActionLabel
 import com.zhousl.aether.data.SharedAetherExtensionManager
@@ -229,7 +231,6 @@ import com.zhousl.aether.data.platformUptimeMillis
 import com.zhousl.aether.data.loadUsageStatistics
 import com.zhousl.aether.data.normalizeLlmInactivityReconnectTimeoutSeconds
 import com.zhousl.aether.data.normalizeOldCommandHistoryRetentionHours
-import com.zhousl.aether.data.normalizeTavilyBaseUrl
 import com.zhousl.aether.data.parseProviderConfigs
 import com.zhousl.aether.data.serializeAppSettings
 import com.zhousl.aether.data.serializeProviderConfigs
@@ -242,10 +243,8 @@ import com.zhousl.aether.data.pi.SharedPiTurnResult
 import com.zhousl.aether.data.pi.SharedPiUsage
 import com.zhousl.aether.data.pi.RuntimeHostToolExecutor
 import com.zhousl.aether.data.pi.SharedAgentManagementTools
-import com.zhousl.aether.data.pi.SharedMcpManager
 import com.zhousl.aether.data.pi.SharedMcpServerConfig
 import com.zhousl.aether.data.pi.SharedMcpTransport
-import com.zhousl.aether.data.pi.SharedToolRegistry
 import com.zhousl.aether.data.pi.SharedChromeManager
 import com.zhousl.aether.data.pi.SharedBrowserDisplayState
 import com.zhousl.aether.data.pi.SharedCompositeHostTools
@@ -321,7 +320,7 @@ import kotlin.math.roundToInt
 
 internal enum class SharedRoute { Onboarding, Chat }
 
-private enum class OnboardingStage { Landing, Runtime, Provider, Search }
+private enum class OnboardingStage { Landing, Runtime, Provider }
 private const val SharedScreenTransitionDuration = 320
 private const val SharedOnboardingStepFadeDuration = 560
 private val SharedScreenTransitionEasing = CubicBezierEasing(0.22f, 0.84f, 0.18f, 1f)
@@ -869,11 +868,6 @@ fun IosComposeApp(
         val unableToOpenLinkMessage = stringResource(Res.string.app_unable_to_open_link)
         val chatStoppedStatus = stringResource(Res.string.chat_stopped)
         val chatInterruptedStatus = stringResource(Res.string.chat_interrupted)
-        val mcpRefreshErrorPlaceholder = "{mcp_error}"
-        val mcpRefreshFailedTemplate = stringResource(
-            Res.string.message_refresh_mcp_failed,
-            mcpRefreshErrorPlaceholder,
-        )
         val appScope = rememberCoroutineScope()
         val extensionStateStore = remember(runtime) { SharedExtensionStateStore(runtime) }
         val bridgeClient = remember(runtime, extensionStateStore) {
@@ -891,7 +885,6 @@ fun IosComposeApp(
                 extensionLoadOptionsProvider = extensionStateStore::load,
             )
         }
-        val mcpManager = remember(runtime) { SharedMcpManager(runtime) }
         val chromeManager = remember(runtime) { SharedChromeManager(runtime) }
         val runtimeTools = remember(runtime) { RuntimeHostToolExecutor(runtime) }
         val skillManager = remember(runtime, extensionBridgeClient) {
@@ -1042,7 +1035,6 @@ fun IosComposeApp(
             skillManager,
             runtime,
             bridgeClient,
-            mcpManager,
         ) {
             if (settingsStore != null && historyStore != null) {
                 SharedAppDataManager(
@@ -1052,7 +1044,6 @@ fun IosComposeApp(
                     runtime = runtime,
                     bridgeClient = bridgeClient,
                     extensionStateStore = extensionStateStore,
-                    mcpManager = mcpManager,
                 )
             } else {
                 null
@@ -1147,12 +1138,6 @@ fun IosComposeApp(
             }
         }
 
-        fun reportMcpRefreshFailure(failure: Throwable) {
-            transientMessage = mcpRefreshFailedTemplate.replace(
-                mcpRefreshErrorPlaceholder,
-                failure.message.orEmpty().ifBlank { "Unknown error." },
-            )
-        }
         val managementTools = remember(runtime, bridgeClient, skillManager) {
             SharedAgentManagementTools(
                 runtime = runtime,
@@ -1293,16 +1278,7 @@ fun IosComposeApp(
 
         fun persistResolvedAppSettings(updated: AppSettings) {
             val modelOptions = providerConfigs.availableModelOptions()
-            fun normalizedModelKey(value: String): String = value.takeIf { modelKey ->
-                modelKey.isBlank() || modelOptions.any { it.key == modelKey }
-            }.orEmpty()
-
-            var resolved = updated.copy(
-                defaultChatModelKey = normalizedModelKey(updated.defaultChatModelKey),
-                defaultTitleModelKey = normalizedModelKey(updated.defaultTitleModelKey),
-                defaultNamingModelKey = normalizedModelKey(updated.defaultNamingModelKey),
-                defaultCompactingModelKey = normalizedModelKey(updated.defaultCompactingModelKey),
-            )
+            var resolved = updated
             val resolvedChatModelKey = resolved.defaultChatModelKey.ifBlank {
                 modelOptions.resolveAutomaticModelKey(AutomaticModelPurpose.Chat)
             }
@@ -1455,24 +1431,8 @@ fun IosComposeApp(
                         )
                     }
                 }
-                val loadedMcpServers = runSharedAppCatching { mcpManager.loadServers() }
-                loadedMcpServers.onSuccess { servers ->
-                    mcpServers.clear()
-                    mcpServers.addAll(servers)
-                    retainEnabledMcpSelections(
-                        servers.filter(SharedMcpServerConfig::enabled)
-                            .map(SharedMcpServerConfig::id)
-                            .toSet(),
-                    )
-                    runSharedAppCatching {
-                        mcpManager.refreshBindings(
-                            servers.filter { it.enabled && it.id in activeMcpServerIds },
-                            sessionId = currentSession.id,
-                        )
-                    }
-                        .onFailure(::reportMcpRefreshFailure)
-                }
-                loadedMcpServers.onFailure(::reportMcpRefreshFailure)
+                mcpServers.clear()
+                retainEnabledMcpSelections(emptySet())
             }
         }
 
@@ -1983,18 +1943,8 @@ fun IosComposeApp(
                 // discovery and reads SKILL.md lazily through the native read tool.
                 target.selectedSkillIds.clear()
                 target.activeSkills.clear()
-                val enabledMcpServersById = mcpServers
-                    .filter(SharedMcpServerConfig::enabled)
-                    .associateBy(SharedMcpServerConfig::id)
-                val resolvedMcpServers = target.activeMcpServerIds.distinct()
-                    .mapNotNull(enabledMcpServersById::get)
-                target.activeMcpServerIds.replaceSharedContents(
-                    resolvedMcpServers.map(SharedMcpServerConfig::id),
-                )
+                target.activeMcpServerIds.clear()
                 persistSession(target)
-                runSharedAppCatching {
-                    mcpManager.refreshBindings(resolvedMcpServers, sessionId = target.id)
-                }.onFailure(::reportMcpRefreshFailure)
                 runSharedAppCatching {
                     val reasoningTraceToolRoutingEnabled = config.supportsSharedVisibleReasoningTrace()
                     chatClient.runTurn(
@@ -2400,10 +2350,6 @@ fun IosComposeApp(
             sessionId = state.id
             appScope.launch {
                 historyStore?.setCurrentSession(state.id)
-                runSharedAppCatching {
-                    mcpManager.refreshBindings(emptyList(), sessionId = state.id)
-                }
-                    .onFailure(::reportMcpRefreshFailure)
             }
             return state
         }
@@ -2416,12 +2362,6 @@ fun IosComposeApp(
             state.hasUnviewedCompletion = false
             appScope.launch {
                 historyStore?.setCurrentSession(state.id)
-                runSharedAppCatching {
-                    mcpManager.refreshBindings(
-                        mcpServers.filter { it.enabled && it.id in state.activeMcpServerIds },
-                        sessionId = state.id,
-                    )
-                }.onFailure(::reportMcpRefreshFailure)
                 persistSession(state)
             }
         }
@@ -2584,8 +2524,6 @@ fun IosComposeApp(
                             put("reasoning_effort", sharedAppSettings.reasoningEffort)
                             put("theme", sharedAppSettings.themeMode.storageValue)
                             put("language", sharedAppSettings.language.storageValue)
-                            put("tavily_api_key", sharedAppSettings.tavilyApiKey)
-                            put("tavily_base_url", sharedAppSettings.tavilyBaseUrl)
                             put("provider_configs", JsonArray(providerConfigs.map { it.toJsonObject() }))
                         }
                     }
@@ -2595,9 +2533,6 @@ fun IosComposeApp(
                         }
                         args["reasoning_effort"]?.jsonPrimitive?.contentOrNull?.let {
                             sharedAppSettings = sharedAppSettings.copy(reasoningEffort = it)
-                        }
-                        args["tavily_api_key"]?.jsonPrimitive?.contentOrNull?.let {
-                            sharedAppSettings = sharedAppSettings.copy(tavilyApiKey = it)
                         }
                         settingsStore?.saveGeneralSettings(sharedAppSettings)
                         buildJsonObject { put("updated", true) }
@@ -2834,7 +2769,6 @@ fun IosComposeApp(
             settings = sharedAppSettings,
             providerConfigs = providerConfigs,
             installedSkills = installedSkills,
-            mcpServers = mcpServers,
             extensionSnapshot = extensionSnapshot,
             capabilities = capabilities,
             statistics = nativeStatisticsReport,
@@ -2853,7 +2787,7 @@ fun IosComposeApp(
                 nativeSettingsSnapshot,
             )
         }
-        DisposableEffect(nativeSettingsHost, extensionManager, skillManager, mcpManager) {
+        DisposableEffect(nativeSettingsHost, extensionManager, skillManager) {
             nativeSettingsHost?.setCommandHandler(object : NativeSettingsCommandHandler {
                 override fun handle(command: String, payloadJson: String) {
                     val payload = runCatching {
@@ -3088,75 +3022,6 @@ fun IosComposeApp(
                             }.onSuccess { nativeOperationMessage = "Skill installed." }
                                 .onFailure { nativeOperationError = it.sharedUserFacingMessage() }
                             nativeOperation = ""
-                        }
-                        "mcp_enabled" -> appScope.launch {
-                            val id = payload.nativeString("id")
-                            val enabled = payload.nativeBoolean("enabled") ?: false
-                            val updated = mcpServers.map { server ->
-                                if (server.id == id) server.copy(enabled = enabled) else server
-                            }
-                            mcpManager.saveServers(updated)
-                            mcpServers.clear()
-                            mcpServers.addAll(updated)
-                            retainEnabledMcpSelections(
-                                updated.filter(SharedMcpServerConfig::enabled)
-                                    .map(SharedMcpServerConfig::id)
-                                    .toSet(),
-                            )
-                        }
-                        "mcp_upsert" -> appScope.launch {
-                            val id = payload.nativeString("id")
-                                .ifBlank { "mcp-${platformCurrentTimeMillis()}" }
-                            val existing = mcpServers.firstOrNull { it.id == id }
-                            val now = platformCurrentTimeMillis()
-                            val server = SharedMcpServerConfig(
-                                id = id,
-                                name = payload.nativeString("name").trim(),
-                                actionLabel = payload.nativeString("actionLabel"),
-                                transport = if (payload.nativeString("transport") == "http") {
-                                    SharedMcpTransport.Http
-                                } else {
-                                    SharedMcpTransport.Stdio
-                                },
-                                url = payload.nativeString("url").trim(),
-                                command = payload.nativeString("command").trim(),
-                                arguments = payload.nativeStringList("arguments"),
-                                headers = payload.nativeStringMap("headers"),
-                                workingDirectory = payload.nativeString("workingDirectory").trim(),
-                                environment = payload.nativeStringMap("environment"),
-                                runtimeEnvironment = payload.nativeString("runtimeEnvironment")
-                                    .ifBlank { "default" },
-                                connectTimeoutMillis = payload.nativeLong("connectTimeoutMillis")
-                                    ?.coerceIn(1_000L, 300_000L) ?: 15_000L,
-                                requestTimeoutMillis = payload.nativeLong("requestTimeoutMillis")
-                                    ?.coerceIn(1_000L, 900_000L) ?: 60_000L,
-                                enabled = payload.nativeBoolean("enabled") ?: true,
-                                createdAtMillis = existing?.createdAtMillis
-                                    ?: payload.nativeLong("createdAtMillis") ?: now,
-                                updatedAtMillis = now,
-                            )
-                            if (server.name.isBlank()) return@launch
-                            val updated = mcpServers.filterNot { it.id == id } + server
-                            mcpManager.saveServers(updated)
-                            mcpServers.clear()
-                            mcpServers.addAll(updated)
-                            retainEnabledMcpSelections(
-                                updated.filter(SharedMcpServerConfig::enabled)
-                                    .map(SharedMcpServerConfig::id)
-                                    .toSet(),
-                            )
-                        }
-                        "mcp_remove" -> appScope.launch {
-                            val id = payload.nativeString("id")
-                            val updated = mcpServers.filterNot { it.id == id }
-                            mcpManager.saveServers(updated)
-                            mcpServers.clear()
-                            mcpServers.addAll(updated)
-                            retainEnabledMcpSelections(
-                                updated.filter(SharedMcpServerConfig::enabled)
-                                    .map(SharedMcpServerConfig::id)
-                                    .toSet(),
-                            )
                         }
                         "extension_setting" -> appScope.launch {
                             val value = payload["value"] ?: JsonNull
@@ -3401,7 +3266,6 @@ fun IosComposeApp(
                                     installedSkills.clear()
                                     installedSkills.addAll(restored.installedSkills)
                                     mcpServers.clear()
-                                    mcpServers.addAll(restored.mcpServers)
                                     sessionStates.clear()
                                     sessions.clear()
                                     restored.sessions.forEach { persistedSession ->
@@ -3429,15 +3293,6 @@ fun IosComposeApp(
                                             extensionSnapshot = refreshed
                                             extensionSnapshotResolved = true
                                         }
-                                        runSharedAppCatching {
-                                            mcpManager.refreshBindings(
-                                                restored.mcpServers.filter { server ->
-                                                    server.enabled &&
-                                                        server.id in restoredCurrent.activeMcpServerIds
-                                                },
-                                                sessionId = restoredCurrent.id,
-                                            )
-                                        }.onFailure(::reportMcpRefreshFailure)
                                     }
                                     nativeOperationMessage = "App data imported."
                                 }
@@ -3456,7 +3311,6 @@ fun IosComposeApp(
                                     sessionStates = sessionStates.values,
                                     providerConfigs = providerConfigs,
                                     installedSkillCount = installedSkills.size,
-                                    mcpServers = mcpServers,
                                     settings = sharedAppSettings,
                                 )
                                 platformServices.exportFile(
@@ -3579,17 +3433,6 @@ fun IosComposeApp(
                         route = SharedRoute.Chat
                     },
                     initialStage = onboardingEntryStage,
-                    initialSearchValue = sharedAppSettings.tavilyApiKey,
-                    onSearchDone = { apiKey ->
-                        if (apiKey.isNotBlank()) {
-                            sharedAppSettings = sharedAppSettings.copy(tavilyApiKey = apiKey)
-                            appScope.launch { settingsStore?.saveGeneralSettings(sharedAppSettings) }
-                        }
-                        val returnToSettings = onboardingReplayMode
-                        onboardingReplayMode = false
-                        onboardingEntryStage = OnboardingStage.Landing
-                        if (returnToSettings) openSettings() else route = SharedRoute.Chat
-                    },
                 )
                 SharedRoute.Chat -> SharedAetherExtensionComponentHost(
                     target = SharedExtensionComponentChatScreen,
@@ -3617,34 +3460,36 @@ fun IosComposeApp(
                     availableSkills = installedSkills.filter { it.isEnabled },
                     selectedSkillIds = selectedSkillIds,
                     onSkillSelected = { skillId, selected ->
-                        if (selected) {
-                            if (skillId !in selectedSkillIds) selectedSkillIds += skillId
+                        val selectionChanged = if (selected) {
+                            if (skillId !in selectedSkillIds) {
+                                selectedSkillIds += skillId
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             selectedSkillIds.remove(skillId)
+                        }
+                        if (!selected) {
                             currentSession.activeSkills.removeAll {
                                 it.skillId !in currentSession.selectedSkillIds
                             }
                         }
-                        appScope.launch { persistSession() }
-                    },
-                    mcpServers = mcpServers.filter { it.enabled },
-                    activeMcpServerIds = activeMcpServerIds,
-                    onMcpServerSelected = { serverId, selected ->
-                        if (selected) {
-                            if (serverId !in activeMcpServerIds) activeMcpServerIds += serverId
+                        val settingsToSave = if (selectionChanged && currentSession.isDraft) {
+                            sharedAppSettings.copy(
+                                defaultSelectedSkillIds = selectedSkillIds.toList(),
+                            ).also { sharedAppSettings = it }
                         } else {
-                            activeMcpServerIds.remove(serverId)
+                            null
                         }
                         appScope.launch {
-                            runSharedAppCatching {
-                                mcpManager.refreshBindings(
-                                    mcpServers.filter { it.enabled && it.id in activeMcpServerIds },
-                                    sessionId = currentSession.id,
-                                )
-                            }.onFailure(::reportMcpRefreshFailure)
+                            settingsToSave?.let { settingsStore?.saveGeneralSettings(it) }
                             persistSession()
                         }
                     },
+                    mcpServers = mcpServers.filter { it.enabled },
+                    activeMcpServerIds = activeMcpServerIds,
+                    onMcpServerSelected = { _, _ -> },
                     chromeAvailable = capabilities.alpineChrome,
                     chromeEnabled = chromeEnabled,
                     chromeManager = chromeManager,
@@ -4177,7 +4022,6 @@ private suspend fun buildSharedDiagnosticLogText(
     sessionStates: Collection<SharedSessionUiState>,
     providerConfigs: List<LlmProviderConfig>,
     installedSkillCount: Int,
-    mcpServers: List<SharedMcpServerConfig>,
     settings: AppSettings,
 ): String {
     val diagnosticEvents = SharedDiagnosticLogger.readEventsText()
@@ -4193,16 +4037,12 @@ private suspend fun buildSharedDiagnosticLogText(
         appendLine("piProviderId=${settings.piProviderId}")
         appendLine("providerConfigCount=${providerConfigs.size}")
         appendLine("skillCount=$installedSkillCount")
-        appendLine("mcpServerCount=${mcpServers.size}")
         appendLine()
         appendLine("settingsSummary:")
         appendLine(buildSharedSettingsDiagnosticSummary(settings).toSharedDiagnosticText())
         appendLine()
         appendLine("providerConfigsSummary:")
         appendLine(buildSharedProviderConfigsDiagnosticSummary(providerConfigs).toSharedDiagnosticText())
-        appendLine()
-        appendLine("mcpServersSummary:")
-        appendLine(buildSharedMcpServersDiagnosticSummary(mcpServers).toSharedDiagnosticText())
         appendLine()
         appendLine("sessionsSummary:")
         appendLine(
@@ -4558,8 +4398,6 @@ private fun SharedOnboarding(
     onClose: () -> Unit,
     onComplete: (LlmProviderConfig) -> Unit,
     initialStage: OnboardingStage = OnboardingStage.Landing,
-    initialSearchValue: String,
-    onSearchDone: (String) -> Unit,
 ) {
     val reduceMotion = LocalReduceMotion.current
     var stage by rememberSaveable(replayMode, initialStage) { mutableStateOf(initialStage) }
@@ -4573,7 +4411,6 @@ private fun SharedOnboarding(
             OnboardingTimelineStep.Welcome -> OnboardingStage.Landing
             OnboardingTimelineStep.Setup -> OnboardingStage.Runtime
             OnboardingTimelineStep.Provider -> OnboardingStage.Provider
-            OnboardingTimelineStep.Search -> OnboardingStage.Provider
         }
     }
     CompositionLocalProvider(LocalOnboardingTimelinePosition provides timelinePosition) {
@@ -4607,7 +4444,6 @@ private fun SharedOnboarding(
                 onComplete = onComplete,
                 onTimelineStepSelected = onTimelineStepSelected,
             )
-            OnboardingStage.Search -> LaunchedEffect(Unit) { onClose() }
     }
     }
 }
@@ -7353,8 +7189,8 @@ private fun SharedComposerPlusMenu(
                                 val selected = skill.id in selectedSkillIds
                                 SharedComposerPlusMenuRow(
                                     title = skill.sharedQuickActionLabel(),
-                                    icon = Icons.Rounded.Extension,
-                                    iconTint = Color(0xFF9C6B2F),
+                                    icon = skill.sharedComposerIcon(),
+                                    iconTint = skill.sharedComposerIconTint(),
                                     selected = selected,
                                     onClick = {
                                         onDismiss()
@@ -7480,7 +7316,8 @@ private fun SharedComposerActionTray(
         skills.forEach { skill ->
             SharedComposerActionChip(
                 label = skill.sharedQuickActionLabel(),
-                icon = Icons.Rounded.Extension,
+                icon = skill.sharedComposerIcon(),
+                iconTint = skill.sharedComposerIconTint(),
                 onRemove = { onRemoveSkill(skill.id) },
             )
         }
@@ -7494,10 +7331,17 @@ private fun SharedComposerActionTray(
     }
 }
 
+private fun SharedInstalledSkill.sharedComposerIcon(): ImageVector =
+    if (id == CreateExtensionSkillId) Icons.Rounded.LibraryAdd else Icons.Rounded.Extension
+
+private fun SharedInstalledSkill.sharedComposerIconTint(): Color =
+    if (id == CreateExtensionSkillId) AetherPrimary else Color(0xFF9C6B2F)
+
 @Composable
 private fun SharedComposerActionChip(
     label: String,
     icon: ImageVector,
+    iconTint: Color = Color(0xFF4F8CFF),
     onRemove: () -> Unit,
 ) {
     Row(
@@ -7506,7 +7350,7 @@ private fun SharedComposerActionChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(icon, null, tint = Color(0xFF4F8CFF), modifier = Modifier.size(16.dp))
+        Icon(icon, null, tint = iconTint, modifier = Modifier.size(16.dp))
         Text(
             label,
             modifier = Modifier.weight(1f, fill = false),
@@ -8524,7 +8368,6 @@ internal fun buildNativeSettingsSnapshot(
     settings: AppSettings,
     providerConfigs: List<LlmProviderConfig>,
     installedSkills: List<SharedInstalledSkill>,
-    mcpServers: List<SharedMcpServerConfig>,
     extensionSnapshot: SharedAetherExtensionSnapshot,
     capabilities: PlatformCapabilities,
     statistics: com.zhousl.aether.data.SharedUsageStatisticsReport =
@@ -8650,33 +8493,6 @@ internal fun buildNativeSettingsSnapshot(
                 put("allowedTools", buildJsonArray {
                     skill.allowedTools.forEach { add(JsonPrimitive(it)) }
                 })
-            })
-        }
-    })
-    put("mcpServers", buildJsonArray {
-        mcpServers.forEach { server ->
-            add(buildJsonObject {
-                put("id", server.id)
-                put("name", server.name)
-                put("enabled", server.enabled)
-                put("transport", server.transport.name.lowercase())
-                put("detail", server.url.ifBlank { server.command })
-                put("actionLabel", server.actionLabel)
-                put("url", server.url)
-                put("command", server.command)
-                put("arguments", buildJsonArray {
-                    server.arguments.forEach { add(JsonPrimitive(it)) }
-                })
-                put("headers", buildJsonObject { server.headers.forEach { (key, value) -> put(key, value) } })
-                put("workingDirectory", server.workingDirectory)
-                put("environment", buildJsonObject {
-                    server.environment.forEach { (key, value) -> put(key, value) }
-                })
-                put("runtimeEnvironment", server.runtimeEnvironment)
-                put("connectTimeoutMillis", server.connectTimeoutMillis)
-                put("requestTimeoutMillis", server.requestTimeoutMillis)
-                put("createdAtMillis", server.createdAtMillis)
-                put("updatedAtMillis", server.updatedAtMillis)
             })
         }
     })
@@ -8866,9 +8682,6 @@ internal fun AppSettings.withNativeSettingsPatch(patch: JsonObject): AppSettings
     themeMode = patch.nativeStringOrNull("themeMode")
         ?.let(com.zhousl.aether.data.AppThemeMode::fromStorage) ?: themeMode,
     systemPrompt = patch.nativeStringOrNull("systemPrompt") ?: systemPrompt,
-    tavilyApiKey = patch.nativeStringOrNull("tavilyApiKey") ?: tavilyApiKey,
-    tavilyBaseUrl = patch.nativeStringOrNull("tavilyBaseUrl")
-        ?.let(::normalizeTavilyBaseUrl) ?: tavilyBaseUrl,
     llmInactivityReconnectTimeoutSeconds = patch.nativeInt("llmInactivityReconnectTimeoutSeconds")
         ?.let(::normalizeLlmInactivityReconnectTimeoutSeconds)
         ?: llmInactivityReconnectTimeoutSeconds,

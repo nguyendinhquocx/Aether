@@ -7,6 +7,21 @@ import kotlin.test.assertTrue
 
 class SharedSkillManagerTest {
     @Test
+    fun createExtensionIsBuiltInAndReadyForUnattendedInstallation() {
+        val skill = BuiltInAgentSkills.single { it.id == CreateExtensionSkillId }
+        val metadata = validateSharedSkillDocument(skill.markdown)
+
+        assertEquals("Create Extension", metadata.name)
+        assertEquals("Create Extensions", skill.actionLabel)
+        assertTrue(metadata.description.contains("customize Aether"))
+        assertTrue(skill.markdown.contains("docs/AETHER_EXTENSIONS.md"))
+        assertTrue(skill.markdown.contains("aether.baimoqilin.com/docs/extensions/overview.md"))
+        assertTrue(skill.markdown.contains("install_package"))
+        assertTrue(CreateExtensionSkillId in BuiltInAgentSkillIds)
+        assertTrue(AppSettings().defaultSelectedSkillIds.isEmpty())
+    }
+
+    @Test
     fun discoveredSkillIdsAreStableAndSourceSpecific() {
         val path = "/root/.agents/skills/review/SKILL.md"
         assertEquals(sharedDiscoveredSkillId(path), sharedDiscoveredSkillId("  $path "))

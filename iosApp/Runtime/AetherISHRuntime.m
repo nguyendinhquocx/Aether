@@ -694,6 +694,54 @@ static void AetherISHDie(const char *message) {
     return result;
 }
 
+- (BOOL)exportFile:(NSString *)path toURL:(NSURL *)destinationURL error:(NSError **)error {
+    __block BOOL succeeded = NO;
+    __block NSError *operationError = nil;
+    BOOL performed = [self performGuestOperation:^{
+        struct fd *input = generic_open(path.UTF8String, O_RDONLY_, 0);
+        if (IS_ERR(input)) {
+            operationError = AetherISHError(PTR_ERR(input), @"Unable to open guest file for export.");
+            return;
+        }
+        int output = open(destinationURL.fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (output < 0) {
+            operationError = AetherISHError(-errno, @"Unable to create the exported file.");
+            fd_close(input);
+            return;
+        }
+
+        uint8_t buffer[64 * 1024];
+        while (true) {
+            ssize_t count = input->ops->read(input, buffer, sizeof(buffer));
+            if (count < 0) {
+                operationError = AetherISHError(count, @"Unable to read guest file for export.");
+                break;
+            }
+            if (count == 0) {
+                succeeded = YES;
+                break;
+            }
+            ssize_t written = 0;
+            while (written < count) {
+                ssize_t result = write(output, buffer + written, (size_t)(count - written));
+                if (result < 0 && errno == EINTR) continue;
+                if (result <= 0) {
+                    operationError = AetherISHError(result < 0 ? -errno : _EIO, @"Unable to write the exported file.");
+                    break;
+                }
+                written += result;
+            }
+            if (operationError) break;
+        }
+        close(output);
+        fd_close(input);
+    }];
+    if (!performed && !operationError) operationError = AetherISHNotInitializedError();
+    if (!succeeded) [NSFileManager.defaultManager removeItemAtURL:destinationURL error:nil];
+    if (error) *error = operationError;
+    return succeeded;
+}
+
 - (BOOL)writeFile:(NSString *)path data:(NSData *)data executable:(BOOL)executable error:(NSError **)error {
     return [self writeFile:path data:data executable:executable progress:nil error:error];
 }

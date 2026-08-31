@@ -37,7 +37,6 @@
     <string name="message_aether_up_to_date">Aether is up to date.</string>
     <string name="message_update_check_failed">Couldn't check for updates: %1$s</string>
     <string name="message_fetch_models_failed">Failed to fetch models: %1$s</string>
-    <string name="message_refresh_mcp_failed">Failed to refresh MCP tools: %1$s</string>
     <string name="common_more">More</string>
     <string name="common_close">Close</string>
     <string name="common_skip">Skip</string>
@@ -236,39 +235,8 @@
     <string name="settings_root_setup_body_failed">Retry after granting su to Aether, or continue with the manual setup actions below.</string>
     <string name="settings_model_providers">Model Providers</string>
     <string name="settings_personalization">Personalization</string>
-    <string name="settings_web_tools">Web Tools</string>
     <string name="settings_reliability">Reliability</string>
     <string name="settings_agent_skills">Agent Skills</string>
-    <string name="settings_mcp_servers">MCP Servers</string>
-    <string name="settings_mcp_servers_description">Manage MCP servers, inspect each transport config, and keep only the connections you want active.</string>
-    <string name="settings_no_mcp_servers">No MCP servers</string>
-    <string name="settings_add_mcp_server_description">Add HTTP or stdio servers to extend capabilities.</string>
-    <string name="settings_add_server">Add Server</string>
-    <string name="settings_mcp_tools">Tools</string>
-    <string name="settings_mcp_resources">Resources</string>
-    <string name="settings_mcp_prompts">Prompts</string>
-    <string name="settings_server_id">Server ID</string>
-    <string name="settings_quick_action">Quick action</string>
-    <string name="settings_transport">Transport</string>
-    <string name="settings_headers">Headers</string>
-    <string name="settings_command">Command</string>
-    <string name="settings_working_dir">Working dir</string>
-    <string name="settings_working_directory">Working directory</string>
-    <string name="settings_environment">Environment</string>
-    <string name="settings_connect_timeout">Connect timeout</string>
-    <string name="settings_request_timeout">Request timeout</string>
-    <string name="settings_stdio">Stdio</string>
-    <string name="settings_update_mcp_server_description">Update the transport config and quick action source for this MCP server.</string>
-    <string name="settings_add_mcp_server_page_description">Add an HTTP server for remote APIs or a stdio server for local processes.</string>
-    <string name="settings_server_name">Server name</string>
-    <string name="settings_server_url">Server URL</string>
-    <string name="settings_optional_headers_hint">Optional headers, one KEY=VALUE per line.</string>
-    <string name="settings_save_http_server">Save HTTP Server</string>
-    <string name="settings_add_http_server">Add HTTP Server</string>
-    <string name="settings_arguments">Arguments</string>
-    <string name="settings_optional_environment_hint">Optional environment variables, one KEY=VALUE per line.</string>
-    <string name="settings_save_stdio_server">Save Stdio Server</string>
-    <string name="settings_add_stdio_server">Add Stdio Server</string>
     <string name="settings_termux">Termux</string>
     <string name="settings_agent_mode">Agent Mode</string>
     <string name="settings_statistics">Statistics</string>
@@ -353,7 +321,7 @@
     <string name="settings_import_app_data">Import app data</string>
     <string name="settings_export_app_data">Export app data</string>
     <string name="settings_export_app_data_warning_title">Export sensitive app data?</string>
-    <string name="settings_export_app_data_warning_message">This complete backup includes provider credentials, custom headers, environment variables, MCP configuration, and other private settings. Store it securely and do not share it.</string>
+    <string name="settings_export_app_data_warning_message">This complete backup includes provider credentials, custom headers, environment variables, and other private settings. Store it securely and do not share it.</string>
     <string name="settings_logs">Logs</string>
     <string name="settings_logs_description">Export recent Aether logcat output and diagnostic metadata.</string>
     <string name="settings_export_logs">Export logs</string>
@@ -365,7 +333,7 @@
     <string name="settings_treat_termux_as_ready">Treat Termux as ready</string>
     <string name="settings_termux_ready_toggle_subtitle">On = ready. Off = not ready.</string>
     <string name="settings_replay_follow_up_tour">Replay Follow-up Tour</string>
-    <string name="settings_replay_follow_up_tour_description">Starts from route choice, then goes through local setup and Tavily.</string>
+    <string name="settings_replay_follow_up_tour_description">Starts from route choice, then goes through local setup and Agent Mode authorization.</string>
     <string name="settings_replay_second_part">Replay second part</string>
     <string name="settings_update_downloading_percent">Downloading %1$d%%</string>
     <string name="settings_update_downloading">Downloading update</string>
@@ -380,7 +348,6 @@
     <string name="settings_github">GitHub</string>
     <string name="settings_privacy_policy">Privacy Policy</string>
     <string name="settings_download_and_install">Download and install</string>
-    <string name="settings_mcp_server_count_summary">%1$d servers</string>
     <string name="settings_root_setup_progress_body_running">Aether is requesting su, enabling Termux command access, and preparing Root Agent Mode.</string>
     <string name="settings_root_setup_progress_body_ready">Termux command access and Root Agent Mode authorization are ready.</string>
     <string name="settings_root_setup_progress_body_available">Start setup to grant su and finish the local access configuration.</string>
@@ -401,8 +368,6 @@
     <string name="settings_general_summary">%1$s / %2$s</string>
     <string name="settings_enabled_providers_count">%1$d providers enabled</string>
     <string name="settings_custom_instructions">Custom instructions</string>
-    <string name="settings_tavily_configured">Tavily search configured</string>
-    <string name="settings_tavily_not_configured">URL fetch ready, Tavily not configured</string>
     <string name="settings_background_runs_on">Background runs on</string>
     <string name="settings_background_runs_off">Background runs off</string>
     <string name="settings_connected">Connected</string>
@@ -418,7 +383,7 @@
     <string name="settings_default_title_model">Default Title Model</string>
     <string name="settings_default_title_model_subtitle">Used when Aether automatically generates conversation titles.</string>
     <string name="settings_default_naming_model">Default Naming Model</string>
-    <string name="settings_default_naming_model_subtitle">Used for automatic naming flows such as Agent Skills and MCP labels.</string>
+    <string name="settings_default_naming_model_subtitle">Used for automatic naming flows such as Agent Skills.</string>
     <string name="settings_default_compacting_model">Default Compacting Model</string>
     <string name="settings_default_compacting_model_subtitle">Used when /compact summarizes the current conversation.</string>
     <string name="settings_prioritize_sota_models">Prioritize the SOTA models</string>
@@ -434,9 +399,6 @@
     <string name="settings_enable_provider_model_first">Enable at least one provider model first, then return here to choose a default.</string>
     <string name="settings_search_models">Search models</string>
     <string name="settings_no_models_match_search">No models match this search.</string>
-    <string name="settings_tavily_api_key">Tavily API Key</string>
-    <string name="settings_tavily_base_url">Tavily Base URL</string>
-    <string name="settings_web_tools_description">fetch_web_url works without extra setup. tavily_search uses this API key and Base URL; leave the URL blank to use the official Tavily endpoint.</string>
     <string name="settings_multitasking">Multitasking</string>
     <string name="settings_keep_tasks_running_background">Keep tasks running in background</string>
     <string name="settings_keep_tasks_running_background_subtitle">Uses an Android foreground service so active chats can keep working after you leave Aether.</string>
@@ -666,7 +628,6 @@
     <string name="onboarding_timeline_welcome">Welcome</string>
     <string name="onboarding_timeline_setup">Setup</string>
     <string name="onboarding_timeline_provider">AI Config</string>
-    <string name="onboarding_timeline_search">Search</string>
     <string name="onboarding_timeline_connection">Connection</string>
     <string name="onboarding_timeline_provider_choice">Provider</string>
     <string name="onboarding_timeline_credentials">Credentials</string>
@@ -712,8 +673,6 @@
     <string name="onboarding_agent_mode_shizuku_subtitle">Use the elevated Shizuku service when the app is installed.</string>
     <string name="onboarding_agent_mode_root_subtitle">Use a root shell for privileged input on rooted devices.</string>
     <string name="onboarding_agent_mode_skip_subtitle">Leave Agent Mode off and enable it later from Settings.</string>
-    <string name="onboarding_tavily_message">If you want fresher web answers later, you can add search here.</string>
-    <string name="onboarding_tavily_optional_body">This is optional. URL fetch already works without it.</string>
     <string name="onboarding_paste_it_here">Paste it here</string>
 
     <!-- Conversation -->
@@ -861,9 +820,7 @@
     <string name="settings_runtime_environment_default_help">Leave this as default to follow the user's runtime default.</string>
     <string name="settings_default_runtime">Default runtime</string>
     <string name="settings_default_runtime_help">Use Settings &gt; Runtime Defaults.</string>
-    <string name="settings_runtime_termux_stdio_subtitle">Run this stdio server through Termux.</string>
-    <string name="settings_runtime_alpine_stdio_subtitle">Run this stdio server inside Alpine.</string>
-    <string name="settings_alpine_description">Aether's built-in Linux environment is app-private. Use it for shell scripts, development tools, and stdio MCP servers.</string>
+    <string name="settings_alpine_description">Aether's built-in Linux environment is app-private. Use it for shell scripts and development tools.</string>
     <string name="settings_open_terminal">Open terminal</string>
     <string name="settings_open_chrome">Open browser</string>
     <string name="settings_chrome_environment">Agent browser</string>
@@ -885,7 +842,7 @@
     <string name="settings_ready">Ready</string>
     <string name="settings_initialize">Initialize</string>
     <string name="settings_reset_alpine_data">Reset Alpine data</string>
-    <string name="settings_reset_alpine_data_warning">This removes Aether-managed Alpine data, Skills, MCP configuration, and installed environment preset state. This cannot be undone.</string>
+    <string name="settings_reset_alpine_data_warning">This removes Aether-managed Alpine data, Skills, and installed environment preset state. This cannot be undone.</string>
     <string name="common_reset">Reset</string>
     <string name="settings_use_as_default_runtime">Use as default runtime</string>
     <string name="settings_environment_presets">Environment presets</string>
@@ -1023,7 +980,6 @@
     <string name="providers_title">Providers</string>
     <string name="skills_title">Skills</string>
     <string name="extensions_title">Extensions</string>
-    <string name="mcp_title">MCP Servers</string>
     <string name="alpine_runtime_title">Alpine Runtime</string>
     <string name="about_title">About</string>
     <string name="runtime_error">Local runtime unavailable</string>
@@ -1046,14 +1002,11 @@
     <string name="general_subtitle">Language, appearance, and app behavior</string>
     <string name="personalization_title">Personalization</string>
     <string name="personalization_subtitle">Custom instructions and preferences</string>
-    <string name="web_tools_title">Web tools</string>
-    <string name="web_tools_subtitle">Search and browser integrations</string>
     <string name="reliability_title">Reliability</string>
     <string name="reliability_subtitle">Reconnect and history behavior</string>
     <string name="providers_subtitle">Configure models and authentication</string>
     <string name="skills_subtitle">Installed agent skills</string>
     <string name="extensions_subtitle">Pi and Aether script extensions</string>
-    <string name="mcp_subtitle">HTTP and Alpine stdio servers</string>
     <string name="alpine_subtitle">Ready for terminal, Node, and local tools</string>
     <string name="terminal_title">Terminal</string>
     <string name="terminal_subtitle">Alpine shell</string>

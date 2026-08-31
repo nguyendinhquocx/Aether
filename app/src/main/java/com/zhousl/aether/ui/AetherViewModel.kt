@@ -40,14 +40,10 @@ import com.zhousl.aether.data.ProviderModelOption
 import com.zhousl.aether.data.PersistedChatState
 import com.zhousl.aether.data.PersistedChatWriteIntent
 import com.zhousl.aether.data.availableModelOptions
-import com.zhousl.aether.data.McpClientManager
 import com.zhousl.aether.data.McpServerConfig
-import com.zhousl.aether.data.McpServerTestOperation
-import com.zhousl.aether.data.normalizeSelectableModelKey
 import com.zhousl.aether.data.normalizeLlmInactivityReconnectTimeoutSeconds
 import com.zhousl.aether.data.normalizeLlmUserAgent
 import com.zhousl.aether.data.normalizeOldCommandHistoryRetentionHours
-import com.zhousl.aether.data.normalizeTavilyBaseUrl
 import com.zhousl.aether.data.OnboardingStarterPrompt
 import com.zhousl.aether.data.PackageProfileState
 import com.zhousl.aether.data.RootSetupIssue
@@ -65,10 +61,8 @@ import com.zhousl.aether.data.SessionTurnOutcome
 import com.zhousl.aether.data.SessionTurnRequest
 import com.zhousl.aether.data.parseChatSessions
 import com.zhousl.aether.data.parseCustomHeaders
-import com.zhousl.aether.data.parseMcpServerConfigs
 import com.zhousl.aether.data.parseProviderConfigs
 import com.zhousl.aether.data.serializeChatSessions
-import com.zhousl.aether.data.serializeMcpServerConfigs
 import com.zhousl.aether.data.serializeProviderConfigs
 import com.zhousl.aether.data.toJson
 import com.zhousl.aether.data.toJsonArray
@@ -186,17 +180,13 @@ class AetherViewModel(
     private val piExtensionManager = runtime.piExtensionManager
     private val aetherAppExtensionManager = runtime.aetherAppExtensionManager
     private val scheduledTaskManager = runtime.scheduledTaskManager
-    private val mcpClientManager = McpClientManager(
-        runtimeRouter = runtime.runtimeRouter,
-        settings = AppSettings(),
-        diagnosticLogger = diagnosticLogger,
-    )
     private val appUpdateManager = AppUpdateManager(application.applicationContext)
     private var didEvaluateStartupUpdateCheck = false
     private var lastTrackedTermuxDetectedIssue: TermuxSetupIssue? = null
     private var pendingTermuxSetupSource: String? = null
     private var lastModelCatalogRequestKey: String = ""
     private var didInitializeStartupDraftModel = false
+    private var didInitializeStartupDraftSkills = false
     private var didReceiveInitialChatState = false
     private val _uiState = MutableStateFlow(AetherUiState())
     private val _transientMessages = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
@@ -204,6 +194,7 @@ class AetherViewModel(
     private var selectSessionJob: Job? = null
     private var providerAuthJob: Job? = null
     private var extensionSendHookJob: Job? = null
+    private var settingsSaveJob: Job? = null
     private var developerAlpineSetupPreviewJob: Job? = null
     private var piExtensionRefreshGeneration: Long = 0
     private var didRefreshAlpineAfterSettingsLoad = false
@@ -242,6 +233,7 @@ class AetherViewModel(
                     }
                 }
                 initializeStartupDraftModelIfReady()
+                initializeStartupDraftSkillsIfReady()
                 syncTermuxSettings()
                 bashTool.setEnvironmentVariables(settings.termuxEnvironmentVariables)
                 bashTool.setManagedBashRunCleanupPolicy(
@@ -324,10 +316,7 @@ class AetherViewModel(
                     .filter { it.isEnabled }
                     .map { it.id }
                     .toSet()
-                val enabledMcpServerIds = extensionState.mcpServers
-                    .filter { it.isEnabled }
-                    .map { it.id }
-                    .toSet()
+                val enabledMcpServerIds = emptySet<String>()
                 _uiState.update { current ->
                     val updatedSessions = current.sessions.map { session ->
                         val updatedSelectedSkillIds = session.selectedSkillIds.filter(enabledSkillIds::contains)
@@ -363,7 +352,7 @@ class AetherViewModel(
                         draftSelectedSkillIds = updatedDraftSelectedSkillIds,
                         draftSelectedMcpServerIds = updatedDraftSelectedMcpServerIds,
                         installedSkills = extensionState.installedSkills,
-                        mcpServers = extensionState.mcpServers,
+                        mcpServers = emptyList(),
                     )
                 }
                 if (didPruneSelections) {
@@ -372,6 +361,7 @@ class AetherViewModel(
                         enabledMcpServerIds = enabledMcpServerIds,
                     )
                 }
+                initializeStartupDraftSkillsIfReady()
             }
         }
 
@@ -547,9 +537,7 @@ class AetherViewModel(
                     agentModeAuthorizationMethod = AgentModeAuthorizationMethod.Root,
                     termuxSetupCompleted = true,
                 )
-                settingsRepository.updateSettings(
-                    updatedSettings
-                )
+                settingsRepository.markRootSetupComplete()
                 agentModeController.refreshAuthorization(updatedSettings)
             }
             val inspectedSetupState = withContext(Dispatchers.IO) { bashTool.inspectSetup() }
@@ -1470,7 +1458,6 @@ class AetherViewModel(
                 "source" to if (_uiState.value.isOnboardingReplay) "replay" else "auto",
                 "termux_ready" to _uiState.value.termuxSetupState.isReady,
                 "agent_mode_authorized" to _uiState.value.agentModeAuthorizationState.isReady,
-                "tavily_configured" to _uiState.value.settings.tavilyApiKey.isNotBlank(),
                 "skill_count" to _uiState.value.installedSkills.size,
                 "mcp_server_count" to _uiState.value.mcpServers.size,
             ),
@@ -1486,6 +1473,12 @@ class AetherViewModel(
             val updatedSettings = _uiState.value.settings.withExplicitDefaultChatModel(enabledConfig)
             val defaultModelKey = updatedSettings.defaultChatModelKey
             settingsRepository.updateSettings(updatedSettings)
+            settingsRepository.updateDefaultModelKeys(
+                updatedSettings.defaultChatModelKey,
+                updatedSettings.defaultTitleModelKey,
+                updatedSettings.defaultNamingModelKey,
+                updatedSettings.defaultCompactingModelKey,
+            )
             settingsRepository.updateOnboardingSeenVersion(CurrentOnboardingVersion)
             _uiState.update { current ->
                 current.copy(
@@ -1557,21 +1550,12 @@ class AetherViewModel(
         }
     }
 
-    fun saveOnboardingTavilyApiKey(value: String) {
-        // Legacy onboarding callbacks are ignored; Web Tools are no longer part of Aether.
-    }
-
     fun saveOnboardingAgentModeAuthorization(
         enabled: Boolean,
         method: AgentModeAuthorizationMethod,
     ) {
         viewModelScope.launch {
-            settingsRepository.updateSettings(
-                _uiState.value.settings.copy(
-                    agentModeAuthorizationEnabled = enabled,
-                    agentModeAuthorizationMethod = method,
-                )
-            )
+            settingsRepository.updateAgentModeAuthorization(enabled, method)
         }
     }
 
@@ -1752,6 +1736,35 @@ class AetherViewModel(
                 if (session.selectedModelKey == defaultModelKey) null
                 else session.copy(selectedModelKey = defaultModelKey)
             }
+        }
+    }
+
+    private fun initializeStartupDraftSkillsIfReady() {
+        if (didInitializeStartupDraftSkills) return
+        _uiState.update { current ->
+            if (!current.isStartupRouteResolved) return@update current
+            if (current.currentSessionId != DraftSessionId) {
+                didInitializeStartupDraftSkills = true
+                return@update current
+            }
+            if (current.draftSelectedSkillIds.isNotEmpty()) {
+                didInitializeStartupDraftSkills = true
+                return@update current
+            }
+            val enabledIds = current.installedSkills
+                .filter(InstalledSkill::isEnabled)
+                .map(InstalledSkill::id)
+                .toSet()
+            val selectedDefaults = current.settings.defaultSelectedSkillIds
+                .filter(enabledIds::contains)
+            if (
+                current.settings.defaultSelectedSkillIds.isNotEmpty() &&
+                selectedDefaults.isEmpty()
+            ) {
+                return@update current
+            }
+            didInitializeStartupDraftSkills = true
+            current.copy(draftSelectedSkillIds = selectedDefaults)
         }
     }
 
@@ -2002,18 +2015,21 @@ class AetherViewModel(
                         providerConfigs = imported.providerConfigs,
                     )
                     extensionsRepository.updateInstalledSkills(imported.installedSkills)
-                    extensionsRepository.updateMcpServers(imported.mcpServers)
                     chatStateStore.updateAndFlush(
                         writeIntent = PersistedChatWriteIntent.ReplaceFromImport,
                     ) {
                         it.copy(
-                            sessions = imported.sessions,
+                            sessions = imported.sessions.map { session ->
+                                session.copy(activeMcpServerIds = emptyList())
+                            },
                             currentSessionId = imported.currentSessionId,
                         )
                     }
                     _uiState.update { current ->
                         current.copy(
-                            sessions = imported.sessions,
+                            sessions = imported.sessions.map { session ->
+                                session.copy(activeMcpServerIds = emptyList())
+                            },
                             currentSessionId = imported.currentSessionId,
                             draftInput = "",
                             draftAttachments = emptyList(),
@@ -2026,7 +2042,7 @@ class AetherViewModel(
                             editingSessionId = null,
                             editingMessageId = null,
                             unviewedCompletedSessionIds = emptySet(),
-                            mcpServers = imported.mcpServers,
+                            mcpServers = emptyList(),
                         )
                     }
                     refreshPiExtensionState(loadCatalog = false)
@@ -2380,6 +2396,7 @@ class AetherViewModel(
             sessionId = sessionId,
             mode = settings.agentWorkspaceMode,
         )
+        val alpineWorkspaceDirectory = runtime.runtimeRouter.alpineWorkspaceDirectory()
         val metadata = runtime.chatRepository.getAgentSessionMetadata(sessionId)
         val entryId = aetherMessageId?.let { messageId ->
             runtime.chatRepository.getAgentMessageEntryIds(sessionId, messageId).lastOrNull()
@@ -2391,7 +2408,7 @@ class AetherViewModel(
                 reset = entryId == null && resetWhenMissing,
                 sessionPayload = JSONObject().apply {
                     put("session_file", metadata?.jsonlPath.orEmpty())
-                    put("workspace_directory", workspaceDirectory)
+                    put("workspace_directory", alpineWorkspaceDirectory)
                     put("termux_workspace_directory", workspaceDirectory)
                     put("runtime", metadata?.runtime ?: settings.defaultRuntimeId?.storageValue.orEmpty())
                     put("platform", "android")
@@ -2449,8 +2466,6 @@ class AetherViewModel(
 
     fun saveSettings(
         systemPrompt: String,
-        tavilyApiKey: String,
-        tavilyBaseUrl: String,
         llmInactivityReconnectTimeoutSeconds: Int,
         keepTasksRunningInBackground: Boolean,
         notifyOnTaskCompletion: Boolean,
@@ -2458,45 +2473,9 @@ class AetherViewModel(
         autoCleanOldCommandHistory: Boolean,
         oldCommandHistoryRetentionHours: Int,
         termuxEnvironmentVariables: List<TermuxEnvironmentVariable>,
-        agentModeAuthorizationEnabled: Boolean,
-        agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
-        language: AppLanguage,
-        themeMode: AppThemeMode,
-        defaultChatModelKey: String,
-        defaultTitleModelKey: String,
-        defaultNamingModelKey: String,
-        defaultCompactingModelKey: String,
     ) {
-        viewModelScope.launch {
-            val currentState = _uiState.value
-            val modelOptions = currentState.providerConfigs.availableModelOptions()
-            val resolvedDefaultChatModelKey = resolveStoredOrAutomaticModelKey(
-                modelKey = defaultChatModelKey,
-                options = modelOptions,
-                purpose = AutomaticModelPurpose.Chat,
-            )
-            val selectedModelSettings = resolveModelSettings(
-                baseSettings = currentState.settings,
-                providerConfigs = currentState.providerConfigs,
-                preferredModelKey = resolvedDefaultChatModelKey,
-                fallbackModelKey = resolvedDefaultChatModelKey,
-            )
-            settingsRepository.updateSettings(
-                currentState.settings.copy(
-                    piProviderId = selectedModelSettings.piProviderId,
-                    providerConfigId = selectedModelSettings.providerConfigId,
-                    providerAuthMethod = selectedModelSettings.providerAuthMethod,
-                    apiKey = selectedModelSettings.apiKey,
-                    oauthCredentialJson = selectedModelSettings.oauthCredentialJson,
-                    providerEnvironmentVariables =
-                        selectedModelSettings.providerEnvironmentVariables,
-                    baseUrl = selectedModelSettings.baseUrl,
-                    modelId = selectedModelSettings.modelId,
-                    userAgent = selectedModelSettings.userAgent,
-                    customHeaders = selectedModelSettings.customHeaders,
+        val snapshot = _uiState.value.settings.copy(
                     systemPrompt = systemPrompt,
-                    tavilyApiKey = tavilyApiKey.trim(),
-                    tavilyBaseUrl = normalizeTavilyBaseUrl(tavilyBaseUrl),
                     llmInactivityReconnectTimeoutSeconds =
                         normalizeLlmInactivityReconnectTimeoutSeconds(
                             llmInactivityReconnectTimeoutSeconds
@@ -2509,16 +2488,49 @@ class AetherViewModel(
                         oldCommandHistoryRetentionHours
                     ),
                     termuxEnvironmentVariables = normalizeTermuxEnvironmentVariables(termuxEnvironmentVariables),
-                    agentModeAuthorizationEnabled = agentModeAuthorizationEnabled,
-                    agentModeAuthorizationMethod = agentModeAuthorizationMethod,
-                    language = language,
-                    themeMode = themeMode,
-                    defaultChatModelKey = normalizeSelectableModelKey(defaultChatModelKey, modelOptions),
-                    defaultTitleModelKey = normalizeSelectableModelKey(defaultTitleModelKey, modelOptions),
-                    defaultNamingModelKey = normalizeSelectableModelKey(defaultNamingModelKey, modelOptions),
-                    defaultCompactingModelKey = normalizeSelectableModelKey(defaultCompactingModelKey, modelOptions),
-                )
+        )
+        _uiState.update { current -> current.copy(settings = snapshot) }
+        settingsSaveJob?.cancel()
+        settingsSaveJob = viewModelScope.launch {
+            settingsRepository.updateUserSettings(snapshot)
+        }
+    }
+
+    fun saveDefaultModelKeys(
+        chat: String,
+        title: String,
+        naming: String,
+        compacting: String,
+    ) {
+        _uiState.update { current ->
+            current.copy(
+                settings = current.settings.copy(
+                    defaultChatModelKey = chat,
+                    defaultTitleModelKey = title,
+                    defaultNamingModelKey = naming,
+                    defaultCompactingModelKey = compacting,
+                ),
             )
+        }
+        viewModelScope.launch {
+            settingsRepository.updateDefaultModelKeys(chat, title, naming, compacting)
+        }
+    }
+
+    fun saveAgentModeAuthorization(
+        enabled: Boolean,
+        method: AgentModeAuthorizationMethod,
+    ) {
+        _uiState.update { current ->
+            current.copy(
+                settings = current.settings.copy(
+                    agentModeAuthorizationEnabled = enabled,
+                    agentModeAuthorizationMethod = method,
+                ),
+            )
+        }
+        viewModelScope.launch {
+            settingsRepository.updateAgentModeAuthorization(enabled, method)
         }
     }
 
@@ -3168,6 +3180,7 @@ class AetherViewModel(
     ) {
         var didUpdate = false
         var sessionIdForPersistence: String? = null
+        var draftDefaultsToPersist: List<String>? = null
         _uiState.update { current ->
             if (current.currentSessionId == DraftSessionId) {
                 val updatedDraftSelection = updateOrderedSelection(
@@ -3179,7 +3192,13 @@ class AetherViewModel(
                     current
                 } else {
                     didUpdate = true
-                    current.copy(draftSelectedSkillIds = updatedDraftSelection)
+                    draftDefaultsToPersist = updatedDraftSelection
+                    current.copy(
+                        draftSelectedSkillIds = updatedDraftSelection,
+                        settings = current.settings.copy(
+                            defaultSelectedSkillIds = updatedDraftSelection,
+                        ),
+                    )
                 }
             } else {
                 val sessionIndex = current.sessions.indexOfFirst { it.id == current.currentSessionId }
@@ -3215,6 +3234,11 @@ class AetherViewModel(
                 }
             }
         }
+        draftDefaultsToPersist?.let { selectedSkillIds ->
+            viewModelScope.launch {
+                settingsRepository.updateDefaultSelectedSkillIds(selectedSkillIds)
+            }
+        }
         val persistedSessionId = sessionIdForPersistence
         if (didUpdate && persistedSessionId != null) {
             persistSessionMutation(persistedSessionId) { session ->
@@ -3241,93 +3265,6 @@ class AetherViewModel(
         }
     }
 
-    fun saveStreamableHttpMcpServer(
-        serverId: String?,
-        displayName: String,
-        url: String,
-        headersRaw: String,
-    ) {
-        val trimmedName = displayName.trim()
-        val trimmedUrl = url.trim()
-        if (trimmedName.isBlank() || trimmedUrl.isBlank()) return
-        viewModelScope.launch {
-            val existingServer = serverId?.let(::findMcpServerById)
-            val now = System.currentTimeMillis()
-            extensionsRepository.upsertMcpServer(
-                McpServerConfig(
-                    id = existingServer?.id ?: "mcp-$now",
-                    displayName = trimmedName,
-                    actionLabel = com.zhousl.aether.data.generateQuickActionLabel(
-                        trimmedName,
-                        trimmedUrl,
-                    ),
-                    transport = com.zhousl.aether.data.McpTransportConfig.StreamableHttp(
-                        url = trimmedUrl,
-                        headers = parseKeyValueLines(headersRaw),
-                    ),
-                    isEnabled = existingServer?.isEnabled ?: true,
-                    connectTimeoutMillis = existingServer?.connectTimeoutMillis ?: 15_000L,
-                    requestTimeoutMillis = existingServer?.requestTimeoutMillis ?: 60_000L,
-                    createdAtMillis = existingServer?.createdAtMillis ?: now,
-                    updatedAtMillis = now,
-                ),
-            )
-            if (existingServer != null) {
-                mcpClientManager.disconnect(existingServer.id)
-            }
-            captureAnalyticsEvent(
-                event = "mcp server added",
-                properties = mapOf("transport" to "streamable_http"),
-            )
-        }
-    }
-
-    fun saveStdIoMcpServer(
-        serverId: String?,
-        displayName: String,
-        command: String,
-        argumentsRaw: String,
-        workingDirectory: String,
-        environmentRaw: String,
-        runtimeEnvironment: LocalRuntimeId?,
-    ) {
-        val trimmedName = displayName.trim()
-        val trimmedCommand = command.trim()
-        if (trimmedName.isBlank() || trimmedCommand.isBlank()) return
-        viewModelScope.launch {
-            val existingServer = serverId?.let(::findMcpServerById)
-            val now = System.currentTimeMillis()
-            extensionsRepository.upsertMcpServer(
-                McpServerConfig(
-                    id = existingServer?.id ?: "mcp-$now",
-                    displayName = trimmedName,
-                    actionLabel = com.zhousl.aether.data.generateQuickActionLabel(
-                        trimmedName,
-                        trimmedCommand,
-                    ),
-                    transport = com.zhousl.aether.data.McpTransportConfig.StdIo(
-                        command = trimmedCommand,
-                        arguments = parseNonBlankLines(argumentsRaw),
-                        workingDirectory = workingDirectory.trim(),
-                        environment = parseKeyValueLines(environmentRaw),
-                        runtimeEnvironment = runtimeEnvironment,
-                    ),
-                    isEnabled = existingServer?.isEnabled ?: true,
-                    connectTimeoutMillis = existingServer?.connectTimeoutMillis ?: 15_000L,
-                    requestTimeoutMillis = existingServer?.requestTimeoutMillis ?: 60_000L,
-                    createdAtMillis = existingServer?.createdAtMillis ?: now,
-                    updatedAtMillis = now,
-                ),
-            )
-            if (existingServer != null) {
-                mcpClientManager.disconnect(existingServer.id)
-            }
-            captureAnalyticsEvent(
-                event = "mcp server added",
-                properties = mapOf("transport" to "stdio"),
-            )
-        }
-    }
 
     fun saveScheduledTask(
         existingTaskId: String?,
@@ -3384,119 +3321,10 @@ class AetherViewModel(
             } else {
                 AgentWorkspaceMode.Shared
             }
-            settingsRepository.updateSettings(settings.copy(agentWorkspaceMode = mode))
+            settingsRepository.updateUserSettings(settings.copy(agentWorkspaceMode = mode))
         }
     }
 
-    fun testMcpServer(
-        serverId: String,
-        operation: McpServerTestOperation,
-        onComplete: (String) -> Unit,
-    ) {
-        val server = findMcpServerById(serverId)
-        if (server == null) {
-            onComplete("MCP server '$serverId' was not found.")
-            return
-        }
-        viewModelScope.launch {
-            val workspaceDirectory = workspaceFileBridge.workspaceDirectory(
-                sessionId = "mcp-test",
-                mode = _uiState.value.settings.agentWorkspaceMode,
-            )
-            val result = mcpClientManager.testServer(
-                server = server,
-                workspaceDirectory = workspaceDirectory,
-                operation = operation,
-                settings = _uiState.value.settings,
-            )
-            onComplete(
-                result.fold(
-                    onSuccess = { output -> formatMcpTestOutput(operation, output) },
-                    onFailure = { throwable -> "Test failed: ${throwable.message ?: "Unknown MCP error."}" },
-                )
-            )
-        }
-    }
-
-    fun removeMcpServer(serverId: String) {
-        viewModelScope.launch {
-            extensionsRepository.removeMcpServer(serverId)
-            mcpClientManager.disconnect(serverId)
-        }
-    }
-
-    fun setMcpServerEnabled(
-        serverId: String,
-        enabled: Boolean,
-    ) {
-        viewModelScope.launch {
-            extensionsRepository.setMcpServerEnabled(serverId, enabled)
-            if (!enabled) {
-                mcpClientManager.disconnect(serverId)
-            }
-        }
-    }
-
-    fun setComposerMcpServerSelected(
-        serverId: String,
-        selected: Boolean,
-    ) {
-        var didUpdate = false
-        var sessionIdForPersistence: String? = null
-        _uiState.update { current ->
-            if (current.currentSessionId == DraftSessionId) {
-                val updatedDraftSelection = updateOrderedSelection(
-                    current.draftSelectedMcpServerIds,
-                    serverId,
-                    selected,
-                )
-                if (updatedDraftSelection == current.draftSelectedMcpServerIds) {
-                    current
-                } else {
-                    didUpdate = true
-                    current.copy(draftSelectedMcpServerIds = updatedDraftSelection)
-                }
-            } else {
-                val sessionIndex = current.sessions.indexOfFirst { it.id == current.currentSessionId }
-                if (sessionIndex < 0) return@update current
-                val updatedSessions = current.sessions.toMutableList()
-                val session = updatedSessions.removeAt(sessionIndex)
-                val updatedActiveIds = updateOrderedSelection(
-                    session.activeMcpServerIds,
-                    serverId,
-                    selected,
-                )
-                if (updatedActiveIds == session.activeMcpServerIds) {
-                    updatedSessions.add(sessionIndex, session)
-                    current
-                } else {
-                    didUpdate = true
-                    val updatedSession = session.copy(activeMcpServerIds = updatedActiveIds)
-                    sessionIdForPersistence = current.currentSessionId
-                    updatedSessions.add(
-                        sessionIndex.coerceAtMost(updatedSessions.size),
-                        updatedSession,
-                    )
-                    current.copy(sessions = updatedSessions)
-                }
-            }
-        }
-        val persistedSessionId = sessionIdForPersistence
-        if (didUpdate && persistedSessionId != null) {
-            persistSessionMutation(persistedSessionId) { session ->
-                val activeMcpServerIds = updateOrderedSelection(
-                    session.activeMcpServerIds,
-                    serverId,
-                    selected,
-                )
-                if (activeMcpServerIds == session.activeMcpServerIds) {
-                    null
-                } else {
-                    session.copy(activeMcpServerIds = activeMcpServerIds)
-                }
-            }
-        }
-    }
 
     fun setComposerAgentModeSelected(selected: Boolean) {
         var didUpdate = false
@@ -4033,15 +3861,9 @@ class AetherViewModel(
                         .filter(enabledIds::contains),
                 )
             }
-            if (args.has("tavily_api_key")) {
-                updated = updated.copy(tavilyApiKey = args.optString("tavily_api_key"))
-            }
-            if (args.has("tavily_base_url")) {
-                updated = updated.copy(
-                    tavilyBaseUrl = normalizeTavilyBaseUrl(args.optString("tavily_base_url"))
-                )
-            }
             settingsRepository.updateSettings(updated)
+            settingsRepository.updateUserSettings(updated)
+            settingsRepository.updateDefaultSelectedSkillIds(updated.defaultSelectedSkillIds)
             JSONObject().put("settings", updated.toJson())
         }
 
@@ -5370,15 +5192,6 @@ class AetherViewModel(
         }
     }
 
-    private fun resolveSelectedMcpServers(
-        selectedServerIds: List<String>,
-    ): List<McpServerConfig> {
-        if (selectedServerIds.isEmpty()) return emptyList()
-        val enabledServersById = _uiState.value.mcpServers
-            .filter { it.isEnabled }
-            .associateBy { it.id }
-        return selectedServerIds.distinct().mapNotNull(enabledServersById::get)
-    }
 
     private fun setSessionSelectedSkillIds(
         sessionId: String,
@@ -5415,18 +5228,6 @@ class AetherViewModel(
         }
     }
 
-    private fun setSessionActiveMcpServerIds(
-        sessionId: String,
-        activeMcpServerIds: List<String>,
-    ) {
-        updateSession(sessionId) { session ->
-            if (session.activeMcpServerIds == activeMcpServerIds) {
-                null
-            } else {
-                session.copy(activeMcpServerIds = activeMcpServerIds)
-            }
-        }
-    }
 
     private fun updateSession(
         sessionId: String,
@@ -5456,8 +5257,6 @@ class AetherViewModel(
         }
     }
 
-    private fun findMcpServerById(serverId: String): McpServerConfig? =
-        _uiState.value.mcpServers.firstOrNull { it.id == serverId }
 
     private fun updateOrderedSelection(
         currentSelection: List<String>,
@@ -5615,12 +5414,16 @@ class AetherViewModel(
             try {
                 val metadata = runtime.chatRepository.getAgentSessionMetadata(sessionId)
                 val settings = snapshot.settings
+                val termuxWorkspaceDirectory = workspaceFileBridge.workspaceDirectory(
+                    sessionId,
+                    settings.agentWorkspaceMode,
+                )
                 piKernelBridge.compactSession(
                     sessionId = sessionId,
                     sessionPayload = JSONObject().apply {
                         put("session_file", metadata?.jsonlPath.orEmpty())
-                        put("workspace_directory", workspaceFileBridge.workspaceDirectory(sessionId, settings.agentWorkspaceMode))
-                        put("termux_workspace_directory", workspaceFileBridge.workspaceDirectory(sessionId, settings.agentWorkspaceMode))
+                        put("workspace_directory", runtime.runtimeRouter.alpineWorkspaceDirectory())
+                        put("termux_workspace_directory", termuxWorkspaceDirectory)
                         put("runtime", metadata?.runtime ?: settings.defaultRuntimeId?.storageValue.orEmpty())
                         put("platform", "android")
                         val modelKey = thinkingCatalogKey(settings.piProviderId, settings.modelId)
@@ -5775,96 +5578,6 @@ class AetherViewModel(
         else -> "$bytes B"
     }
 
-    private fun parseKeyValueLines(rawValue: String): List<com.zhousl.aether.data.McpKeyValue> =
-        rawValue.lineSequence()
-            .mapNotNull { line ->
-                val trimmed = line.trim()
-                if (trimmed.isEmpty()) return@mapNotNull null
-                val separatorIndex = trimmed.indexOf('=')
-                if (separatorIndex <= 0) return@mapNotNull null
-                com.zhousl.aether.data.McpKeyValue(
-                    key = trimmed.substring(0, separatorIndex).trim(),
-                    value = trimmed.substring(separatorIndex + 1).trim(),
-                )
-            }
-            .toList()
-
-    private fun parseNonBlankLines(rawValue: String): List<String> =
-        rawValue.lineSequence()
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .toList()
-
-    private fun formatMcpTestOutput(
-        operation: McpServerTestOperation,
-        outputJson: String,
-    ): String {
-        val json = runCatching { JSONObject(outputJson) }.getOrNull()
-            ?: return outputJson.take(4_000)
-        val serverInfo = json.optString("server_info").ifBlank { json.optString("server_name") }
-        return when (operation) {
-            McpServerTestOperation.ListTools -> formatMcpNamedItems(
-                title = "Tools",
-                serverInfo = serverInfo,
-                items = json.optJSONArray("tools"),
-                nameKey = "name",
-            )
-
-            McpServerTestOperation.ListResources -> formatMcpNamedItems(
-                title = "Resources",
-                serverInfo = serverInfo,
-                items = json.optJSONArray("resources"),
-                nameKey = "uri",
-            )
-
-            McpServerTestOperation.ListPrompts -> formatMcpNamedItems(
-                title = "Prompts",
-                serverInfo = serverInfo,
-                items = json.optJSONArray("prompts"),
-                nameKey = "name",
-            )
-        }
-    }
-
-    private fun formatMcpNamedItems(
-        title: String,
-        serverInfo: String,
-        items: JSONArray?,
-        nameKey: String,
-    ): String {
-        val count = items?.length() ?: 0
-        return buildString {
-            append(title)
-            append(": ")
-            append(count)
-            if (serverInfo.isNotBlank()) {
-                append(" on ")
-                append(serverInfo)
-            }
-            if (count > 0 && items != null) {
-                appendLine()
-                val visibleCount = minOf(count, 8)
-                for (index in 0 until visibleCount) {
-                    val item = items.optJSONObject(index) ?: continue
-                    val name = item.optString(nameKey)
-                        .ifBlank { item.optString("name") }
-                    val description = item.optString("description")
-                    append("- ")
-                    append(name)
-                    if (description.isNotBlank()) {
-                        append(": ")
-                        append(description.take(160))
-                    }
-                    appendLine()
-                }
-                if (count > visibleCount) {
-                    append("... and ")
-                    append(count - visibleCount)
-                    append(" more")
-                }
-            }
-        }.trim()
-    }
 
     private fun performSkillInstall(
         onComplete: (Boolean) -> Unit = {},
@@ -6271,7 +5984,6 @@ class AetherViewModel(
             put("sessions", JSONArray(serializeChatSessions(sessions.map { it.copy(activeSkills = emptyList()) })))
             put("currentSessionId", snapshot.currentSessionId)
             put("skillBundles", skillManager.exportSkillBundles(snapshot.installedSkills))
-            put("mcpServers", JSONArray(serializeMcpServerConfigs(snapshot.mcpServers)))
             put("piSessions", piSessions)
             put("extensionArchive", piExtensionManager.exportArchive())
         }
@@ -6281,11 +5993,9 @@ class AetherViewModel(
         json: JSONObject,
         installedSkills: List<InstalledSkill>,
     ): ImportedAppData {
-        val mcpServers = parseMcpServerConfigs(json.optJSONArray("mcpServers")?.toString().orEmpty())
         val sessions = sanitizeImportedSessions(
             sessions = parseChatSessions(json.optJSONArray("sessions")?.toString().orEmpty()),
             installedSkillIds = installedSkills.map { it.id }.toSet(),
-            mcpServerIds = mcpServers.map(McpServerConfig::id).toSet(),
         )
         val piSessions = buildMap {
             val entries = json.optJSONArray("piSessions") ?: JSONArray()
@@ -6304,7 +6014,7 @@ class AetherViewModel(
                 .takeIf { id -> id == DraftSessionId || sessions.any { it.id == id } }
                 ?: DraftSessionId,
             installedSkills = installedSkills,
-            mcpServers = mcpServers,
+            mcpServers = emptyList(),
             piSessions = piSessions,
         )
     }
@@ -6312,13 +6022,12 @@ class AetherViewModel(
     private fun sanitizeImportedSessions(
         sessions: List<ChatSession>,
         installedSkillIds: Set<String>,
-        mcpServerIds: Set<String>,
     ): List<ChatSession> =
         sessions.map { session ->
             session.copy(
                 selectedSkillIds = session.selectedSkillIds.filter(installedSkillIds::contains),
                 activeSkills = emptyList(),
-                activeMcpServerIds = session.activeMcpServerIds.filter(mcpServerIds::contains),
+                activeMcpServerIds = emptyList(),
             )
         }
 

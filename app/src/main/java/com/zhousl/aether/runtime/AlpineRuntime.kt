@@ -926,13 +926,8 @@ class AlpineRuntime(
     }
 
     private fun guestPathToHostFile(guestPath: String): File {
-        val relativePath = guestPath.trim().trimStart('/')
-        val target = if (relativePath.isBlank()) rootfsDir.canonicalFile else File(rootfsDir, relativePath).canonicalFile
-        val canonicalRoot = rootfsDir.canonicalFile
-        require(target.path == canonicalRoot.path || target.path.startsWith(canonicalRoot.path + File.separator)) {
-            "Refusing to write outside Alpine rootfs: $guestPath"
-        }
-        return target
+        val normalizedGuestPath = normalizePath(guestPath)
+        return resolveAlpineManagedHostFile(rootfsDir, workspaceDir, workspaceRoot, normalizedGuestPath)
     }
 
     private fun extractTarGz(
@@ -1401,6 +1396,27 @@ class AlpineRuntime(
             thread = null
         }
     }
+}
+
+internal fun resolveAlpineManagedHostFile(
+    rootfsDir: File,
+    workspaceDir: File,
+    workspaceRoot: String,
+    normalizedGuestPath: String,
+): File {
+    val (hostRoot, relativePath) = if (
+        normalizedGuestPath == workspaceRoot || normalizedGuestPath.startsWith("$workspaceRoot/")
+    ) {
+        workspaceDir to normalizedGuestPath.removePrefix(workspaceRoot).trimStart('/')
+    } else {
+        rootfsDir to normalizedGuestPath.trimStart('/')
+    }
+    val canonicalRoot = hostRoot.canonicalFile
+    val target = if (relativePath.isBlank()) canonicalRoot else File(canonicalRoot, relativePath).canonicalFile
+    require(target.path == canonicalRoot.path || target.path.startsWith(canonicalRoot.path + File.separator)) {
+        "Refusing to access outside Alpine managed storage: $normalizedGuestPath"
+    }
+    return target
 }
 
 private data class RootfsAsset(

@@ -99,7 +99,41 @@ class SharedSkillManager(
 
     suspend fun list(): List<SharedInstalledSkill> {
         runCatching { syncDiscoveredSkills() }
+        syncBuiltInSkills()
         return listManagedSkills()
+    }
+
+    private suspend fun syncBuiltInSkills() {
+        ensureStorageReady()
+        runtime.fileSystem.createDirectories(skillsRoot)
+        val enabledState = readEnabledState().toMutableMap()
+        val sourceState = readStringState(sourcesPath).toMutableMap()
+        var enabledStateChanged = false
+        var sourceStateChanged = false
+        BuiltInAgentSkills.forEach { skill ->
+            val root = "$skillsRoot/${skill.id}"
+            val skillPath = "$root/SKILL.md"
+            val desired = skill.markdown.encodeToByteArray()
+            runtime.fileSystem.createDirectories(root)
+            val current = if (runtime.fileSystem.exists(skillPath)) {
+                runCatching { runtime.fileSystem.read(skillPath) }.getOrNull()
+            } else {
+                null
+            }
+            if (current == null || !current.contentEquals(desired)) {
+                runtime.fileSystem.write(skillPath, desired)
+            }
+            if (skill.id !in enabledState) {
+                enabledState[skill.id] = true
+                enabledStateChanged = true
+            }
+            if (sourceState[skill.id] != BuiltInSkillSource) {
+                sourceState[skill.id] = BuiltInSkillSource
+                sourceStateChanged = true
+            }
+        }
+        if (enabledStateChanged) writeEnabledState(enabledState)
+        if (sourceStateChanged) writeStringState(sourcesPath, sourceState)
     }
 
     private suspend fun listManagedSkills(): List<SharedInstalledSkill> {
@@ -107,6 +141,7 @@ class SharedSkillManager(
         runtime.fileSystem.createDirectories(skillsRoot)
         val enabledState = readEnabledState()
         val sourceState = readStringState(sourcesPath)
+        val builtInSkills = BuiltInAgentSkills.associateBy(BuiltInAgentSkill::id)
         val result = bash("find ${quote(skillsRoot)} -mindepth 2 -maxdepth 2 -name SKILL.md -type f -print | sort")
         if (result.isError) return emptyList()
         return buildList {
@@ -120,10 +155,11 @@ class SharedSkillManager(
                         id = root.substringAfterLast('/'),
                         name = metadata.name,
                         description = metadata.description,
-                        actionLabel = generateSharedQuickActionLabel(
-                            metadata.name.ifBlank { root.substringAfterLast('/') },
-                            metadata.description,
-                        ),
+                        actionLabel = builtInSkills[root.substringAfterLast('/')]?.actionLabel
+                            ?: generateSharedQuickActionLabel(
+                                metadata.name.ifBlank { root.substringAfterLast('/') },
+                                metadata.description,
+                            ),
                         guestPath = root,
                         isEnabled = enabledState[root.substringAfterLast('/')] ?: true,
                         compatibility = metadata.compatibility,
@@ -434,6 +470,9 @@ class SharedSkillManager(
     suspend fun remove(skillId: String) {
         ensureStorageReady()
         require(skillId.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid Skill ID." }
+        require(readStringState(sourcesPath)[skillId] != BuiltInSkillSource) {
+            "Built-in Skills cannot be removed. Disable the Skill instead."
+        }
         val discoveredSources = readStringState(discoveredSourcesPath)
         discoveredSources[skillId]?.let { source ->
             writeStringState(
@@ -610,6 +649,8 @@ private data class SharedDiscoveredSkillSource(
     val filePath: String,
     val baseDir: String,
 )
+
+private const val BuiltInSkillSource = "builtin"
 
 internal fun sharedDiscoveredSkillId(sourcePath: String): String {
     fun hash(seed: UInt): UInt {

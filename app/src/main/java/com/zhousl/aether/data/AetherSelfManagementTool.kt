@@ -19,6 +19,7 @@ class AetherSelfManagementTool(
     private val rootSetupController: RootSetupController,
     private val agentModeController: AgentModeController,
     private val scheduledTaskManager: ScheduledTaskManager,
+    private val piExtensionManager: PiExtensionManager,
     private val piKernelBridge: PiKernelBridge,
     private val sessionId: String,
     private val diagnosticLogger: AetherDiagnosticLogger = AetherDiagnosticLogger.NoOp,
@@ -198,13 +199,32 @@ class AetherSelfManagementTool(
         ),
         buildAetherToolDefinition(
             name = "aether_extension_manage",
-            description = "List or reload source-compatible Pi extensions for the current Aether session, or invoke a registered Pi extension command. Extensions are discovered from ~/.pi/agent/extensions, the workspace .pi/extensions directory, and ~/.aether/extensions. Custom Pi TUI components are not supported.",
+            description = "List, install, update, remove, or reload Aether/Pi extension packages, or invoke a registered Pi extension command. Package sources use the npm: format, including npm:<name>@file:<absolute-directory> for a local package.",
             properties = JSONObject().apply {
                 put(
                     "action",
                     JSONObject().apply {
                         put("type", "string")
-                        put("enum", JSONArray(listOf("list", "reload", "invoke_command")))
+                        put(
+                            "enum",
+                            JSONArray(
+                                listOf(
+                                    "list",
+                                    "install_package",
+                                    "update_package",
+                                    "remove_package",
+                                    "reload",
+                                    "invoke_command",
+                                )
+                            ),
+                        )
+                    },
+                )
+                put(
+                    "source",
+                    JSONObject().apply {
+                        put("type", "string")
+                        put("description", "npm: package source to install, update, or remove.")
                     },
                 )
                 put(
@@ -391,9 +411,16 @@ class AetherSelfManagementTool(
 
             else -> return failure("Unsupported or read-only category '$category'.")
         }
-        settingsRepository.updateSettings(updated)
         if (category == "agent_mode") {
+            settingsRepository.updateAgentModeAuthorization(
+                updated.agentModeAuthorizationEnabled,
+                updated.agentModeAuthorizationMethod,
+            )
             agentModeController.refreshAuthorization(updated)
+        } else {
+            settingsRepository.updateSettings(updated)
+            settingsRepository.updateUserSettings(updated)
+            settingsRepository.updateDefaultSelectedSkillIds(updated.defaultSelectedSkillIds)
         }
         return success(JSONObject().put(category, configCategoryJson(category, updated))) {
             put("stdout", "Updated Aether $category settings.")
@@ -493,7 +520,10 @@ class AetherSelfManagementTool(
                         }
                         ?: current.agentModeAuthorizationMethod,
                 )
-                settingsRepository.updateSettings(updated)
+                settingsRepository.updateAgentModeAuthorization(
+                    updated.agentModeAuthorizationEnabled,
+                    updated.agentModeAuthorizationMethod,
+                )
                 agentModeController.refreshAuthorization(updated)
                 success(JSONObject().put("agent_mode", agentModeSettingsJson(updated))) {
                     put("stdout", "Updated Agent Mode authorization settings.")
@@ -642,11 +672,51 @@ class AetherSelfManagementTool(
             when (val action = arguments.optString("action").trim().lowercase(Locale.US)) {
                 "list" -> {
                     val payload = piKernelBridge.listExtensions(sessionId)
+                    val packages = piKernelBridge.listExtensionPackages()
+                    packages.optJSONArray("packages")?.let { payload.put("packages", it) }
                     success(payload) {
                         put(
                             "stdout",
                             "Found ${payload.optJSONArray("extension_paths")?.length() ?: 0} loaded Pi extensions.",
                         )
+                    }
+                }
+
+                "install_package" -> {
+                    val source = arguments.requiredExtensionPackageSource(action)
+                    piExtensionManager.installPackage(source).getOrThrow()
+                    val payload = piKernelBridge.listExtensionPackages()
+                    success(payload) {
+                        put("source", source)
+                        put("installed", true)
+                        put("stdout", "Installed and loaded extension package '$source'.")
+                    }
+                }
+
+                "update_package" -> {
+                    val source = arguments.requiredExtensionPackageSource(action)
+                    piExtensionManager.updatePackage(source).getOrThrow()
+                    val payload = piKernelBridge.listExtensionPackages()
+                    success(payload) {
+                        put("source", source)
+                        put("updated", true)
+                        put("stdout", "Updated and reloaded extension package '$source'.")
+                    }
+                }
+
+                "remove_package" -> {
+                    val source = arguments.requiredExtensionPackageSource(action)
+                    val extension = piExtensionManager.listInstalled().getOrThrow()
+                        .firstOrNull {
+                            it.kind == PiExtensionInstallKind.Package && it.source == source
+                        }
+                        ?: error("No installed extension package matched '$source'.")
+                    piExtensionManager.remove(extension).getOrThrow()
+                    val payload = piKernelBridge.listExtensionPackages()
+                    success(payload) {
+                        put("source", source)
+                        put("removed", true)
+                        put("stdout", "Removed extension package '$source'.")
                     }
                 }
 
@@ -686,6 +756,11 @@ class AetherSelfManagementTool(
             failure(throwable.message ?: "Pi extension operation failed.")
         }
     }
+
+    private fun JSONObject.requiredExtensionPackageSource(action: String): String =
+        optString("source").trim().also { source ->
+            require(source.isNotBlank()) { "source is required for $action." }
+        }
 
     private suspend fun termuxStatusJson(): JSONObject =
         JSONObject()
