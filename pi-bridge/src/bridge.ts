@@ -124,6 +124,7 @@ interface ModelConfig {
   base_url: string;
   api_key?: string;
   custom_headers?: Record<string, string>;
+  compatibility_mode?: boolean;
   supports_developer_role?: boolean;
   reasoning?: boolean;
   thinking_level_map?: Record<string, string | null>;
@@ -761,6 +762,7 @@ function normalizeModelConfig(rawValue: unknown): ModelConfig {
     base_url: baseUrl,
     api_key: asString(raw.api_key),
     custom_headers: normalizeHeaders(raw.custom_headers),
+    compatibility_mode: asBoolean(raw.compatibility_mode, false),
     supports_developer_role: raw.supports_developer_role === false ? false : undefined,
     reasoning: asBoolean(raw.reasoning, false),
     thinking_level_map: normalizeThinkingLevelMap(raw.thinking_level_map),
@@ -847,6 +849,41 @@ function requestContainsDeveloperMessage(payload: unknown): boolean {
   return Array.isArray(messages) && messages.some((message) =>
     asString(asObject(message).role).trim().toLowerCase() === "developer"
   );
+}
+
+function compatibilityModeStreams(streams: ProviderStreams): ProviderStreams {
+  type SupportedOptions = StreamOptions | SimpleStreamOptions;
+  type StreamCall = (
+    model: Model<"openai-completions">,
+    context: Context,
+    options?: SupportedOptions,
+  ) => AssistantMessageEventStream;
+
+  const wrap = (call: StreamCall): StreamCall => (model, context, options) => call(model, context, {
+    ...options,
+    onPayload: async (payload: unknown, requestModel: Model<"openai-completions">) => {
+      const transformed = await options?.onPayload?.(payload, requestModel);
+      const normalizedPayload = asObject(transformed ?? payload);
+      const messages = normalizedPayload.messages;
+      if (!Array.isArray(messages)) return transformed ?? payload;
+      return {
+        ...normalizedPayload,
+        messages: messages.map((message) => {
+          const normalizedMessage = asObject(message);
+          const role = asString(normalizedMessage.role).trim().toLowerCase();
+          return role === "system" || role === "developer"
+            ? { ...normalizedMessage, role: "user" }
+            : message;
+        }),
+      };
+    },
+  } as SupportedOptions);
+
+  return {
+    ...streams,
+    stream: wrap(streams.stream as StreamCall) as ProviderStreams["stream"],
+    streamSimple: wrap(streams.streamSimple as StreamCall) as ProviderStreams["streamSimple"],
+  };
 }
 
 function isDeveloperRoleUnsupportedError(errorMessage: string): boolean {
@@ -1149,7 +1186,9 @@ function buildModels(config: ModelConfig): {
     },
     models: [model],
     api: developerRoleFallbackStreams(
-      apiStreamsFor(config.pi_api),
+      config.compatibility_mode
+        ? compatibilityModeStreams(apiStreamsFor(config.pi_api))
+        : apiStreamsFor(config.pi_api),
       compatibilityFallbackState,
     ),
   });

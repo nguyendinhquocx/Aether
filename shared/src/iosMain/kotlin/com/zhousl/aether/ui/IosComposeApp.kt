@@ -118,6 +118,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -5373,6 +5374,26 @@ private fun SharedChatScreen(
         }
     }
     val listState = rememberSaveable(selectedSessionId, saver = LazyListState.Saver) { LazyListState() }
+    val timelineTargets = remember(visibleMessages) {
+        buildSharedConversationTimelineTargets(visibleMessages)
+    }
+    val currentTimelineIndex by remember(listState, timelineTargets) {
+        derivedStateOf {
+            if (timelineTargets.isEmpty()) {
+                0
+            } else {
+                val layout = listState.layoutInfo
+                val firstVisibleIndex = layout.visibleItemsInfo.firstOrNull()?.index ?: 0
+                val probe = layout.viewportStartOffset +
+                    (layout.viewportEndOffset - layout.viewportStartOffset) * 0.28f
+                timelineTargets.indexOfLast { target ->
+                    target.listItemIndex < firstVisibleIndex ||
+                        layout.visibleItemsInfo.firstOrNull { it.index == target.listItemIndex }
+                            ?.let { it.offset <= probe } == true
+                }.coerceAtLeast(0)
+            }
+        }
+    }
     var shouldAutoFollow by rememberSaveable(selectedSessionId) { mutableStateOf(true) }
     var topBarBodyHeightPx by remember(selectedSessionId) { mutableIntStateOf(0) }
     var composerBodyHeightPx by remember(selectedSessionId) { mutableIntStateOf(0) }
@@ -5830,6 +5851,22 @@ private fun SharedChatScreen(
                     onHeightChanged = { composerBodyHeightPx = it },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
+                ConversationTimeline(
+                    entries = timelineTargets.map(SharedConversationTimelineTarget::entry),
+                    currentIndex = currentTimelineIndex,
+                    modifier = Modifier.fillMaxSize().padding(
+                        top = topBarBodyHeight + 8.dp,
+                        bottom = composerBodyHeight + animatedImeBottom + 30.dp,
+                    ),
+                    onNavigate = { timelineIndex ->
+                        timelineTargets.getOrNull(timelineIndex)?.let { target ->
+                            shouldAutoFollow = false
+                            scope.launch {
+                                listState.scrollToItem(target.listItemIndex)
+                            }
+                        }
+                    },
+                )
                 previewAttachment?.let { attachment ->
                     SharedAttachmentPreviewDialog(
                         attachment = attachment,
@@ -5893,6 +5930,47 @@ private fun LazyListState.isAtSharedConversationBottom(): Boolean {
     val isLastVisible = lastVisible.index == layout.totalItemsCount - 1
     val distanceFromBottom = layout.viewportEndOffset - (lastVisible.offset + lastVisible.size)
     return isLastVisible && distanceFromBottom >= -32
+}
+
+private data class SharedConversationTimelineTarget(
+    val listItemIndex: Int,
+    val entry: ConversationTimelineEntry,
+)
+
+private fun buildSharedConversationTimelineTargets(
+    messages: List<SharedChatMessage>,
+): List<SharedConversationTimelineTarget> = buildList {
+    messages.forEachIndexed { messageIndex, message ->
+        if (!message.fromUser || message.displayKind != SharedMessageDisplayKind.Standard) {
+            return@forEachIndexed
+        }
+        val assistantPreview = buildString {
+            var followingIndex = messageIndex + 1
+            while (followingIndex < messages.size && !messages[followingIndex].fromUser) {
+                val following = messages[followingIndex]
+                if (
+                    following.displayKind == SharedMessageDisplayKind.Standard &&
+                    following.text.isNotBlank()
+                ) {
+                    if (isNotEmpty()) append("\n")
+                    append(following.text.trim())
+                }
+                followingIndex += 1
+            }
+        }
+        add(
+            SharedConversationTimelineTarget(
+                listItemIndex = messageIndex + 1,
+                entry = ConversationTimelineEntry(
+                    key = message.id,
+                    userPreview = message.text.trim().ifBlank {
+                        message.attachments.joinToString(", ") { it.name }
+                    },
+                    assistantPreview = assistantPreview,
+                ),
+            )
+        )
+    }
 }
 
 @Composable

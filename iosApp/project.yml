@@ -131,6 +131,8 @@ targets:
         NSExtension:
           NSExtensionFileProviderDocumentGroup: group.com.baimoqilin.aether
           NSExtensionFileProviderSupportsEnumeration: true
+          NSExtensionFileProviderAppliesChangesAtomically: true
+          NSExtensionFileProviderDownloadPipelineDepth: 2
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
     settings:
@@ -141,7 +143,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Aether.entitlements
         CODE_SIGN_STYLE: Automatic
         OTHER_LDFLAGS: ""
-    dependencies: []
+    dependencies:
+      - sdk: libsqlite3.tbd
   AetherRuntimeTests:
     type: bundle.unit-test
     platform: iOS
@@ -158,6 +161,23 @@ targets:
         CODE_SIGN_STYLE: Automatic
         SWIFT_OBJC_BRIDGING_HEADER: ""
         OTHER_LDFLAGS: -framework AetherShared
+        GENERATE_INFOPLIST_FILE: YES
+  AetherFileProviderTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/FileProvider
+      - path: FileProvider/FakeFSStore.swift
+    dependencies:
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        PRODUCT_NAME: AetherFileProviderTests
+        PRODUCT_MODULE_NAME: AetherFileProviderTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.baimoqilin.aether.fileprovider-tests
+        CODE_SIGN_STYLE: Automatic
+        OTHER_LDFLAGS: ""
         GENERATE_INFOPLIST_FILE: YES
   AetherUITests:
     type: bundle.ui-testing
@@ -187,6 +207,7 @@ schemes:
     test:
       config: Debug
       targets:
+        - AetherFileProviderTests
         - AetherRuntimeTests
         - AetherUITests
     archive:

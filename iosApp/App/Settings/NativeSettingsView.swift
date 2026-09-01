@@ -737,6 +737,7 @@ private struct NativeProviderDraft {
     var modelIDs: String
     var userAgent: String
     var headers: [NativeProviderPair]
+    var compatibilityMode: Bool
     var cachedModels: [String]
     var enabledModels: Set<String>
     var isEnabled: Bool
@@ -776,6 +777,7 @@ private struct NativeProviderEditor: View {
             modelIDs: modelIDs.joined(separator: "\n"),
             userAgent: provider?["userAgent"] as? String ?? "Aether/1.0",
             headers: Self.pairs(provider?["customHeaders"]),
+            compatibilityMode: provider?["compatibilityMode"] as? Bool ?? false,
             cachedModels: provider?["cachedModels"] as? [String] ?? [],
             enabledModels: Set(provider?["enabledModelIds"] as? [String] ?? modelIDs),
             isEnabled: provider?["isEnabled"] as? Bool ?? true,
@@ -852,6 +854,9 @@ private struct NativeProviderEditor: View {
                 TextField(model.text("User agent", "User Agent"), text: $draft.userAgent)
                 pairEditor(model.text("Custom headers", "自定义请求头"), pairs: $draft.headers)
                 pairEditor(model.text("Environment variables", "环境变量"), pairs: $draft.environment)
+            }
+            if draft.piProviderId == "openai-compatible" {
+                compatibilityModeToggle
             }
             Section(model.text("Models", "模型")) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -945,6 +950,9 @@ private struct NativeProviderEditor: View {
                         .textInputAutocapitalization(.never).keyboardType(.URL)
                 }
             }
+            if draft.piProviderId == "openai-compatible" {
+                compatibilityModeToggle
+            }
             Section {
                 HStack {
                     Button { model.perform("provider_clear_auth"); navigateWizard(to: 1) } label: { Text(model.text("Back", "返回")) }
@@ -1023,6 +1031,22 @@ private struct NativeProviderEditor: View {
             return supported && (query.isEmpty || model.string(item, "displayName").localizedCaseInsensitiveContains(query)
                 || model.string(item, "id").localizedCaseInsensitiveContains(query)
                 || model.string(item, "category").localizedCaseInsensitiveContains(query))
+        }
+    }
+    private var compatibilityModeToggle: some View {
+        Section {
+            Toggle(isOn: $draft.compatibilityMode) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.text("Compatibility mode", "兼容模式", "حالت سازگاری"))
+                    Text(model.text(
+                        "Sends system and developer instructions as user messages for endpoints with limited role support.",
+                        "将 System 和 Developer 指令作为 User 消息发送，以兼容角色支持有限的端点。",
+                        "دستورهای system و developer را برای نقاط پایانی با پشتیبانی محدود از نقش‌ها به‌صورت پیام user ارسال می‌کند."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
         }
     }
     private func selectAuth(_ auth: String) {
@@ -1301,7 +1325,7 @@ private struct NativeProviderEditor: View {
         draft.baseURL = model.string(item, "defaultBaseUrl")
         draft.modelIDs = model.string(item, "defaultModelId")
         draft.authMethod = model.bool(item, "supportsInteractiveApiKey") ? "api_key" : model.bool(item, "supportsOAuth") ? "oauth" : "ambient"
-        draft.apiKey = ""; draft.oauthCredentialJson = ""; draft.cachedModels = []; draft.enabledModels = Set(manualModels)
+        draft.apiKey = ""; draft.oauthCredentialJson = ""; draft.compatibilityMode = false; draft.cachedModels = []; draft.enabledModels = Set(manualModels)
     }
 
     private func fetchModels() { model.perform("provider_fetch_models", payload()) }
@@ -1326,7 +1350,8 @@ private struct NativeProviderEditor: View {
          "piProviderId": draft.piProviderId, "authMethod": draft.authMethod, "apiKey": draft.apiKey, "oauthCredentialJson": draft.oauthCredentialJson,
          "providerEnvironmentVariables": draft.environment.filter { !$0.name.isEmpty }.map { ["name": $0.name, "value": $0.value] }, "baseUrl": draft.baseURL,
          "modelId": orderedEnabledModels.first ?? manualModels.first ?? "", "manualModelIds": manualModels, "userAgent": draft.userAgent,
-         "customHeaders": draft.headers.filter { !$0.name.isEmpty }.map { ["name": $0.name, "value": $0.value] }, "cachedModels": draft.cachedModels,
+         "customHeaders": draft.headers.filter { !$0.name.isEmpty }.map { ["name": $0.name, "value": $0.value] },
+         "compatibilityMode": draft.piProviderId == "openai-compatible" && draft.compatibilityMode, "cachedModels": draft.cachedModels,
          "enabledModelIds": orderedEnabledModels, "isEnabled": draft.isEnabled, "createdAtMillis": draft.createdAt, "updatedAtMillis": Int64(Date().timeIntervalSince1970 * 1_000)]
     }
     private func save() {

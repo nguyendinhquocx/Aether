@@ -2543,6 +2543,9 @@ class AetherViewModel(
     }
 
     fun updateAppThemeMode(themeMode: AppThemeMode) {
+        _uiState.update { current ->
+            current.copy(settings = current.settings.copy(themeMode = themeMode))
+        }
         viewModelScope.launch {
             settingsRepository.updateThemeMode(themeMode)
         }

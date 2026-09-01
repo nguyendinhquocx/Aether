@@ -24,6 +24,7 @@ data class PiModelConfig(
     val baseUrl: String,
     val apiKey: String = "",
     val customHeaders: Map<String, String> = emptyMap(),
+    val compatibilityMode: Boolean = false,
     val developerRoleUnsupported: Boolean = false,
     val reasoning: Boolean = true,
     val thinkingLevelMap: Map<String, String> = emptyMap(),
@@ -48,6 +49,7 @@ data class PiModelConfig(
         put("custom_headers", JSONObject().apply {
             customHeaders.forEach { (name, value) -> put(name, value) }
         })
+        if (compatibilityMode) put("compatibility_mode", true)
         if (developerRoleUnsupported) put("supports_developer_role", false)
         put("reasoning", reasoning)
         if (thinkingLevelMap.isNotEmpty()) {
@@ -131,6 +133,7 @@ fun AppSettings.toPiModelConfig(
         },
         customHeaders = customHeaders.toPiHeaderMap() +
             ("User-Agent" to normalizeLlmUserAgent(userAgent)),
+        compatibilityMode = !definition.isBuiltIn && compatibilityMode,
         developerRoleUnsupported = developerRoleUnsupported,
         reasoning = reasoningEnabled,
         thinkingLevelMap = thinkingLevelMap,

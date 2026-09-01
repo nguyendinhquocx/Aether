@@ -577,6 +577,9 @@ fun SettingsScreen(
     LaunchedEffect(language) {
         languageValue = language
     }
+    LaunchedEffect(themeMode) {
+        themeModeValue = themeMode
+    }
     var defaultChatModelKeyValue by rememberSaveable { mutableStateOf(defaultChatModelKey) }
     var defaultTitleModelKeyValue by rememberSaveable { mutableStateOf(defaultTitleModelKey) }
     var defaultNamingModelKeyValue by rememberSaveable { mutableStateOf(defaultNamingModelKey) }

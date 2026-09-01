@@ -484,6 +484,7 @@ fun LlmProviderConfig.toSharedPiModelConfig(
             }
             put("User-Agent", normalizeLlmUserAgent(userAgent))
         })
+        if (!definition.isBuiltIn && compatibilityMode) put("compatibility_mode", true)
         if (developerRoleUnsupported) put("supports_developer_role", false)
         put("reasoning", reasoningEnabled)
         if (thinkingLevelMap.isNotEmpty()) {

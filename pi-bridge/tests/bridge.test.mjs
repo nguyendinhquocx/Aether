@@ -2114,6 +2114,47 @@ test("uses system immediately when the provider is already marked", async (t) =>
   assert.equal(receivedRole, "system");
 });
 
+test("compatibility mode sends system and developer instructions as user messages", async (t) => {
+  let receivedRoles = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      receivedRoles = body.messages?.map((message) => message.role) ?? [];
+      writeSuccessfulChatCompletion(response, "COMPATIBLE_OK", "compatible-model");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const client = new BridgeClient();
+  const result = await client.request("compatibility-mode", "complete_once", {
+    model_config: {
+      provider_type: "openai_compatible",
+      provider_config_id: "compatibility-mode",
+      pi_provider_id: "aether-compatibility-mode",
+      pi_api: "openai-completions",
+      model_id: "compatible-model",
+      base_url: `http://127.0.0.1:${address.port}/v1`,
+      api_key: "secret-key",
+      compatibility_mode: true,
+      reasoning: true,
+      max_retries: 0,
+    },
+    system_prompt: "Reply briefly.",
+    messages: [userMessage("hello")],
+    reasoning: "low",
+  });
+
+  assert.equal(result.assistant_text, "COMPATIBLE_OK", JSON.stringify(result));
+  assert.ok(receivedRoles.length >= 2, JSON.stringify(receivedRoles));
+  assert.ok(receivedRoles.every((role) => role !== "system" && role !== "developer"));
+  assert.equal(receivedRoles[0], "user");
+});
+
 test("passes reasoning_effort none when off is selected for a model with thinkingLevelMap off: none", async (t) => {
   let receivedRequest;
   const server = createServer((request, response) => {

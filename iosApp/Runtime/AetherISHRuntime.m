@@ -1,10 +1,13 @@
 #import "AetherISHRuntime.h"
 
+@import FileProvider;
+
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <resolv.h>
 #include <signal.h>
+#include <sqlite3.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -27,6 +30,70 @@
 #include "tools/fakefs.h"
 
 static NSString *const AetherISHErrorDomain = @"com.baimoqilin.aether.ish";
+static NSString *const AetherFileProviderDomainIdentifier = @"com.baimoqilin.aether";
+static NSString *const AetherFileProviderEventDatabaseName = @"file-provider-events.sqlite";
+
+static void AetherSignalFileProviderWorkingSet(void) {
+    static BOOL signalPending = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (signalPending) return;
+        signalPending = YES;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            signalPending = NO;
+            NSFileProviderDomain *domain = [[NSFileProviderDomain alloc]
+                initWithIdentifier:AetherFileProviderDomainIdentifier
+                displayName:@"Aether"];
+            NSFileProviderManager *manager = [NSFileProviderManager managerForDomain:domain];
+            [manager signalEnumeratorForContainerItemIdentifier:NSFileProviderWorkingSetContainerItemIdentifier
+                                               completionHandler:^(NSError *error) {
+                if (error) NSLog(@"Aether File Provider change signal failed: %@", error);
+            }];
+        });
+    });
+}
+
+static void AetherRecordFileProviderEvents(
+    NSURL *rootURL,
+    const struct fakefs_change_event *batch,
+    int count,
+    uint64_t *lastDroppedCount
+) {
+    NSURL *databaseURL = [rootURL URLByAppendingPathComponent:AetherFileProviderEventDatabaseName];
+    sqlite3 *database = NULL;
+    if (sqlite3_open_v2(databaseURL.fileSystemRepresentation, &database,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
+        if (database) sqlite3_close(database);
+        return;
+    }
+    sqlite3_busy_timeout(database, 5000);
+    sqlite3_exec(database, "pragma journal_mode=wal", NULL, NULL, NULL);
+    sqlite3_exec(database,
+                 "create table if not exists events ("
+                 "sequence integer primary key autoincrement, path text not null, operation integer not null)",
+                 NULL, NULL, NULL);
+    sqlite3_exec(database, "begin immediate", NULL, NULL, NULL);
+    sqlite3_stmt *insert = NULL;
+    if (sqlite3_prepare_v2(database, "insert into events(path, operation) values(?, ?)", -1, &insert, NULL) == SQLITE_OK) {
+        for (int index = 0; index < count; index++) {
+            sqlite3_bind_text(insert, 1, batch[index].linux_path, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(insert, 2, batch[index].op);
+            sqlite3_step(insert);
+            sqlite3_reset(insert);
+            sqlite3_clear_bindings(insert);
+        }
+        uint64_t droppedCount = fakefs_change_dropped_count();
+        if (droppedCount != *lastDroppedCount) {
+            sqlite3_bind_text(insert, 1, "", 0, SQLITE_STATIC);
+            sqlite3_bind_int(insert, 2, 99);
+            sqlite3_step(insert);
+            *lastDroppedCount = droppedCount;
+        }
+    }
+    if (insert) sqlite3_finalize(insert);
+    sqlite3_exec(database, "commit", NULL, NULL, NULL);
+    sqlite3_close(database);
+    AetherSignalFileProviderWorkingSet();
+}
 
 @interface AetherISHProcess : NSObject
 @property(nonatomic) int processId;
@@ -265,6 +332,11 @@ static void AetherISHDie(const char *message) {
     sock_tmp_prefix = strdup(socketPrefix.UTF8String);
 #endif
     [self configureDNS];
+
+    __block uint64_t lastDroppedCount = fakefs_change_dropped_count();
+    fakefs_install_change_consumer(^(const struct fakefs_change_event *batch, int count) {
+        AetherRecordFileProviderEvents(rootURL, batch, count, &lastDroppedCount);
+    });
 
     const char *argv = "/bin/sh\0-c\0while :; do sleep 86400; done\0";
     const char *envp = "TERM=xterm-256color\0HOME=/root\0PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\0PYTHONMALLOC=malloc\0";

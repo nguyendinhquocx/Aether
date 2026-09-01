@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		08CF4E928C8BE1C146193EAC /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */; };
 		0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3727F800A2CD973EBC5B5911 /* libiconv.tbd */; };
+		1B7908CE96343E5791521885 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		1E011A81B7404737A35E9B0E /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */; };
 		24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */; };
 		28EDAD736ACF66FD43ED69CC /* AlpineFileManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DB82B5CCA087E5B4B06F89 /* AlpineFileManagerView.swift */; };
@@ -21,16 +22,19 @@
 		5260EA11AA36045B2165C752 /* TerminalTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5A6E7F628EA19B572CD53F /* TerminalTypes.swift */; };
 		53F71DB8B4F7DFC9DDF96CDB /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		635948EDA8718FF3FF408733 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B7445370C9B563C2B17DA6E1 /* libarchive.a */; };
+		6E800049932DB1975FB90795 /* FakeFSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCDDF321D397425AA078ED1C /* FakeFSStore.swift */; };
 		72BE94061B7B13F4A35C53AF /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4153C3FD7DCA6061233E4C81 /* NativeSettingsView.swift */; };
 		7906FB3BC2C49CBFD7B2F794 /* TerminalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */; };
 		7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */ = {isa = PBXBuildFile; fileRef = 95EE05EFD4A21740A10B6F14 /* root.tar.gz */; };
 		7D2F37B739B9ED878ED6F0DA /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1106FBE367ED336302C5A936 /* SystemConfiguration.framework */; };
 		8C67241097C756D2BC0EBD70 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 307932EC76CB1B3E8230BE0B /* LICENSE */; };
 		9188705105B8907E2640F49A /* extension-bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 4B0759D6CB01C983172A15D2 /* extension-bridge.mjs */; };
+		9BC24919848ABF9A73E24CF4 /* FakeFSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCDDF321D397425AA078ED1C /* FakeFSStore.swift */; };
 		9E6EDED8E588657281641D0D /* Runestone in Frameworks */ = {isa = PBXBuildFile; productRef = 085D4960A657279579F9F912 /* Runestone */; };
 		A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */; };
 		A9AB37A3710FCA053173B163 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */; };
 		B05361F1AB399DF92E555253 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D06A95D54E8485E5FDA7F0BB /* Assets.xcassets */; };
+		B09B1E6228F0A0B1AFD6E118 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		B0C7744DFFD5B0D7FF572295 /* fetch-polyfill.js in Resources */ = {isa = PBXBuildFile; fileRef = A28E41D7474D6ABA5E0A522A /* fetch-polyfill.js */; };
 		B2E17E11F6C45D8C09220AAB /* TerminalInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0908A05CCEDE326A36B151FC /* TerminalInputView.swift */; };
 		B4115544917270FECC7DD257 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = DF450430A92471EB5F32CDDE /* THIRD_PARTY_NOTICES.md */; };
@@ -42,6 +46,7 @@
 		D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D7AE7614B5115E8BA325D41F /* libresolv.tbd */; };
 		DD8DCE33CB9622BA5C1E8CF3 /* AetherFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 464A524053D09517D505CABA /* AetherFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		EC617B7B7015EAFA12902F19 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C144E2F3F6163FCD6F4E718F /* TerminalBuffer.swift */; };
+		ECF24605EA32B181AB66598A /* FakeFSStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BE8175F732278CF4585431 /* FakeFSStoreTests.swift */; };
 		FE54CAF7EED3E1E804AED26F /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */; };
 /* End PBXBuildFile section */
 
@@ -104,6 +109,8 @@
 		136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Aether-Bridging-Header.h"; sourceTree = "<group>"; };
 		1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fakefs.c; path = "../third_party/ish-arm64/tools/fakefs.c"; sourceTree = "<group>"; };
 		1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherTerminalView.swift; sourceTree = "<group>"; };
+		25018B4ACE138498A143F29E /* AetherFileProviderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherFileProviderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		29BE8175F732278CF4585431 /* FakeFSStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeFSStoreTests.swift; sourceTree = "<group>"; };
 		2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeHost.swift; sourceTree = "<group>"; };
 		307932EC76CB1B3E8230BE0B /* LICENSE */ = {isa = PBXFileReference; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
 		30DB82B5CCA087E5B4B06F89 /* AlpineFileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlpineFileManagerView.swift; sourceTree = "<group>"; };
@@ -128,6 +135,7 @@
 		AF079DE4E9E495EEF6637D03 /* Aether.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B57B4E3EEEFF797875CB6F3D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeTests.swift; sourceTree = "<group>"; };
+		BCDDF321D397425AA078ED1C /* FakeFSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeFSStore.swift; sourceTree = "<group>"; };
 		C144E2F3F6163FCD6F4E718F /* TerminalBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBuffer.swift; sourceTree = "<group>"; };
 		CAD911AAED3C27F2179F6997 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CE1755BDDA0F604686B21930 /* AetherRuntimeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherRuntimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -155,6 +163,22 @@
 				0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */,
 				D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */,
 				53F71DB8B4F7DFC9DDF96CDB /* libsqlite3.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6082C7B9A8C6FE79E8D50954 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B09B1E6228F0A0B1AFD6E118 /* libsqlite3.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7193C22CC3F2EE3C2629573A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1B7908CE96343E5791521885 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,6 +283,7 @@
 			children = (
 				AF079DE4E9E495EEF6637D03 /* Aether.app */,
 				464A524053D09517D505CABA /* AetherFileProvider.appex */,
+				25018B4ACE138498A143F29E /* AetherFileProviderTests.xctest */,
 				CE1755BDDA0F604686B21930 /* AetherRuntimeTests.xctest */,
 				96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */,
 			);
@@ -290,6 +315,7 @@
 		A391CBC571938BB3B0B64268 /* FileProvider */ = {
 			isa = PBXGroup;
 			children = (
+				BCDDF321D397425AA078ED1C /* FakeFSStore.swift */,
 				3AC09CC7E960E8DBCFBB291A /* FileProviderExtension.swift */,
 				CAD911AAED3C27F2179F6997 /* Info.plist */,
 			);
@@ -299,6 +325,7 @@
 		A8ECB5526B0054EB6D7EDAB9 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				E85550CFD5E53C3906D9ACD7 /* FileProvider */,
 				F1D6F36770B86C896339068F /* Runtime */,
 				04511A2861F374B7B32C8CEB /* UI */,
 			);
@@ -335,6 +362,14 @@
 				DF450430A92471EB5F32CDDE /* THIRD_PARTY_NOTICES.md */,
 			);
 			name = Licenses;
+			sourceTree = "<group>";
+		};
+		E85550CFD5E53C3906D9ACD7 /* FileProvider */ = {
+			isa = PBXGroup;
+			children = (
+				29BE8175F732278CF4585431 /* FakeFSStoreTests.swift */,
+			);
+			path = FileProvider;
 			sourceTree = "<group>";
 		};
 		F1D6F36770B86C896339068F /* Runtime */ = {
@@ -380,6 +415,7 @@
 			buildConfigurationList = C52A0DE7402EF41F2116C21B /* Build configuration list for PBXNativeTarget "AetherFileProvider" */;
 			buildPhases = (
 				C4E8966130DD8F201DF4B86C /* Sources */,
+				6082C7B9A8C6FE79E8D50954 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -391,6 +427,24 @@
 			productName = AetherFileProvider;
 			productReference = 464A524053D09517D505CABA /* AetherFileProvider.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		ABD0E5E19FB2E738FEC6F527 /* AetherFileProviderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D9F56379B7F755DA4536FF46 /* Build configuration list for PBXNativeTarget "AetherFileProviderTests" */;
+			buildPhases = (
+				44802A9F7760953369241F75 /* Sources */,
+				7193C22CC3F2EE3C2629573A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AetherFileProviderTests;
+			packageProductDependencies = (
+			);
+			productName = AetherFileProviderTests;
+			productReference = 25018B4ACE138498A143F29E /* AetherFileProviderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		D59EF0ACCA124A422E890B70 /* Aether */ = {
 			isa = PBXNativeTarget;
@@ -452,6 +506,9 @@
 					21E9AEFD17387AFE377254C5 = {
 						ProvisioningStyle = Automatic;
 					};
+					ABD0E5E19FB2E738FEC6F527 = {
+						ProvisioningStyle = Automatic;
+					};
 					D59EF0ACCA124A422E890B70 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -486,6 +543,7 @@
 				D59EF0ACCA124A422E890B70 /* Aether */,
 				21E9AEFD17387AFE377254C5 /* AetherFileProvider */,
 				E6EE86DC0266969D1D3A888C /* AetherRuntimeTests */,
+				ABD0E5E19FB2E738FEC6F527 /* AetherFileProviderTests */,
 				1BF8446A0AAC14E6D852F186 /* AetherUITests */,
 			);
 		};
@@ -600,10 +658,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		44802A9F7760953369241F75 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6E800049932DB1975FB90795 /* FakeFSStore.swift in Sources */,
+				ECF24605EA32B181AB66598A /* FakeFSStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C4E8966130DD8F201DF4B86C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9BC24919848ABF9A73E24CF4 /* FakeFSStore.swift in Sources */,
 				A9AB37A3710FCA053173B163 /* FileProviderExtension.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -789,6 +857,44 @@
 				SDKROOT = iphoneos;
 			};
 			name = Debug;
+		};
+		92926DD8C0039587C7999BFF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.baimoqilin.aether.fileprovider-tests";
+				PRODUCT_MODULE_NAME = AetherFileProviderTests;
+				PRODUCT_NAME = AetherFileProviderTests;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		A123C36B0D3A53AB78FF3D87 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.baimoqilin.aether.fileprovider-tests";
+				PRODUCT_MODULE_NAME = AetherFileProviderTests;
+				PRODUCT_NAME = AetherFileProviderTests;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
 		};
 		A8EEC505C3358D2984B01B6E /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -977,6 +1083,15 @@
 			buildConfigurations = (
 				A8EEC505C3358D2984B01B6E /* Debug */,
 				39F66F7451CB87EC7B336FAD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D9F56379B7F755DA4536FF46 /* Build configuration list for PBXNativeTarget "AetherFileProviderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				92926DD8C0039587C7999BFF /* Debug */,
+				A123C36B0D3A53AB78FF3D87 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

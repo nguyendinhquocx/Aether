@@ -58,6 +58,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "ABD0E5E19FB2E738FEC6F527"
+               BuildableName = "AetherFileProviderTests.xctest"
+               BlueprintName = "AetherFileProviderTests"
+               ReferencedContainer = "container:Aether.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "E6EE86DC0266969D1D3A888C"
                BuildableName = "AetherRuntimeTests.xctest"
                BlueprintName = "AetherRuntimeTests"

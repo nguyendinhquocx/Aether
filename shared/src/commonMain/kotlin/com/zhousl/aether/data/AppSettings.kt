@@ -144,6 +144,7 @@ data class AppSettings(
     val modelId: String = DefaultCustomModelId,
     val userAgent: String = AetherLlmUserAgent,
     val customHeaders: List<LlmCustomHeader> = emptyList(),
+    val compatibilityMode: Boolean = false,
     val developerRoleUnsupported: Boolean = false,
     val reasoningEffort: String = DefaultReasoningEffort,
     val systemPrompt: String = platformDefaultSystemPrompt(),
@@ -327,6 +328,7 @@ data class LlmProviderConfig(
     val manualModelIds: List<String> = listOf(modelId).filter(String::isNotBlank),
     val userAgent: String = AetherLlmUserAgent,
     val customHeaders: List<LlmCustomHeader> = emptyList(),
+    val compatibilityMode: Boolean = false,
     val developerRoleUnsupported: Boolean = false,
     val cachedModels: List<String> = emptyList(),
     val enabledModelIds: List<String> = cachedModels + manualModelIds,
@@ -358,6 +360,7 @@ fun LlmProviderConfig.toJsonObject(): JsonObject = JsonObject(
         "userAgent" to JsonPrimitive(normalizeLlmUserAgent(userAgent)),
         "manualModelIds" to manualModelIds.toStringJsonArray(),
         "customHeaders" to customHeaders.toKotlinJsonArray(),
+        "compatibilityMode" to JsonPrimitive(compatibilityMode),
         "developerRoleUnsupported" to JsonPrimitive(developerRoleUnsupported),
         "cachedModels" to cachedModels.toStringJsonArray(),
         "enabledModelIds" to enabledModelIds.toStringJsonArray(),
@@ -438,6 +441,7 @@ fun parseProviderConfigs(rawValue: String): List<LlmProviderConfig> {
                         customHeaders = parsedCustomHeaders.filterNot {
                             it.name.equals("User-Agent", ignoreCase = true)
                         },
+                        compatibilityMode = json.boolean("compatibilityMode", false),
                         developerRoleUnsupported = json.boolean(
                             "developerRoleUnsupported",
                             false,
@@ -584,6 +588,7 @@ data class ProviderModelOption(
     val modelId: String,
     val userAgent: String,
     val customHeaders: List<LlmCustomHeader>,
+    val compatibilityMode: Boolean,
     val developerRoleUnsupported: Boolean,
     val fullLabel: String,
     val chatLabel: String,
@@ -636,6 +641,7 @@ fun List<LlmProviderConfig>.availableModelOptions(
                 modelId = normalizedModelId,
                 userAgent = normalizeLlmUserAgent(config.userAgent),
                 customHeaders = config.customHeaders,
+                compatibilityMode = config.compatibilityMode,
                 developerRoleUnsupported = config.developerRoleUnsupported,
                 fullLabel = fullLabel,
                 chatLabel = if ((modelCounts[normalizedModelId] ?: 0) > 1) fullLabel else normalizedModelId,
@@ -660,6 +666,7 @@ fun AppSettings.withModelOption(option: ProviderModelOption): AppSettings = copy
     modelId = option.modelId.trim(),
     userAgent = normalizeLlmUserAgent(option.userAgent),
     customHeaders = option.customHeaders,
+    compatibilityMode = option.compatibilityMode,
     developerRoleUnsupported = option.developerRoleUnsupported,
 )
 

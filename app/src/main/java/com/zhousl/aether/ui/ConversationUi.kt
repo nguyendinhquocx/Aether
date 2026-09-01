@@ -91,6 +91,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -371,6 +372,7 @@ fun ConversationScreen(
     onDismissStarterPromptHint: () -> Unit,
     isSending: Boolean,
 ) {
+    val scope = rememberCoroutineScope()
     val listState = rememberSaveable(
         conversationStateKey,
         saver = LazyListState.Saver,
@@ -378,6 +380,26 @@ fun ConversationScreen(
         LazyListState()
     }
     val conversationItems = remember(messages) { buildConversationListItems(messages) }
+    val timelineTargets = remember(conversationItems) {
+        buildConversationTimelineTargets(conversationItems)
+    }
+    val currentTimelineIndex by remember(listState, timelineTargets) {
+        derivedStateOf {
+            if (timelineTargets.isEmpty()) {
+                0
+            } else {
+                val layout = listState.layoutInfo
+                val firstVisibleIndex = layout.visibleItemsInfo.firstOrNull()?.index ?: 0
+                val probe = layout.viewportStartOffset +
+                    (layout.viewportEndOffset - layout.viewportStartOffset) * 0.28f
+                timelineTargets.indexOfLast { target ->
+                    target.listItemIndex < firstVisibleIndex ||
+                        layout.visibleItemsInfo.firstOrNull { it.index == target.listItemIndex }
+                            ?.let { it.offset <= probe } == true
+                }.coerceAtLeast(0)
+            }
+        }
+    }
     val compactSuggestion = remember(messages) { compactCommandSuggestion(messages) }
     val sessionTotalTokens = remember(messages) {
         messages.sumOf { message -> message.usageStatistics?.totalTokens ?: 0L }
@@ -789,6 +811,25 @@ fun ConversationScreen(
                 onSend = onSend,
                 onQueueFollowUp = onQueueFollowUp,
                 onSteerFollowUp = onSteerFollowUp,
+            )
+
+            ConversationTimeline(
+                entries = timelineTargets.map(ConversationTimelineTarget::entry),
+                currentIndex = currentTimelineIndex,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        top = topBarBodyHeight + 8.dp,
+                        bottom = composerBodyHeight + animatedImeBottom + 30.dp,
+                    ),
+                onNavigate = { timelineIndex ->
+                    timelineTargets.getOrNull(timelineIndex)?.let { target ->
+                        shouldAutoFollow = false
+                        scope.launch {
+                            listState.scrollToItem(target.listItemIndex)
+                        }
+                    }
+                },
             )
 
             previewAttachment?.let { attachment ->
@@ -1921,6 +1962,60 @@ private fun buildConversationListItems(
         }
         add(ConversationListItem.Message(message))
         index += 1
+    }
+}
+
+private data class ConversationTimelineTarget(
+    val listItemIndex: Int,
+    val entry: ConversationTimelineEntry,
+)
+
+private fun buildConversationTimelineTargets(
+    items: List<ConversationListItem>,
+): List<ConversationTimelineTarget> = buildList {
+    items.forEachIndexed { itemIndex, item ->
+        val userMessage = (item as? ConversationListItem.Message)
+            ?.message
+            ?.takeIf { it.author == MessageAuthor.User }
+            ?: return@forEachIndexed
+        val assistantPreview = buildString {
+            var followingIndex = itemIndex + 1
+            while (followingIndex < items.size) {
+                when (val following = items[followingIndex]) {
+                    is ConversationListItem.Message -> {
+                        if (following.message.author == MessageAuthor.User) break
+                        if (following.message.text.isNotBlank()) {
+                            if (isNotEmpty()) append("\n")
+                            append(following.message.text.trim())
+                        }
+                    }
+
+                    is ConversationListItem.AssistantGroup -> {
+                        following.messages.forEach { message ->
+                            if (message.text.isNotBlank()) {
+                                if (isNotEmpty()) append("\n")
+                                append(message.text.trim())
+                            }
+                        }
+                    }
+
+                    is ConversationListItem.CompactStatus -> Unit
+                }
+                followingIndex += 1
+            }
+        }
+        add(
+            ConversationTimelineTarget(
+                listItemIndex = itemIndex + 1,
+                entry = ConversationTimelineEntry(
+                    key = userMessage.id,
+                    userPreview = userMessage.text.trim().ifBlank {
+                        userMessage.attachments.joinToString(", ") { it.name }
+                    },
+                    assistantPreview = assistantPreview,
+                ),
+            )
+        )
     }
 }
 

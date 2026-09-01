@@ -460,6 +460,8 @@
     <string name="provider_form_provider">ارائه دهنده</string>
     <string name="provider_form_pi_builtin_description">از یکپارچه سازی ارائه دهنده داخلی و کاتالوگ مدل استفاده می کند.</string>
     <string name="provider_form_pi_custom_description">یک نقطه پایانی سفارشی را با URL، مدل‌ها و سرصفحه‌های خود متصل می‌کند.</string>
+    <string name="provider_form_compatibility_mode">حالت سازگاری</string>
+    <string name="provider_form_compatibility_mode_description">دستورهای system و developer را برای نقاط پایانی با پشتیبانی محدود از نقش‌ها به‌صورت پیام user ارسال می‌کند.</string>
     <string name="provider_form_authentication">احراز هویت</string>
     <string name="provider_form_auth_api_key">کلید API</string>
     <string name="provider_form_auth_oauth">OAuth</string>

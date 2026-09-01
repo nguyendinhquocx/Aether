@@ -466,6 +466,8 @@
     <string name="provider_form_provider">Provider</string>
     <string name="provider_form_pi_builtin_description">Uses the built-in provider integration and model catalog.</string>
     <string name="provider_form_pi_custom_description">Connects a custom endpoint with your own URL, models, and headers.</string>
+    <string name="provider_form_compatibility_mode">Compatibility mode</string>
+    <string name="provider_form_compatibility_mode_description">Sends system and developer instructions as user messages for endpoints with limited role support.</string>
     <string name="provider_form_authentication">Authentication</string>
     <string name="provider_form_auth_api_key">API key</string>
     <string name="provider_form_auth_oauth">OAuth</string>

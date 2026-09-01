@@ -1,52 +1,23 @@
 import FileProvider
+import Foundation
 import UniformTypeIdentifiers
 
-private enum AetherFileProviderStorage {
-    static let appGroupIdentifier = "group.com.baimoqilin.aether"
-
-    static let root: URL = {
-        guard let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupIdentifier
-        ) else {
-            fatalError("Aether File Provider cannot access its App Group container.")
-        }
-        let root = container.appendingPathComponent("AetherAlpine/data", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        return root.standardizedFileURL
-    }()
-
-    static func url(for identifier: NSFileProviderItemIdentifier) throws -> URL {
-        if identifier == .rootContainer || identifier == .workingSet {
-            return root
-        }
-        let relativePath = identifier.rawValue
-        guard !relativePath.isEmpty, !relativePath.hasPrefix("/") else {
-            throw NSFileProviderError(.noSuchItem)
-        }
-        let candidate = root.appendingPathComponent(relativePath).standardizedFileURL
-        guard candidate.path.hasPrefix(root.path + "/") else {
-            throw NSFileProviderError(.noSuchItem)
-        }
-        return candidate
-    }
-
-    static func identifier(for url: URL) -> NSFileProviderItemIdentifier {
-        let standardized = url.standardizedFileURL
-        if standardized.path == root.path {
-            return .rootContainer
-        }
-        let prefix = root.path + "/"
-        return NSFileProviderItemIdentifier(String(standardized.path.dropFirst(prefix.count)))
-    }
-
-    static func parentIdentifier(for url: URL) -> NSFileProviderItemIdentifier {
-        let parent = url.deletingLastPathComponent().standardizedFileURL
-        return parent.path == root.path ? .rootContainer : identifier(for: parent)
-    }
-}
-
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
+    private let manager: NSFileProviderManager
+    private let queue = DispatchQueue(label: "com.baimoqilin.aether.file-provider", qos: .utility)
+    private var store: FakeFSStore?
+    private var startupError: Error?
+
     required init(domain: NSFileProviderDomain) {
+        guard let manager = NSFileProviderManager(for: domain) else {
+            fatalError("Aether File Provider could not create its domain manager.")
+        }
+        self.manager = manager
+        do {
+            store = try FakeFSStore()
+        } catch {
+            startupError = error
+        }
         super.init()
     }
 
@@ -57,16 +28,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        do {
-            let url = try AetherFileProviderStorage.url(for: identifier)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw NSFileProviderError(.noSuchItem)
-            }
-            completionHandler(FileProviderItem(url: url), nil)
-        } catch {
-            completionHandler(nil, error)
+        perform(completionHandler: completionHandler) { store in
+            FileProviderItem(record: try store.item(for: identifier), store: store)
         }
-        return Progress(totalUnitCount: 1)
     }
 
     func fetchContents(
@@ -75,19 +39,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        do {
-            let source = try AetherFileProviderStorage.url(for: itemIdentifier)
-            guard FileManager.default.fileExists(atPath: source.path) else {
-                throw NSFileProviderError(.noSuchItem)
+        let progress = Progress(totalUnitCount: 1)
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let store = try requireStore()
+                let temporaryDirectory = try manager.temporaryDirectoryURL()
+                let (url, record) = try store.fetchContents(
+                    for: itemIdentifier,
+                    requestedVersion: requestedVersion,
+                    temporaryDirectory: temporaryDirectory
+                )
+                progress.completedUnitCount = 1
+                completionHandler(url, FileProviderItem(record: record, store: store), nil)
+            } catch {
+                completionHandler(nil, nil, providerError(error))
             }
-            let temporary = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString, isDirectory: false)
-            try FileManager.default.copyItem(at: source, to: temporary)
-            completionHandler(temporary, FileProviderItem(url: source), nil)
-        } catch {
-            completionHandler(nil, nil, error)
         }
-        return Progress(totalUnitCount: 1)
+        return progress
     }
 
     func createItem(
@@ -98,24 +67,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        do {
-            let parent = try AetherFileProviderStorage.url(for: itemTemplate.parentItemIdentifier)
-            let destination = parent.appendingPathComponent(itemTemplate.filename)
-            guard !FileManager.default.fileExists(atPath: destination.path) else {
-                throw CocoaError(.fileWriteFileExists)
+        let progress = Progress(totalUnitCount: 1)
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let store = try requireStore()
+                let record = try store.createItem(
+                    parentIdentifier: itemTemplate.parentItemIdentifier,
+                    filename: itemTemplate.filename,
+                    isDirectory: itemTemplate.contentType?.conforms(to: .folder) == true,
+                    contents: url
+                )
+                progress.completedUnitCount = 1
+                completionHandler(FileProviderItem(record: record, store: store), [], false, nil)
+            } catch {
+                completionHandler(nil, fields, false, providerError(error))
             }
-            if itemTemplate.contentType?.conforms(to: .folder) == true {
-                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-            } else if let url {
-                try FileManager.default.copyItem(at: url, to: destination)
-            } else {
-                try Data().write(to: destination, options: .atomic)
-            }
-            completionHandler(FileProviderItem(url: destination), [], false, nil)
-        } catch {
-            completionHandler(nil, fields, false, error)
         }
-        return Progress(totalUnitCount: 1)
+        return progress
     }
 
     func modifyItem(
@@ -127,32 +96,33 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        do {
-            let source = try AetherFileProviderStorage.url(for: item.itemIdentifier)
-            guard FileManager.default.fileExists(atPath: source.path) else {
-                throw NSFileProviderError(.noSuchItem)
+        let progress = Progress(totalUnitCount: 1)
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let store = try requireStore()
+                let result = try store.modifyItem(
+                    identifier: item.itemIdentifier,
+                    parentIdentifier: item.parentItemIdentifier,
+                    filename: item.filename,
+                    baseVersion: version,
+                    changedFields: changedFields,
+                    newContents: newContents,
+                    fileSystemFlags: item.fileSystemFlags,
+                    contentModificationDate: item.contentModificationDate ?? nil
+                )
+                progress.completedUnitCount = 1
+                completionHandler(
+                    FileProviderItem(record: result.item, store: store),
+                    [],
+                    result.shouldFetchContent,
+                    nil
+                )
+            } catch {
+                completionHandler(nil, changedFields, false, providerError(error))
             }
-            let parent = try AetherFileProviderStorage.url(for: item.parentItemIdentifier)
-            let destination = parent.appendingPathComponent(item.filename)
-            var current = source
-            if source.standardizedFileURL != destination.standardizedFileURL {
-                guard !FileManager.default.fileExists(atPath: destination.path) else {
-                    throw CocoaError(.fileWriteFileExists)
-                }
-                try FileManager.default.moveItem(at: source, to: destination)
-                current = destination
-            }
-            if let newContents, item.contentType?.conforms(to: .folder) != true {
-                let staged = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString, isDirectory: false)
-                try FileManager.default.copyItem(at: newContents, to: staged)
-                _ = try FileManager.default.replaceItemAt(current, withItemAt: staged)
-            }
-            completionHandler(FileProviderItem(url: current), [], false, nil)
-        } catch {
-            completionHandler(nil, changedFields, false, error)
         }
-        return Progress(totalUnitCount: 1)
+        return progress
     }
 
     func deleteItem(
@@ -162,34 +132,68 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
-        do {
-            let url = try AetherFileProviderStorage.url(for: identifier)
-            guard identifier != .rootContainer else {
-                throw CocoaError(.fileWriteNoPermission)
+        let progress = Progress(totalUnitCount: 1)
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try requireStore().deleteItem(
+                    identifier: identifier,
+                    baseVersion: version,
+                    recursive: options.contains(.recursive)
+                )
+                progress.completedUnitCount = 1
+                completionHandler(nil)
+            } catch {
+                completionHandler(providerError(error))
             }
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
-            completionHandler(nil)
-        } catch {
-            completionHandler(error)
         }
-        return Progress(totalUnitCount: 1)
+        return progress
     }
 
     func enumerator(
         for containerItemIdentifier: NSFileProviderItemIdentifier,
         request: NSFileProviderRequest
     ) throws -> NSFileProviderEnumerator {
-        FileProviderEnumerator(identifier: containerItemIdentifier)
+        FileProviderEnumerator(
+            identifier: containerItemIdentifier,
+            queue: queue,
+            store: try requireStore()
+        )
+    }
+
+    private func requireStore() throws -> FakeFSStore {
+        if let store { return store }
+        throw startupError ?? CocoaError(.fileNoSuchFile)
+    }
+
+    private func perform<T>(
+        completionHandler: @escaping (T?, Error?) -> Void,
+        operation: @escaping (FakeFSStore) throws -> T
+    ) -> Progress {
+        let progress = Progress(totalUnitCount: 1)
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try operation(try requireStore())
+                progress.completedUnitCount = 1
+                completionHandler(result, nil)
+            } catch {
+                completionHandler(nil, providerError(error))
+            }
+        }
+        return progress
     }
 }
 
 final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let identifier: NSFileProviderItemIdentifier
+    private let queue: DispatchQueue
+    private let store: FakeFSStore
 
-    init(identifier: NSFileProviderItemIdentifier) {
+    init(identifier: NSFileProviderItemIdentifier, queue: DispatchQueue, store: FakeFSStore) {
         self.identifier = identifier
+        self.queue = queue
+        self.store = store
         super.init()
     }
 
@@ -197,17 +201,29 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         for observer: NSFileProviderEnumerationObserver,
         startingAt page: NSFileProviderPage
     ) {
-        do {
-            let base = try AetherFileProviderStorage.url(for: identifier)
-            let urls = try FileManager.default.contentsOfDirectory(
-                at: base,
-                includingPropertiesForKeys: [.contentTypeKey, .contentModificationDateKey, .fileSizeKey],
-                options: [.skipsHiddenFiles]
-            )
-            observer.didEnumerate(urls.map(FileProviderItem.init))
-            observer.finishEnumerating(upTo: nil)
-        } catch {
-            observer.finishEnumeratingWithError(error)
+        queue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let offset = Self.offset(from: page)
+                let suggestedPageSize = observer.suggestedPageSize ?? 200
+                let pageSize = max(1, min(suggestedPageSize > 0 ? suggestedPageSize : 200, 2_000))
+                let result: (items: [FakeFSItemRecord], hasMore: Bool)
+                if identifier == .trashContainer {
+                    result = ([], false)
+                } else if identifier == .workingSet {
+                    result = try store.workingSetPage(offset: offset, limit: pageSize)
+                } else {
+                    result = try store.childrenPage(of: identifier, offset: offset, limit: pageSize)
+                }
+                if !result.items.isEmpty {
+                    observer.didEnumerate(result.items.map { FileProviderItem(record: $0, store: self.store) })
+                }
+                let nextOffset = offset + pageSize
+                let nextPage = result.hasMore ? NSFileProviderPage(Data(String(nextOffset).utf8)) : nil
+                observer.finishEnumerating(upTo: nextPage)
+            } catch {
+                observer.finishEnumeratingWithError(providerError(error))
+            }
         }
     }
 
@@ -215,84 +231,108 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         for observer: NSFileProviderChangeObserver,
         from anchor: NSFileProviderSyncAnchor
     ) {
-        observer.finishEnumeratingChanges(upTo: Self.syncAnchor(), moreComing: false)
+        queue.async { [store] in
+            do {
+                let batch = try store.changes(from: anchor, suggestedBatchSize: observer.suggestedBatchSize ?? 200)
+                if !batch.updated.isEmpty {
+                    observer.didUpdate(batch.updated.map { FileProviderItem(record: $0, store: store) })
+                }
+                if !batch.deleted.isEmpty {
+                    observer.didDeleteItems(withIdentifiers: batch.deleted)
+                }
+                observer.finishEnumeratingChanges(upTo: batch.anchor, moreComing: batch.moreComing)
+            } catch {
+                observer.finishEnumeratingWithError(providerError(error))
+            }
+        }
     }
 
     func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        completionHandler(Self.syncAnchor())
+        queue.async { [store] in
+            completionHandler(try? store.currentAnchor())
+        }
     }
 
     func invalidate() {}
 
-    private static func syncAnchor() -> NSFileProviderSyncAnchor {
-        NSFileProviderSyncAnchor(Data("aether-local-v1".utf8))
+    private static func offset(from page: NSFileProviderPage) -> Int {
+        Int(String(data: page.rawValue, encoding: .utf8) ?? "") ?? 0
     }
 }
 
 final class FileProviderItem: NSObject, NSFileProviderItem {
-    private let url: URL
-    private let values: URLResourceValues
+    private let record: FakeFSItemRecord
+    private let parentIdentifierValue: NSFileProviderItemIdentifier
 
-    init(url: URL) {
-        self.url = url.standardizedFileURL
-        values = (try? url.resourceValues(forKeys: [
-            .contentTypeKey,
-            .contentModificationDateKey,
-            .creationDateKey,
-            .fileSizeKey,
-            .isDirectoryKey,
-        ])) ?? URLResourceValues()
+    init(record: FakeFSItemRecord, store: FakeFSStore) {
+        self.record = record
+        if record.path.isEmpty || record.parentPath.isEmpty {
+            parentIdentifierValue = .rootContainer
+        } else {
+            parentIdentifierValue = (try? store.itemIdentifier(forLinuxPath: record.parentPath)) ?? .rootContainer
+        }
         super.init()
     }
 
-    var itemIdentifier: NSFileProviderItemIdentifier {
-        AetherFileProviderStorage.identifier(for: url)
-    }
-
-    var parentItemIdentifier: NSFileProviderItemIdentifier {
-        itemIdentifier == .rootContainer
-            ? .rootContainer
-            : AetherFileProviderStorage.parentIdentifier(for: url)
-    }
-
-    var filename: String {
-        itemIdentifier == .rootContainer ? "Aether" : url.lastPathComponent
-    }
+    var itemIdentifier: NSFileProviderItemIdentifier { record.identifier }
+    var parentItemIdentifier: NSFileProviderItemIdentifier { parentIdentifierValue }
+    var filename: String { record.filename }
 
     var contentType: UTType {
-        values.contentType ?? (values.isDirectory == true ? .folder : .data)
+        if record.isDirectory { return .folder }
+        if record.stat.isSymbolicLink { return .symbolicLink }
+        return UTType(filenameExtension: (record.filename as NSString).pathExtension) ?? .data
     }
 
     var capabilities: NSFileProviderItemCapabilities {
+        let writable = record.stat.mode & 0o200 != 0
         if itemIdentifier == .rootContainer {
-            return [.allowsReading, .allowsWriting]
+            return writable ? [.allowsContentEnumerating, .allowsAddingSubItems] : [.allowsContentEnumerating]
         }
-        return [
-            .allowsReading,
-            .allowsWriting,
-            .allowsRenaming,
-            .allowsReparenting,
-            .allowsTrashing,
-            .allowsDeleting,
-        ]
+        var result: NSFileProviderItemCapabilities = [.allowsReading, .allowsEvicting]
+        if writable { result.insert(.allowsWriting) }
+        result.formUnion([.allowsRenaming, .allowsReparenting, .allowsDeleting])
+        return result
     }
 
-    var itemVersion: NSFileProviderItemVersion {
-        let timestamp = values.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let size = values.fileSize ?? 0
-        let version = Data("\(timestamp):\(size)".utf8)
-        return NSFileProviderItemVersion(contentVersion: version, metadataVersion: version)
+    var contentPolicy: NSFileProviderContentPolicy { .downloadLazilyAndEvictOnRemoteUpdate }
+    var itemVersion: NSFileProviderItemVersion { record.version }
+
+    var fileSystemFlags: NSFileProviderFileSystemFlags {
+        var flags: NSFileProviderFileSystemFlags = []
+        if record.stat.mode & 0o400 != 0 { flags.insert(.userReadable) }
+        if record.stat.mode & 0o200 != 0 { flags.insert(.userWritable) }
+        if record.stat.mode & 0o100 != 0 { flags.insert(.userExecutable) }
+        return flags
     }
 
-    var documentSize: NSNumber? {
-        values.fileSize.map(NSNumber.init)
-    }
-
+    var documentSize: NSNumber? { record.isDirectory ? nil : NSNumber(value: record.hostStat.st_size) }
     var creationDate: Date? {
-        values.creationDate
+        Date(timeIntervalSince1970: TimeInterval(record.hostStat.st_birthtimespec.tv_sec) + TimeInterval(record.hostStat.st_birthtimespec.tv_nsec) / 1_000_000_000)
     }
-
     var contentModificationDate: Date? {
-        values.contentModificationDate
+        Date(timeIntervalSince1970: TimeInterval(record.hostStat.st_mtimespec.tv_sec) + TimeInterval(record.hostStat.st_mtimespec.tv_nsec) / 1_000_000_000)
     }
+}
+
+private func providerError(_ error: Error) -> Error {
+    if let storeError = error as? FakeFSStoreError {
+        switch storeError {
+        case .invalidIdentifier, .missingItem:
+            return NSFileProviderError(.noSuchItem)
+        case .filenameCollision:
+            return NSFileProviderError(.filenameCollision)
+        case .directoryNotEmpty:
+            return NSFileProviderError(.directoryNotEmpty)
+        case .invalidFilename:
+            return CocoaError(.fileWriteInvalidFileName)
+        case .database(let message):
+            return CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+    let nsError = error as NSError
+    if nsError.domain == NSFileProviderErrorDomain || nsError.domain == NSCocoaErrorDomain {
+        return error
+    }
+    return CocoaError(.fileReadUnknown, userInfo: [NSUnderlyingErrorKey: error])
 }

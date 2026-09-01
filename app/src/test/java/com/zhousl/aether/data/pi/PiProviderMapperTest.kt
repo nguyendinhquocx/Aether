@@ -97,6 +97,27 @@ class PiProviderMapperTest {
     }
 
     @Test
+    fun compatibilityModeIsSentOnlyForCustomProvider() {
+        val custom = AppSettings(
+            piProviderId = "openai-compatible",
+            providerConfigId = "custom",
+            baseUrl = "https://example.test/v1",
+            modelId = "model",
+            compatibilityMode = true,
+        ).toPiModelConfig().toJson()
+        val builtIn = AppSettings(
+            piProviderId = "openai",
+            providerConfigId = "openai",
+            baseUrl = "https://api.openai.com/v1",
+            modelId = "gpt-5.4",
+            compatibilityMode = true,
+        ).toPiModelConfig().toJson()
+
+        assertTrue(custom.getBoolean("compatibility_mode"))
+        assertFalse(builtIn.has("compatibility_mode"))
+    }
+
+    @Test
     fun legacyNoneReasoningEffortMigratesToPiOff() {
         assertEquals("off", AppSettings(
             piProviderId = "openai",

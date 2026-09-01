@@ -464,6 +464,8 @@
     <string name="provider_form_provider">提供方</string>
     <string name="provider_form_pi_builtin_description">使用内置的提供方集成与模型目录。</string>
     <string name="provider_form_pi_custom_description">使用自定义 URL、模型和请求头连接兼容端点。</string>
+    <string name="provider_form_compatibility_mode">兼容模式</string>
+    <string name="provider_form_compatibility_mode_description">将 System 和 Developer 指令作为 User 消息发送，以兼容角色支持有限的端点。</string>
     <string name="provider_form_authentication">认证方式</string>
     <string name="provider_form_auth_api_key">API Key</string>
     <string name="provider_form_auth_oauth">OAuth</string>

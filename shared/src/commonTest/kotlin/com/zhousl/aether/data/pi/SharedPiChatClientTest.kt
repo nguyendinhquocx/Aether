@@ -55,6 +55,19 @@ class SharedPiChatClientTest {
     }
 
     @Test
+    fun compatibilityModeIsSentOnlyForCustomProvider() {
+        val custom = testProvider()
+            .copy(compatibilityMode = true)
+            .toSharedPiModelConfig()
+        val builtIn = testProvider()
+            .copy(piProviderId = "openai", compatibilityMode = true)
+            .toSharedPiModelConfig()
+
+        assertTrue(custom["compatibility_mode"]!!.jsonPrimitive.boolean)
+        assertFalse("compatibility_mode" in builtIn)
+    }
+
+    @Test
     fun detectedDeveloperRoleFallbackIsReportedToPersistence() = runTest {
         val process = ChatProtocolProcess(developerRoleUnsupportedDetected = true)
         val bridge = SharedPiBridgeClient(

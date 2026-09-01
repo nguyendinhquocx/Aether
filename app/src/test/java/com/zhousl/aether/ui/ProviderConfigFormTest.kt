@@ -21,6 +21,24 @@ class ProviderConfigFormTest {
         val customProviders = PiProviderCatalog.providers.filterNot { it.isBuiltIn }
         assertEquals(1, customProviders.size)
         assertEquals("openai-compatible", customProviders.single().id)
+        assertEquals(
+            listOf("openai", "openai-compatible"),
+            PiProviderCatalog.providers.take(2).map { it.id },
+        )
+    }
+
+    @Test
+    fun compatibilityModeIsScopedToOpenAiCompatibleProvider() {
+        val state = ProviderFormState.fromConfig(null)
+        state.applyProviderDefaults(PiProviderCatalog.resolve("openai-compatible"))
+        state.compatibilityMode = true
+
+        assertTrue(state.buildConfig().compatibilityMode)
+
+        state.applyProviderDefaults(PiProviderCatalog.resolve("openai"))
+
+        assertFalse(state.compatibilityMode)
+        assertFalse(state.buildConfig().compatibilityMode)
     }
 
     @Test
