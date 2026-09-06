@@ -21,7 +21,8 @@ const nodeBundleSourcePatches = {
       { filter: /@earendil-works\/pi-coding-agent\/dist\/core\/extensions\/loader\.js$/ },
       async ({ path }) => {
         const source = await readFile(path, "utf8");
-        const original = "...(isBunBinary\n            ? { virtualModules: VIRTUAL_MODULES, tryNative: false }";
+        const original =
+          "...(isBunBinary || isNodeSeaBinary || isBundledNode\n            ? { virtualModules: VIRTUAL_MODULES, tryNative: false }";
         const replacement = "...(true\n            ? { virtualModules: VIRTUAL_MODULES, tryNative: false }";
         if (!source.includes(original)) {
           throw new Error("Pi extension loader structure changed; update the Node bundle patch.");

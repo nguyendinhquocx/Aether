@@ -1131,9 +1131,9 @@ test("reports pinned bridge and Pi versions", async () => {
   const ping = await client.request("ping-1", "ping");
 
   assert.equal(ping.bridge_version, "2.0.0-alpha.0");
-  assert.equal(ping.pi_ai_version, "0.84.1");
-  assert.equal(ping.pi_agent_core_version, "0.84.1");
-  assert.equal(ping.pi_coding_agent_version, "0.84.1");
+  assert.equal(ping.pi_ai_version, "0.85.1");
+  assert.equal(ping.pi_agent_core_version, "0.85.1");
+  assert.equal(ping.pi_coding_agent_version, "0.85.1");
   assert.match(ping.node_version, /^v\d+\./);
 });
 
