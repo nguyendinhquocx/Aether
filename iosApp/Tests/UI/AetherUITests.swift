@@ -58,6 +58,36 @@ final class AetherUITests: XCTestCase {
         XCTAssertLessThan(app.frame.maxY - composer.frame.maxY, 120)
     }
 
+    func testKeyboardKeepsComposerVisibleAndSidebarStationary() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let privacyAgreement = app.buttons["Agree"]
+        if privacyAgreement.waitForExistence(timeout: 5) {
+            privacyAgreement.tap()
+        }
+        let composer = app.textViews.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 30))
+        let settings = app.buttons["Settings"]
+        let sidebarFrame = settings.exists ? settings.frame : nil
+        composer.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        let settled = NSPredicate { _, _ in
+            composer.frame.maxY <= keyboard.frame.minY && composer.frame.height > 0
+        }
+        expectation(for: settled, evaluatedWith: app)
+        waitForExpectations(timeout: 10)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let originalFrame = try XCTUnwrap(sidebarFrame)
+            XCTAssertEqual(settings.frame.minY, originalFrame.minY, accuracy: 1)
+            XCTAssertEqual(settings.frame.minX, originalFrame.minX, accuracy: 1)
+        }
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testOnboardingRuntimeAndIOSCapabilitySurface() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

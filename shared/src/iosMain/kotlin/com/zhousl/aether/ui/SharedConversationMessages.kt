@@ -3631,10 +3631,8 @@ private fun toolIcon(name: String): ImageVector = when (sharedToolPresentation(n
 
 internal fun highlightSharedBashCommand(command: String): AnnotatedString = buildAnnotatedString {
     appendSharedStyled("$ ", SpanStyle(color = AetherSecondary, fontWeight = FontWeight.SemiBold))
-    val tokenPattern = Regex("""\s+|&&|\|\||[|;><()]|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\$[A-Za-z_][A-Za-z0-9_]*|--?[A-Za-z0-9][\w-]*|[^\s|;><()]+""")
     var expectsCommand = true
-    tokenPattern.findAll(command).forEach { match ->
-        val token = match.value
+    bashCommandTokens(command).forEach { token ->
         val style = when {
             token.isBlank() -> null
             token in setOf("|", "||", "&&", ";", ">", "<", "(", ")") -> {

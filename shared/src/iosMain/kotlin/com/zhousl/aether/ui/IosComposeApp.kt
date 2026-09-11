@@ -242,6 +242,7 @@ import com.zhousl.aether.data.pi.SharedPiContentPart
 import com.zhousl.aether.data.pi.SharedPiToolEvent
 import com.zhousl.aether.data.pi.SharedPiTurnResult
 import com.zhousl.aether.data.pi.SharedPiUsage
+import com.zhousl.aether.platform.IosAnalytics
 import com.zhousl.aether.data.pi.RuntimeHostToolExecutor
 import com.zhousl.aether.data.pi.SharedAgentManagementTools
 import com.zhousl.aether.data.pi.SharedMcpServerConfig
@@ -848,6 +849,9 @@ fun IosComposeApp(
 ) {
     CompositionLocalProvider(LocalPlatformServices provides platformServices) {
     var sharedAppSettings by remember { mutableStateOf(AppSettings()) }
+    LaunchedEffect(sharedAppSettings.privacyPolicyAccepted) {
+        if (sharedAppSettings.privacyPolicyAccepted) IosAnalytics.acceptConsent()
+    }
     applyPlatformAppLanguage(sharedAppSettings.language)
     SharedAetherTheme(
         themeMode = sharedAppSettings.themeMode,
@@ -1087,6 +1091,9 @@ fun IosComposeApp(
         }
         var nativeProviderModels by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
         var nativeProviderOperation by remember { mutableStateOf("") }
+        var nativeProviderCompletedRequestId by remember { mutableStateOf("") }
+        var nativeProviderAuthSessionId by remember { mutableStateOf("") }
+        var nativeProviderAuthJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
         var nativeProviderError by remember { mutableStateOf("") }
         var nativeProviderAuthState by remember { mutableStateOf(PiProviderAuthState()) }
         var nativeAuthenticationCallback by remember { mutableStateOf("") }
@@ -1127,15 +1134,20 @@ fun IosComposeApp(
             val prompt = nativeProviderAuthState.prompt
                 ?.takeIf { it.type == "manual_code" }
                 ?: return@LaunchedEffect
+            val sessionId = nativeProviderAuthSessionId
             nativeAuthenticationCallback = ""
             runSharedAppCatching {
                 bridgeClient.submitAuthPrompt(prompt.id, callback, false)
             }.onSuccess {
-                nativeProviderAuthState = nativeProviderAuthState.copy(prompt = null)
+                if (sessionId == nativeProviderAuthSessionId && prompt.id == nativeProviderAuthState.prompt?.id) {
+                    nativeProviderAuthState = nativeProviderAuthState.copy(prompt = null)
+                }
             }.onFailure { failure ->
-                nativeProviderAuthState = nativeProviderAuthState.copy(
-                    errorMessage = failure.sharedUserFacingMessage(),
-                )
+                if (sessionId == nativeProviderAuthSessionId) {
+                    nativeProviderAuthState = nativeProviderAuthState.copy(
+                        errorMessage = failure.sharedUserFacingMessage(),
+                    )
+                }
             }
         }
 
@@ -1252,6 +1264,10 @@ fun IosComposeApp(
             val index = updated.indexOfFirst { it.id == config.id }
             val persistedConfig = config.copy(updatedAtMillis = platformCurrentTimeMillis())
             if (index >= 0) updated[index] = persistedConfig else updated += persistedConfig
+            if (index < 0) IosAnalytics.capture("provider added", mapOf(
+                "provider" to PiProviderCatalog.resolve(config.piProviderId).displayName,
+                "provider_id" to config.id,
+            ))
             commitProviderConfigs(
                 updatedConfigs = updated,
                 preferredActiveConfigId = providerConfig?.id.orEmpty().ifBlank { persistedConfig.id },
@@ -1274,6 +1290,7 @@ fun IosComposeApp(
         }
 
         fun removeProviderConfig(configId: String) {
+            if (providerConfigs.any { it.id == configId }) IosAnalytics.capture("provider removed")
             commitProviderConfigs(providerConfigs.filterNot { it.id == configId })
         }
 
@@ -1755,6 +1772,7 @@ fun IosComposeApp(
             piBranchMessageId: String? = null,
             resetPiBranchWhenMissing: Boolean = false,
             target: SharedSessionUiState = currentSession,
+            submissionType: String = "new_turn",
         ) {
             val value = rawValue.trim()
             if (value.isEmpty() && attachments.isEmpty()) return
@@ -1842,6 +1860,11 @@ fun IosComposeApp(
             }
             val assistantId = platformRandomUuid()
             val turnStartedAt = platformCurrentTimeMillis()
+            captureIosMessageSent(config, target, attachments.size, editingIndex >= 0,
+                submissionType)
+            var analyticsOutcome = "neutral"
+            var analyticsInputCount = 0
+            var analyticsUserCount = 0
             var responseStartedAt = 0L
             val reasoningTracker = SharedReasoningTurnTracker()
             var providerRequestCheckpoint: SharedChatMessage? = null
@@ -1897,6 +1920,8 @@ fun IosComposeApp(
                 val mappedPiEntryId = resolvedPiBranchMessageId?.let { messageId ->
                     historyStore?.getAgentMessageEntryIds(target.id, messageId)?.lastOrNull()
                 }
+                analyticsInputCount = requestMessages.size
+                analyticsUserCount = requestMessages.count { it.fromUser }
                 val modelKey = sharedThinkingCatalogKey(config.piProviderId, config.modelId)
                 val thinkingLevelMap = thinkingLevelClampsByProviderModel[modelKey].orEmpty()
                 val isReasoningModel = modelKey in reasoningModels
@@ -2122,6 +2147,7 @@ fun IosComposeApp(
                                 val drainedIds = drained.map(SharedPendingTurn::id).toSet()
                                 target.queuedTurns.removeAll { it.id in drainedIds }
                                 val userMessages = drained.map { pending ->
+                                    captureIosMessageSent(config, target, pending.attachments.size, false, "steer")
                                     SharedChatMessage(
                                         text = pending.text,
                                         fromUser = true,
@@ -2154,6 +2180,7 @@ fun IosComposeApp(
                 }.fold(
                     onSuccess = { result ->
                         completedPiTurnResult = result
+                        analyticsOutcome = if (result.errorMessage.isBlank()) "success" else "failure"
                         val completedAt = platformCurrentTimeMillis()
                         val resolvedUsage = if (result.usageAvailable) result.usage else estimatedUsage
                         target.messages.updateMessage(assistantId) { current ->
@@ -2232,6 +2259,7 @@ fun IosComposeApp(
                         if (error is CancellationException && error !is TimeoutCancellationException) {
                             throw error
                         }
+                        analyticsOutcome = "failure"
                         val completedAt = platformCurrentTimeMillis()
                         enqueueReasoningSummary(
                             target = target,
@@ -2293,11 +2321,18 @@ fun IosComposeApp(
                 target.job = null
                 if (nextIndex >= 0) {
                     val next = target.queuedTurns.removeAt(nextIndex)
-                    startChatTurn(next.text, next.attachments, target = target)
+                    startChatTurn(next.text, next.attachments, target = target, submissionType = "queue")
                 } else {
                     persistSession(target)
                 }
                 } finally {
+                    val analyticsMessage = target.messages.lastOrNull { it.id == assistantId }
+                    val analyticsProperties = iosTurnAnalyticsProperties(
+                        analyticsMessage, analyticsOutcome, platformCurrentTimeMillis() - turnStartedAt,
+                        analyticsInputCount, analyticsUserCount,
+                    )
+                    IosAnalytics.capture("conversation turn completed", analyticsProperties)
+                    if (analyticsMessage?.usage != null) IosAnalytics.capture("tokens used", analyticsProperties)
                     if (target.job === runningJob) {
                         withContext(NonCancellable) {
                             val completedAt = platformCurrentTimeMillis()
@@ -2328,6 +2363,7 @@ fun IosComposeApp(
         }
 
         fun createNewSession(useDefaultSkills: Boolean = true): SharedSessionUiState {
+            IosAnalytics.capture("conversation started")
             currentSession.clearComposerDraft()
             val inheritedModelKey = resolveSharedConversationModelKey(
                 selectedModelKey = currentSession.selectedModelKey,
@@ -2775,6 +2811,8 @@ fun IosComposeApp(
             statistics = nativeStatisticsReport,
             providerModels = nativeProviderModels,
             providerOperation = nativeProviderOperation,
+            providerCompletedRequestId = nativeProviderCompletedRequestId,
+            providerAuthSessionId = nativeProviderAuthSessionId,
             providerError = nativeProviderError,
             providerAuthState = nativeProviderAuthState,
             operationMessage = nativeOperationMessage,
@@ -2811,6 +2849,7 @@ fun IosComposeApp(
                                 ?: return@launch
                             nativeProviderOperation = "fetch_models:${config.id}"
                             nativeProviderError = ""
+                            nativeProviderModels = nativeProviderModels - config.id
                             try {
                                 val result = modelCatalogClient.fetchModels(config)
                                 nativeProviderModels = nativeProviderModels + (config.id to result.models)
@@ -2821,67 +2860,82 @@ fun IosComposeApp(
                                 nativeProviderError = failure.sharedUserFacingMessage()
                             } finally {
                                 nativeProviderOperation = ""
+                                nativeProviderCompletedRequestId = payload.nativeString("requestId")
                             }
                         }
-                        "provider_login" -> appScope.launch {
-                            val configId = payload.nativeString("id")
-                            val providerId = payload.nativeString("providerId")
-                            val authMethod = ProviderAuthMethod.fromStorage(
-                                payload.nativeString("authMethod"),
-                            )
-                            if (providerId.isBlank() || authMethod == ProviderAuthMethod.Ambient) {
-                                return@launch
-                            }
-                            nativeProviderAuthState = PiProviderAuthState(
-                                providerId = providerId,
-                                authMethod = authMethod,
-                                isRunning = true,
-                                statusMessage = if (authMethod == ProviderAuthMethod.OAuth) {
-                                    "Waiting for authorization."
-                                } else {
-                                    "Waiting for credentials."
-                                },
-                            )
-                            runSharedAppCatching {
-                                bridgeClient.loginProvider(
-                                    providerConfigId = configId,
-                                    providerId = providerId,
-                                    authMethod = authMethod.storageValue,
-                                    oauthFlow = payload.nativeString("oauthFlow"),
-                                ) { event, eventPayload ->
-                                    nativeProviderAuthState = nativeProviderAuthState.withBridgeAuthEvent(
-                                        event = event,
-                                        payload = eventPayload,
-                                        completeAuthorizationMessage = "Complete authorization in your browser.",
-                                        enterDeviceCodeMessage = "Enter the device code in your browser.",
-                                    )
+                        "provider_login" -> {
+                            nativeProviderAuthJob?.cancel()
+                            val sessionId = payload.nativeString("sessionId")
+                            nativeProviderAuthSessionId = sessionId
+                            nativeAuthenticationCallback = ""
+                            nativeProviderAuthJob = appScope.launch {
+                                val configId = payload.nativeString("id")
+                                val providerId = payload.nativeString("providerId")
+                                val authMethod = ProviderAuthMethod.fromStorage(
+                                    payload.nativeString("authMethod"),
+                                )
+                                if (providerId.isBlank() || authMethod == ProviderAuthMethod.Ambient) {
+                                    return@launch
                                 }
-                            }.fold(
-                                onSuccess = { result ->
-                                    nativeProviderAuthState = nativeProviderAuthState.copy(
-                                        isRunning = false,
-                                        prompt = null,
-                                        apiKey = result.string("api_key"),
-                                        oauthCredentialJson = (result["oauth_credential"] as? JsonObject)
-                                            ?.toString().orEmpty(),
-                                        providerEnvironmentVariables = result.toPiProviderEnvironmentVariables(),
-                                        statusMessage = "Authentication completed.",
-                                        errorMessage = "",
-                                    )
-                                },
-                                onFailure = { failure ->
-                                    if (failure !is CancellationException) {
+                                nativeProviderAuthState = PiProviderAuthState(
+                                    providerId = providerId,
+                                    authMethod = authMethod,
+                                    isRunning = true,
+                                    statusMessage = if (authMethod == ProviderAuthMethod.OAuth) {
+                                        "Waiting for authorization."
+                                    } else {
+                                        "Waiting for credentials."
+                                    },
+                                )
+                                runSharedAppCatching {
+                                    bridgeClient.loginProvider(
+                                        providerConfigId = configId,
+                                        providerId = providerId,
+                                        authMethod = authMethod.storageValue,
+                                        oauthFlow = payload.nativeString("oauthFlow"),
+                                    ) { event, eventPayload ->
+                                        if (nativeProviderAuthSessionId != sessionId) return@loginProvider
+                                        nativeProviderAuthState = nativeProviderAuthState.withBridgeAuthEvent(
+                                            event = event,
+                                            payload = eventPayload,
+                                            completeAuthorizationMessage = "Complete authorization in your browser.",
+                                            enterDeviceCodeMessage = "Enter the device code in your browser.",
+                                        )
+                                    }
+                                }.fold(
+                                    onSuccess = { result ->
+                                        if (nativeProviderAuthSessionId != sessionId) return@fold
                                         nativeProviderAuthState = nativeProviderAuthState.copy(
                                             isRunning = false,
                                             prompt = null,
-                                            statusMessage = "",
-                                            errorMessage = failure.sharedUserFacingMessage(),
+                                            authorizationUrl = "",
+                                            verificationUrl = "",
+                                            deviceCode = "",
+                                            apiKey = result.string("api_key"),
+                                            oauthCredentialJson = (result["oauth_credential"] as? JsonObject)
+                                                ?.toString().orEmpty(),
+                                            providerEnvironmentVariables = result.toPiProviderEnvironmentVariables(),
+                                            statusMessage = "Authentication completed.",
+                                            errorMessage = "",
                                         )
-                                    }
-                                },
-                            )
+                                    },
+                                    onFailure = { failure ->
+                                        if (failure !is CancellationException && nativeProviderAuthSessionId == sessionId) {
+                                            nativeProviderAuthState = nativeProviderAuthState.copy(
+                                                isRunning = false,
+                                                prompt = null,
+                                                statusMessage = "",
+                                                errorMessage = failure.sharedUserFacingMessage(),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
                         }
                         "provider_auth_prompt" -> appScope.launch {
+                            val sessionId = payload.nativeString("sessionId")
+                            val promptId = payload.nativeString("promptId")
+                            if (sessionId != nativeProviderAuthSessionId || promptId != nativeProviderAuthState.prompt?.id) return@launch
                             runSharedAppCatching {
                                 bridgeClient.submitAuthPrompt(
                                     promptId = payload.nativeString("promptId"),
@@ -2889,23 +2943,30 @@ fun IosComposeApp(
                                     cancelled = payload.nativeBoolean("cancelled") ?: false,
                                 )
                             }.onSuccess {
-                                nativeProviderAuthState = nativeProviderAuthState.copy(prompt = null)
+                                if (sessionId == nativeProviderAuthSessionId && promptId == nativeProviderAuthState.prompt?.id) {
+                                    nativeProviderAuthState = nativeProviderAuthState.copy(prompt = null)
+                                }
                             }.onFailure { failure ->
-                                nativeProviderAuthState = nativeProviderAuthState.copy(
-                                    errorMessage = failure.sharedUserFacingMessage(),
-                                )
+                                if (sessionId == nativeProviderAuthSessionId) {
+                                    nativeProviderAuthState = nativeProviderAuthState.copy(
+                                        errorMessage = failure.sharedUserFacingMessage(),
+                                    )
+                                }
                             }
                         }
                         "provider_open_auth_url" -> {
+                            val sessionId = nativeProviderAuthSessionId
                             val url = nativeProviderAuthState.authorizationUrl
                             if (url.isNotBlank()) {
                                 val opened = platformServices.openAuthenticationUrl(
                                     url = url,
                                     onCallback = { callback ->
-                                        appScope.launch { nativeAuthenticationCallback = callback }
+                                        if (sessionId == nativeProviderAuthSessionId) {
+                                            appScope.launch { nativeAuthenticationCallback = callback }
+                                        }
                                     },
                                     onCancelled = {
-                                        nativeProviderAuthState.prompt?.id
+                                        nativeProviderAuthState.prompt?.id?.takeIf { sessionId == nativeProviderAuthSessionId }
                                             ?.takeIf(String::isNotBlank)
                                             ?.let { promptId ->
                                                 appScope.launch {
@@ -2924,7 +2985,17 @@ fun IosComposeApp(
                             }
                         }
                         "provider_clear_auth" -> {
-                            nativeProviderAuthState = PiProviderAuthState()
+                            if (payload.nativeString("sessionId") == nativeProviderAuthSessionId) {
+                                val promptId = nativeProviderAuthState.prompt?.id
+                                nativeProviderAuthSessionId = ""
+                                nativeAuthenticationCallback = ""
+                                nativeProviderAuthJob?.cancel()
+                                nativeProviderAuthJob = null
+                                nativeProviderAuthState = PiProviderAuthState()
+                                if (!promptId.isNullOrBlank()) appScope.launch {
+                                    runSharedAppCatching { bridgeClient.submitAuthPrompt(promptId, "", true) }
+                                }
+                            }
                         }
                         "clear_operation_status" -> {
                             nativeOperationMessage = ""
@@ -2963,7 +3034,10 @@ fun IosComposeApp(
                                 )
                                 sessionStates.values.filterNot(SharedSessionUiState::isDraft)
                                     .forEach { state -> bridgeClient.reloadSession(state.id) }
-                            }.onSuccess { nativeOperationMessage = "Skill removed." }
+                            }.onSuccess {
+                                IosAnalytics.capture("skill removed", mapOf("skill_id" to payload.nativeString("id")))
+                                nativeOperationMessage = "Skill removed."
+                            }
                                 .onFailure { nativeOperationError = it.sharedUserFacingMessage() }
                             nativeOperation = ""
                         }
@@ -2971,7 +3045,8 @@ fun IosComposeApp(
                             nativeOperation = "skill_install"
                             nativeOperationError = ""
                             runSharedAppCatching {
-                                skillManager.installRemote(payload.nativeString("url"))
+                                val installed = skillManager.installRemote(payload.nativeString("url"))
+                                IosAnalytics.capture("skill installed", mapOf("skill_id" to installed.id, "skill_name" to installed.name))
                                 val updated = skillManager.list()
                                 installedSkills.clear()
                                 installedSkills.addAll(updated)
@@ -2986,12 +3061,13 @@ fun IosComposeApp(
                             nativeOperationError = ""
                             runSharedAppCatching {
                                 val picked = platformServices.pickDirectory() ?: return@runSharedAppCatching
-                                skillManager.installDirectoryEntries(
+                                val installed = skillManager.installDirectoryEntries(
                                     sourceLabel = picked.name,
                                     entries = picked.files.map { file ->
                                         SharedSkillDirectoryEntry(file.relativePath, file.bytes)
                                     },
                                 )
+                                IosAnalytics.capture("skill installed", mapOf("skill_id" to installed.id, "skill_name" to installed.name))
                                 val updated = skillManager.list()
                                 installedSkills.clear()
                                 installedSkills.addAll(updated)
@@ -3410,6 +3486,13 @@ fun IosComposeApp(
                     },
                     onComplete = { configured ->
                         val enabledConfig = configured.copy(isEnabled = true)
+                        val onboardingProperties = mapOf(
+                            "section" to "initial",
+                            "provider" to PiProviderCatalog.resolve(enabledConfig.piProviderId).displayName,
+                            "provider_id" to enabledConfig.id,
+                        )
+                        IosAnalytics.capture("onboarding completed", onboardingProperties)
+                        IosAnalytics.capture("onboarding initial completed", onboardingProperties)
                         val updated = providerConfigs.filterNot { it.id == enabledConfig.id } + enabledConfig
                         commitProviderConfigs(updated, enabledConfig.id)
                         sharedAppSettings = sharedAppSettings
@@ -3744,6 +3827,7 @@ fun IosComposeApp(
                                 ?.getUnreferencedWorkspaceFilePathsForDeletedSession(selectedId)
                                 .orEmpty()
                             historyStore?.delete(selectedId)
+                            IosAnalytics.capture("conversation deleted")
                             removeSharedUnreferencedWorkspaceFiles(runtime, unreferencedPaths)
                         }
                     },
@@ -3796,6 +3880,7 @@ fun IosComposeApp(
                 onAccept = {
                     appScope.launch {
                         settingsStore?.acceptPrivacyPolicy()
+                        IosAnalytics.acceptConsent()
                         sharedAppSettings = sharedAppSettings.copy(privacyPolicyAccepted = true)
                     }
                 },
@@ -5413,11 +5498,6 @@ private fun SharedChatScreen(
         if (composerBodyHeightPx > 0) composerBodyHeightPx.toDp() else 112.dp
     }
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
-    val animatedImeBottom by animateDpAsState(
-        targetValue = imeBottom,
-        animationSpec = tween(durationMillis = if (reduceMotion) 0 else 260, easing = SharedConversationMotionEasing),
-        label = "shared_conversation_ime_bottom",
-    )
     val sessionTotalTokens = messages.mapNotNull { it.usage }
         .sumOf { usage -> if (usage.totalTokensAvailable) usage.totalTokens else 0L }
         .takeIf { it > 0L }
@@ -5571,7 +5651,7 @@ private fun SharedChatScreen(
         conversationContentKey,
         topBarBodyHeightPx,
         composerBodyHeightPx,
-        animatedImeBottom,
+        imeBottom,
         shouldAutoFollow,
     ) {
         if (shouldAutoFollow) {
@@ -5618,7 +5698,8 @@ private fun SharedChatScreen(
         },
     ) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            // Resize only the conversation pane, using the platform's IME animation.
+            modifier = Modifier.fillMaxSize().imePadding(),
             containerColor = AetherBackground,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { innerPadding ->
@@ -5647,7 +5728,7 @@ private fun SharedChatScreen(
                             start = 20.dp,
                             end = 20.dp,
                             top = topBarBodyHeight + 10.dp,
-                            bottom = composerBodyHeight + animatedImeBottom + 28.dp,
+                            bottom = composerBodyHeight + 28.dp,
                         ),
                         verticalArrangement = Arrangement.spacedBy(22.dp),
                     ) {
@@ -5856,7 +5937,7 @@ private fun SharedChatScreen(
                     currentIndex = currentTimelineIndex,
                     modifier = Modifier.fillMaxSize().padding(
                         top = topBarBodyHeight + 8.dp,
-                        bottom = composerBodyHeight + animatedImeBottom + 30.dp,
+                        bottom = composerBodyHeight + 30.dp,
                     ),
                     onNavigate = { timelineIndex ->
                         timelineTargets.getOrNull(timelineIndex)?.let { target ->
@@ -6809,13 +6890,6 @@ private fun SharedComposer(
 
     Box(
         modifier = modifier.fillMaxWidth()
-            .then(
-                if (textFieldFocused) {
-                    Modifier.windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
-                } else {
-                    Modifier
-                },
-            )
             .navigationBarsPadding()
             .padding(bottom = bottomLift),
     ) {
@@ -8452,6 +8526,8 @@ internal fun buildNativeSettingsSnapshot(
         com.zhousl.aether.data.SharedUsageStatisticsReport(),
     providerModels: Map<String, List<String>> = emptyMap(),
     providerOperation: String = "",
+    providerCompletedRequestId: String = "",
+    providerAuthSessionId: String = "",
     providerError: String = "",
     providerAuthState: PiProviderAuthState = PiProviderAuthState(),
     operationMessage: String = "",
@@ -8515,8 +8591,10 @@ internal fun buildNativeSettingsSnapshot(
         }
     })
     put("providerOperation", providerOperation)
+    put("providerCompletedRequestId", providerCompletedRequestId)
     put("providerError", providerError)
     put("providerAuth", buildJsonObject {
+        put("sessionId", providerAuthSessionId)
         put("providerId", providerAuthState.providerId)
         put("authMethod", providerAuthState.authMethod.storageValue)
         put("isRunning", providerAuthState.isRunning)
