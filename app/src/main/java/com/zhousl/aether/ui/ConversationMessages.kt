@@ -4447,11 +4447,9 @@ private fun JSONObject.optionalInt(vararg keys: String): Int? =
 internal fun highlightBashCommand(command: String): AnnotatedString = buildAnnotatedString {
     appendStyled("$ ", SpanStyle(color = AetherSecondary, fontWeight = FontWeight.SemiBold))
 
-    val tokenPattern = Regex("""\s+|&&|\|\||[|;><()]|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\$[A-Za-z_][A-Za-z0-9_]*|--?[A-Za-z0-9][\w-]*|[^\s|;><()]+""")
     var expectsCommand = true
 
-    tokenPattern.findAll(command).forEach { match ->
-        val token = match.value
+    bashCommandTokens(command).forEach { token ->
         val style = when {
             token.isBlank() -> null
             token in setOf("|", "||", "&&", ";", ">", "<", "(", ")") -> {

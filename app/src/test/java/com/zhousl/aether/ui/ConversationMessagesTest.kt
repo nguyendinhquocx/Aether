@@ -7,6 +7,12 @@ import org.junit.Test
 
 class ConversationMessagesTest {
     @Test
+    fun bashHighlightingPreservesLongQuotedCommands() {
+        val command = "sh -c \"" + "echo test; ".repeat(30_000) + "\""
+        assertEquals("$ $command", highlightBashCommand(command).text)
+    }
+
+    @Test
     fun retryPiBranchResetsFirstTurnAndUsesPreviousAssistantForLaterTurn() {
         val firstUser = ChatMessage(id = "u1", author = MessageAuthor.User, text = "first")
         val firstAssistant = ChatMessage(id = "a1", author = MessageAuthor.Agent, text = "first reply")

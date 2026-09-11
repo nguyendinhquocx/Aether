@@ -27,6 +27,23 @@ import kotlin.test.assertTrue
 
 class NativeSettingsBridgeTest {
     @Test
+    fun providerResultsCarryRequestAndSessionIdentityWithoutRequiringAuthentication() {
+        val snapshot = Json.parseToJsonElement(buildNativeSettingsSnapshot(
+            settings = AppSettings(),
+            providerConfigs = emptyList(),
+            installedSkills = emptyList(),
+            extensionSnapshot = SharedAetherExtensionSnapshot(),
+            capabilities = PlatformCapabilities.Ios,
+            providerModels = mapOf("config" to listOf("model")),
+            providerCompletedRequestId = "fetch-1",
+            providerAuthSessionId = "login-2",
+        )).jsonObject
+        assertEquals("fetch-1", snapshot["providerCompletedRequestId"]!!.jsonPrimitive.content)
+        assertEquals("login-2", snapshot["providerAuth"]!!.jsonObject["sessionId"]!!.jsonPrimitive.content)
+        assertEquals("model", snapshot["providerModels"]!!.jsonObject["config"]!!.jsonArray.single().jsonPrimitive.content)
+    }
+
+    @Test
     fun snapshotUsesStableStorageValuesAndOnlyExportsSchemaDrivenExtensionSettings() {
         val snapshot = Json.parseToJsonElement(
             buildNativeSettingsSnapshot(

@@ -23,6 +23,7 @@
 		53F71DB8B4F7DFC9DDF96CDB /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		635948EDA8718FF3FF408733 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B7445370C9B563C2B17DA6E1 /* libarchive.a */; };
 		6E800049932DB1975FB90795 /* FakeFSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCDDF321D397425AA078ED1C /* FakeFSStore.swift */; };
+		7168581EE98BAD73859B6923 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 4EA8C16298EDA05F5823001E /* PostHog */; };
 		72BE94061B7B13F4A35C53AF /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4153C3FD7DCA6061233E4C81 /* NativeSettingsView.swift */; };
 		7906FB3BC2C49CBFD7B2F794 /* TerminalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */; };
 		7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */ = {isa = PBXBuildFile; fileRef = 95EE05EFD4A21740A10B6F14 /* root.tar.gz */; };
@@ -41,6 +42,7 @@
 		BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509AFB124196AC221A86909F /* ANSIParser.swift */; };
 		BB61528BEE299540B5A3DEA8 /* AetherRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */; };
 		BD7B19718961B28EF1CD680C /* bridge.mjs in Resources */ = {isa = PBXBuildFile; fileRef = 7FC3C7F439C89DFF299C3D94 /* bridge.mjs */; };
+		C480F0D164C3E764CB6162B0 /* AetherAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291E7BE178D9B5D3B4C60E04 /* AetherAnalytics.swift */; };
 		C95A4D5886956E5801C13DA5 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D05C334CA852B14A36093D07 /* libbz2.tbd */; };
 		CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D8ECFC71EF1A7DF279E9E95 /* AetherISHRuntime.m */; };
 		D594FF03125DB507C9A38818 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D7AE7614B5115E8BA325D41F /* libresolv.tbd */; };
@@ -110,6 +112,7 @@
 		1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fakefs.c; path = "../third_party/ish-arm64/tools/fakefs.c"; sourceTree = "<group>"; };
 		1E6D8D2787AE117630F6809F /* AetherTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherTerminalView.swift; sourceTree = "<group>"; };
 		25018B4ACE138498A143F29E /* AetherFileProviderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherFileProviderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		291E7BE178D9B5D3B4C60E04 /* AetherAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherAnalytics.swift; sourceTree = "<group>"; };
 		29BE8175F732278CF4585431 /* FakeFSStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeFSStoreTests.swift; sourceTree = "<group>"; };
 		2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeHost.swift; sourceTree = "<group>"; };
 		307932EC76CB1B3E8230BE0B /* LICENSE */ = {isa = PBXFileReference; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
@@ -158,6 +161,7 @@
 			files = (
 				635948EDA8718FF3FF408733 /* libarchive.a in Frameworks */,
 				9E6EDED8E588657281641D0D /* Runestone in Frameworks */,
+				7168581EE98BAD73859B6923 /* PostHog in Frameworks */,
 				7D2F37B739B9ED878ED6F0DA /* SystemConfiguration.framework in Frameworks */,
 				C95A4D5886956E5801C13DA5 /* libbz2.tbd in Frameworks */,
 				0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */,
@@ -339,6 +343,7 @@
 				461743DF061DAAAADBDC72B8 /* Settings */,
 				A1E0705F9D47931E8FA0E150 /* Terminal */,
 				136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */,
+				291E7BE178D9B5D3B4C60E04 /* AetherAnalytics.swift */,
 				E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */,
 				2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */,
 			);
@@ -467,6 +472,7 @@
 			name = Aether;
 			packageProductDependencies = (
 				085D4960A657279579F9F912 /* Runestone */,
+				4EA8C16298EDA05F5823001E /* PostHog */,
 			);
 			productName = Aether;
 			productReference = AF079DE4E9E495EEF6637D03 /* Aether.app */;
@@ -527,6 +533,7 @@
 			mainGroup = 7CCE34B3C0A23C3EA91514B0;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				4AAB9AD49B7BF1A38DD04152 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				6AF0515B6D415CA7E3D1EE82 /* XCRemoteSwiftPackageReference "Runestone" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -618,7 +625,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cd \"$SRCROOT/..\"\nbash ./gradlew -Paether.sharedOnly=true :shared:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "set -e\ncd \"$SRCROOT/..\"\nbash ./gradlew -Paether.sharedOnly=true :shared:embedAndSignAppleFrameworkForXcode :shared:generateIosPostHogConfig\nmkdir -p \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\ncp shared/build/generated/posthog/PostHogConfig.json \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/PostHogConfig.json\"\n";
 		};
 		F8E88B47F7925FD7FD570932 /* Build iSH ARM64 Runtime */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -681,6 +688,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */,
+				C480F0D164C3E764CB6162B0 /* AetherAnalytics.swift in Sources */,
 				2A8EED7E02AB8DCCD1890366 /* AetherApp.swift in Sources */,
 				CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */,
 				24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */,
@@ -1099,6 +1107,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		4AAB9AD49B7BF1A38DD04152 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
+			requirement = {
+				kind = exactVersion;
+				version = 3.71.4;
+			};
+		};
 		6AF0515B6D415CA7E3D1EE82 /* XCRemoteSwiftPackageReference "Runestone" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/simonbs/Runestone.git";
@@ -1114,6 +1130,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 6AF0515B6D415CA7E3D1EE82 /* XCRemoteSwiftPackageReference "Runestone" */;
 			productName = Runestone;
+		};
+		4EA8C16298EDA05F5823001E /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4AAB9AD49B7BF1A38DD04152 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

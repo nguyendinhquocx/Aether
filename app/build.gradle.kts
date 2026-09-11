@@ -1,4 +1,5 @@
 import java.util.Properties
+import groovy.json.JsonOutput
 import com.posthog.android.PostHogCliExecTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.OutputDirectory
@@ -125,9 +126,12 @@ android {
             useSupportLibrary = true
         }
 
-        buildConfigField("String", "POSTHOG_API_KEY", "\"${localProperties.getProperty("posthog.apiKey", "")}\"")
-        buildConfigField("String", "POSTHOG_HOST", "\"${localProperties.getProperty("posthog.host", "https://us.i.posthog.com")}\"")
+        buildConfigField("String", "POSTHOG_API_KEY", JsonOutput.toJson(localOrEnv("posthog.apiKey", "POSTHOG_API_KEY")))
+        buildConfigField("String", "POSTHOG_HOST", JsonOutput.toJson(
+            localOrEnv("posthog.host", "POSTHOG_HOST").ifBlank { "https://us.i.posthog.com" },
+        ))
         buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
+        buildConfigField("Boolean", "SHOWCASE_MODE", "false")
     }
 
     signingConfigs {
@@ -151,6 +155,17 @@ android {
             manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher"
             manifestPlaceholders["appRoundIcon"] = "@mipmap/ic_launcher_round"
             manifestPlaceholders["appLabel"] = "@string/app_name"
+        }
+
+        create("demo") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".showcase"
+            matchingFallbacks += listOf("debug")
+            resValue("string", "showcase_app_name", "Aether Showcase")
+            manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher"
+            manifestPlaceholders["appRoundIcon"] = "@mipmap/ic_launcher_round"
+            manifestPlaceholders["appLabel"] = "@string/showcase_app_name"
+            buildConfigField("Boolean", "SHOWCASE_MODE", "true")
         }
 
         create("nightly") {
