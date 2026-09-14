@@ -18,6 +18,16 @@
 </p>
 
 <p align="center">
+  <a href="https://apps.apple.com/app/id6793855391">
+    <img alt="Download on the App Store" height="48" src="public/badge-appstore.svg" />
+  </a>
+  &nbsp;
+  <a href="https://github.com/Zhou-Shilin/Aether/releases">
+    <img alt="Get the APK on GitHub" height="48" src="public/badge-android.svg" />
+  </a>
+</p>
+
+<p align="center">
   <table>
     <tr>
       <td><img src="public/welcome.jpg" width="280"></td>
