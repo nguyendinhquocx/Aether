@@ -159,6 +159,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.SpanStyle
@@ -1349,6 +1352,42 @@ fun IosComposeApp(
             }
         }
 
+        val showcaseEnabled = remember { isIosShowcaseEnabled() }
+        var showcaseCatalog by remember { mutableStateOf(emptyList<PersistedChatSession>()) }
+        val showcasePlayers = remember { mutableMapOf<String, com.zhousl.aether.data.ShowcasePlayback>() }
+        var showcasePausedSessions by remember { mutableStateOf(emptySet<String>()) }
+        var showcaseSpeed by remember { mutableStateOf(1f) }
+
+        fun replayShowcase(target: SharedSessionUiState = currentSession, restoreOnly: Boolean = false) {
+            val template = showcaseCatalog.firstOrNull { it.id == target.id } ?: return
+            val oldJob = target.job
+            val player = com.zhousl.aether.data.ShowcasePlayback().also { it.speed = showcaseSpeed }
+            showcasePlayers[target.id] = player
+            showcasePausedSessions = showcasePausedSessions - target.id
+            target.job = appScope.launch {
+                oldJob?.cancel()
+                oldJob?.join()
+                try {
+                    if (!restoreOnly) player.play(template) { completed, pending ->
+                        val visible = completed.map { it.toSharedChatMessage() } + listOfNotNull(
+                            pending?.toSharedChatMessage()?.copy(isStreaming = true),
+                        )
+                        target.messages.clear()
+                        target.messages.addAll(visible)
+                    }
+                    target.messages.clear()
+                    target.messages.addAll(template.messages.map { it.toSharedChatMessage() })
+                    persistSession(target)
+                } finally {
+                    target.streamingStatus = ""
+                    if (target.job === coroutineContext[kotlinx.coroutines.Job]) {
+                        target.job = null
+                        showcasePausedSessions = showcasePausedSessions - target.id
+                    }
+                }
+            }
+        }
+
         LaunchedEffect(settingsStore, historyStore) {
             withContext(Dispatchers.Default) { settingsStore?.load() }?.let { persisted ->
                 sharedAppSettings = persisted.appSettings
@@ -1391,6 +1430,25 @@ fun IosComposeApp(
                         .getOrDefault(SharedRoute.Chat)
                 }
             }
+            if (showcaseEnabled) {
+                showcaseCatalog = com.zhousl.aether.data.ShowcaseCatalog.load(android = false)
+                val previousCurrentSessionId = historyStore?.loadCurrentSessionId()
+                var added = false
+                for (demo in showcaseCatalog) {
+                    val existing = historyStore?.load(demo.id)
+                    if (existing == null) added = true
+                    historyStore?.save(
+                        demo.id, demo.messages, titleOverride = demo.title, hasCustomTitle = true,
+                        selectedModelKey = existing?.selectedModelKey?.takeIf(String::isNotBlank) ?: demo.selectedModelKey,
+                    )
+                }
+                historyStore?.setCurrentSession(
+                    if (added) showcaseCatalog.first().id
+                    else previousCurrentSessionId?.takeIf(String::isNotBlank) ?: showcaseCatalog.first().id,
+                )
+                providerConfigs.addAll(com.zhousl.aether.data.ShowcaseCatalog.providers().filter { demo -> providerConfigs.none { it.id == demo.id } })
+                route = SharedRoute.Chat
+            }
             val persistedSessions = historyStore?.loadAll().orEmpty()
             sessionStates.clear()
             sessions.clear()
@@ -1408,7 +1466,7 @@ fun IosComposeApp(
                     ?: initialSession
             }
             restored.selectedModelKey = resolveSharedConversationModelKey(
-                selectedModelKey = "",
+                selectedModelKey = if (com.zhousl.aether.data.ShowcaseCatalog.isSession(restored.id)) restored.selectedModelKey else "",
                 defaultChatModelKey = sharedAppSettings.defaultChatModelKey,
                 options = providerConfigs.availableModelOptions(),
             )
@@ -1774,6 +1832,10 @@ fun IosComposeApp(
             target: SharedSessionUiState = currentSession,
             submissionType: String = "new_turn",
         ) {
+            if (showcaseEnabled && com.zhousl.aether.data.ShowcaseCatalog.isSession(target.id)) {
+                replayShowcase(target)
+                return
+            }
             val value = rawValue.trim()
             if (value.isEmpty() && attachments.isEmpty()) return
             if (value.equals(SharedCompactCommand, ignoreCase = true)) {
@@ -3522,6 +3584,24 @@ fun IosComposeApp(
                     target = SharedExtensionComponentChatScreen,
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                CompositionLocalProvider(LocalShowcaseControls provides if (showcaseEnabled && com.zhousl.aether.data.ShowcaseCatalog.isSession(sessionId)) ShowcaseControls(
+                    playing = currentSession.isWorking,
+                    paused = sessionId in showcasePausedSessions,
+                    speed = showcaseSpeed,
+                    onReplay = { replayShowcase() },
+                    onRestore = { replayShowcase(restoreOnly = true) },
+                    onPause = {
+                        showcasePlayers[sessionId]?.let { player ->
+                            player.paused = !player.paused
+                            showcasePausedSessions = if (player.paused) {
+                                showcasePausedSessions + sessionId
+                            } else {
+                                showcasePausedSessions - sessionId
+                            }
+                        }
+                    },
+                    onSpeed = { speed -> showcaseSpeed = speed; showcasePlayers[sessionId]?.speed = speed },
+                ) else null) {
                 Box(Modifier.fillMaxSize()) {
                     SharedChatScreen(
                     sessions = sessions.map { summary ->
@@ -3848,6 +3928,7 @@ fun IosComposeApp(
                 )
                 }
                 }
+                }
             }
         }
         }
@@ -3869,8 +3950,8 @@ fun IosComposeApp(
             }
         }
         if (!startupResolved) {
-            Box(Modifier.fillMaxSize().background(AetherBackground))
-        } else if (!sharedAppSettings.privacyPolicyAccepted) {
+            Box(Modifier.fillMaxSize().background(AetherBackground).testTag("aether-startup-loading"))
+        } else if (!sharedAppSettings.privacyPolicyAccepted && !showcaseEnabled) {
             SharedPrivacyPolicyConsentDialog(
                 onOpenPolicy = {
                     if (!platformServices.openUrl(AetherPrivacyPolicyUrl)) {
@@ -5408,6 +5489,14 @@ private fun SharedChatScreen(
     val latestDrawerOpenedEventRegistered by rememberUpdatedState(drawerOpenedEventRegistered)
     val drawerOpenedEventGate = remember { SharedDrawerOpenedEventGate() }
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val dismissKeyboard: () -> Unit = remember(focusManager, keyboardController) {
+        {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
     val reduceMotion = LocalReduceMotion.current
     val browserDisplayState by chromeManager.displayState.collectAsState()
     val visibleMessages = messages.filter {
@@ -5706,7 +5795,7 @@ private fun SharedChatScreen(
             Box(
                 modifier = Modifier.fillMaxSize().background(
                     Brush.verticalGradient(listOf(AetherBackgroundGradientTop, AetherBackground, AetherSurface))
-                ).padding(innerPadding),
+                ).padding(innerPadding).dismissKeyboardOnBackgroundTap(dismissKeyboard),
             ) {
                 if (visibleMessages.isEmpty()) {
                     SharedAetherExtensionSlot(
@@ -5907,11 +5996,20 @@ private fun SharedChatScreen(
                     sessionKey = composerSessionKey,
                     composerState = composerState,
                     onValueChange = onInputChanged,
-                    onSend = onSend,
+                    onSend = { attachments ->
+                        onSend(attachments)
+                        dismissKeyboard()
+                    },
                     isSending = isSending,
                     onStop = onStop,
-                    onQueueFollowUp = onQueueFollowUp,
-                    onSteerFollowUp = onSteerFollowUp,
+                    onQueueFollowUp = { attachments ->
+                        onQueueFollowUp(attachments)
+                        dismissKeyboard()
+                    },
+                    onSteerFollowUp = { attachments ->
+                        onSteerFollowUp(attachments)
+                        dismissKeyboard()
+                    },
                     runtime = runtime,
                     platformServices = platformServices,
                     availableSkills = availableSkills,

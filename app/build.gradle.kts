@@ -272,6 +272,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit4)
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.squareup.okhttp.mockwebserver)
     testImplementation(libs.json)
     androidTestImplementation(libs.junit4)

@@ -89,6 +89,7 @@ Aether 的 UI 和交互大量参考了 ChatGPT、Codex CLI/App、Gemini、Poco A
 - **Pi Harness 内核**: 采用 Pi 框架，拥有最广泛的 Model Provider 兼容性，以及最轻量、最高效的 Agent 执行引擎。
 - **极致的可扩展性**: 原生继承 Pi 的强大扩展体系，并提供独有的 Aether Script Extensions 与 Native Mods，支持深度定制移动端 UI、原生设置页、输入框组件与运行逻辑。
 - **内置 Alpine 虚拟机**: 自动安装 Alpine Linux 运行环境，开箱即用，支持各种 Linux 工具与命令行操作。
+- **系统文件管理器接入**（Android）: 初始化 Alpine 后，在系统“文件”或 SAF 文件选择器侧栏选择 **Aether（Alpine）**，即可浏览环境目录和 `/workspace`，新建、编辑、重命名、删除文件，或与手机存储互相复制。修改直接作用于 proot 使用的文件；`/dev`、`/proc`、`/sys` 等系统挂载不对外提供。
 - **扩展主机控制**: 支持可选的 Shizuku 与 Termux 扩展，用于直接操纵和控制手机系统。（仅限 Android）
 
 

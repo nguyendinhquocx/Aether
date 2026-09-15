@@ -528,6 +528,7 @@ private fun UserMessageBlock(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 UserAttachments(message.attachments, onOpenAttachment)
+                ShowcaseSkillBadge(message.id, message.providerPayloadJson)
                 if (message.text.isNotBlank()) {
                     UserTextBubble(
                         text = message.text,
@@ -1164,6 +1165,7 @@ private fun AssistantGroupMessageContent(
     onOpenAttachment: (ChatAttachment) -> Unit,
     onOpenLink: (String) -> Unit,
 ) {
+    val showAttachmentsAfterReply = com.zhousl.aether.data.ShowcaseCatalog.isSession(message.id)
     val context = LocalContext.current
     val replayToolInvocations = message.replayToolInvocations()
     val agentModeFrames = remember(context, replayToolInvocations) {
@@ -1193,16 +1195,24 @@ private fun AssistantGroupMessageContent(
             stateKey = "message-tools-${message.id}",
         )
     }
-    AssistantAttachments(
-        attachments = message.attachments,
-        onOpenAttachment = onOpenAttachment,
-    )
+    if (!showAttachmentsAfterReply) {
+        AssistantAttachments(
+            attachments = message.attachments,
+            onOpenAttachment = onOpenAttachment,
+        )
+    }
     if (message.text.isNotBlank() && message.id !in interleavedAgentModeTextIds) {
         MarkdownContent(
             markdown = message.text,
             workspaceDirectory = workspaceDirectory,
             allowRootImageRead = allowRootImageRead,
             onLinkClick = onOpenLink,
+        )
+    }
+    if (showAttachmentsAfterReply) {
+        AssistantAttachments(
+            attachments = message.attachments,
+            onOpenAttachment = onOpenAttachment,
         )
     }
     if (message.statusText.isNotBlank()) {

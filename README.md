@@ -84,6 +84,7 @@ Aether's UI and interactions are heavily inspired by excellent, mature applicati
 - **Pi Harness Kernel**: Powered by the Pi framework, providing the widest LLM provider compatibility and a lightweight, highly efficient Agent execution engine.
 - **Extreme Extensibility**: Inherits Pi's complete extension model while providing Aether's proprietary Script Extensions and Native Mods system to deeply customize mobile UI, settings, composer widgets, and runtime behavior.
 - **Built-in Alpine VM**: Includes an automatically installed Alpine Linux environment to run shell commands and tools out of the box.
+- **System File Manager Access** (Android): After initializing Alpine, select **Aether (Alpine)** in the system Files app or SAF document picker's sidebar to browse the environment and `/workspace`, create, edit, rename, delete, or copy files between Alpine and device storage. Changes apply directly to the files used by proot. System mounts such as `/dev`, `/proc`, and `/sys` are excluded.
 - **Extensible Host Control**: Supports optional Shizuku and Termux integration for direct device manipulation and automation. (Android only)
 
 

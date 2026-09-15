@@ -204,6 +204,7 @@ class AlpineRuntime(
         check(!runtimeRoot.exists() || runtimeRoot.deleteRecursively()) {
             "Unable to reset Alpine runtime data."
         }
+        AlpineDocumentsProvider.notifyRootsChanged(appContext)
         check(!stagingRoot.exists() || stagingRoot.deleteRecursively()) {
             "Unable to reset incomplete Alpine installation data."
         }
@@ -846,6 +847,7 @@ class AlpineRuntime(
         ensureWorkspace()
         ensureGuestNetworkConfig()
         installPreinstalledExtensionsSync()
+        AlpineDocumentsProvider.notifyRootsChanged(appContext)
         refreshApkRepositoriesForCurrentNetwork(onProgress)
         onProgress(AlpineSetupProgress(output = "Alpine runtime files are ready.\n"))
     }

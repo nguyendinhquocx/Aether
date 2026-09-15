@@ -201,12 +201,22 @@ class AetherViewModel(
 
     val uiState: StateFlow<AetherUiState> = _uiState.asStateFlow()
     val transientMessages = _transientMessages.asSharedFlow()
+    val showcaseStates = sessionExecutionManager.showcaseStates
+
+    fun replayShowcase(restoreOnly: Boolean = false) {
+        sessionExecutionManager.replayShowcase(_uiState.value.currentSessionId, restoreOnly)
+    }
+
+    fun pauseShowcase() = sessionExecutionManager.toggleShowcasePause(_uiState.value.currentSessionId)
+    fun setShowcaseSpeed(speed: Float) = sessionExecutionManager.setShowcaseSpeed(_uiState.value.currentSessionId, speed)
 
     init {
         registerCoreModServices()
-        refreshTermuxSetup()
-        refreshRootSetup()
-        refreshImportedPiExtensions()
+        if (!com.zhousl.aether.BuildConfig.SHOWCASE_MODE) {
+            refreshTermuxSetup()
+            refreshRootSetup()
+            refreshImportedPiExtensions()
+        }
 
         viewModelScope.launch {
             settingsRepository.initializeLanguageIfNeeded()
@@ -218,7 +228,7 @@ class AetherViewModel(
                     if (!current.isStartupRouteResolved) {
                         current.copy(
                             settings = settings,
-                            currentScreen = if (settings.shouldLaunchOnboarding()) {
+                            currentScreen = if (!com.zhousl.aether.BuildConfig.SHOWCASE_MODE && settings.shouldLaunchOnboarding()) {
                                 AppScreen.Onboarding
                             } else {
                                 AppScreen.Chat
@@ -4055,6 +4065,10 @@ class AetherViewModel(
     private fun submitCurrentMessage(
         runningFollowUpMode: SessionFollowUpMode,
     ) {
+        if (com.zhousl.aether.BuildConfig.SHOWCASE_MODE) {
+            replayShowcase()
+            return
+        }
         val snapshot = _uiState.value
         if ("before_send" !in aetherAppExtensionManager.state.value.snapshot.eventNames) {
             submitCurrentMessageNow(runningFollowUpMode)

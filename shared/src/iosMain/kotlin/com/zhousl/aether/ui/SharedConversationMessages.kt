@@ -1084,6 +1084,7 @@ internal fun SharedConversationMessage(
                         message.attachments.forEach { attachment ->
                             SharedAttachmentCard(attachment, onOpenAttachment, runtime)
                         }
+                        ShowcaseSkillBadge(message.id, message.providerPayloadJson)
                         if (message.text.isNotBlank()) {
                             Text(
                                 text = message.text,
@@ -1160,6 +1161,7 @@ internal fun SharedConversationMessage(
                 }
             }
         } else {
+            val showAttachmentsAfterReply = com.zhousl.aether.data.ShowcaseCatalog.isSession(message.id)
             val finalTextBlockIndex = message.responseBlocks.indexOfLast { block ->
                 block is SharedAssistantResponseBlock.Text && block.text.isNotBlank()
             }
@@ -1262,11 +1264,13 @@ internal fun SharedConversationMessage(
                         } else {
                             SharedFallbackAssistantWorkContent(message, metrics, onOpenLink)
                         }
-                        message.attachments.forEach { attachment ->
-                            SharedAttachmentCard(attachment, onOpenAttachment, runtime)
+                        if (!showAttachmentsAfterReply) {
+                            message.attachments.forEach { attachment ->
+                                SharedAttachmentCard(attachment, onOpenAttachment, runtime)
+                            }
                         }
                     }
-                } else {
+                } else if (!showAttachmentsAfterReply) {
                     message.attachments.forEach { attachment ->
                         SharedAttachmentCard(attachment, onOpenAttachment, runtime)
                     }
@@ -1316,6 +1320,11 @@ internal fun SharedConversationMessage(
                             runtime = runtime,
                             onOpenLink = onOpenLink,
                         )
+                    }
+                }
+                if (showAttachmentsAfterReply) {
+                    message.attachments.forEach { attachment ->
+                        SharedAttachmentCard(attachment, onOpenAttachment, runtime)
                     }
                 }
                 if (shouldShowSharedGenerationStatus(message)) {
