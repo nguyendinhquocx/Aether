@@ -7,6 +7,7 @@ on:
     paths:
       - 'app/**'
       - 'shared/**'
+      - 'extensions/**'
       - 'pi-bridge/**'
       - 'packages/extension-api/**'
       - 'third_party/termux/terminal-emulator/**'
@@ -36,6 +37,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: npm
+          cache-dependency-path: pi-bridge/package-lock.json
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
@@ -44,6 +52,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew

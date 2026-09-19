@@ -152,6 +152,7 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = ".debug"
             manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher"
             manifestPlaceholders["appRoundIcon"] = "@mipmap/ic_launcher_round"
             manifestPlaceholders["appLabel"] = "@string/app_name"
@@ -168,22 +169,6 @@ android {
             buildConfigField("Boolean", "SHOWCASE_MODE", "true")
         }
 
-        create("nightly") {
-            initWith(getByName("debug"))
-            applicationIdSuffix = ".nightly"
-            matchingFallbacks += listOf("debug")
-            resValue("string", "nightly_app_name", "Aether Nightly")
-            buildConfigField("String", "UPDATE_CHANNEL", "\"nightly\"")
-            manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher_nightly"
-            manifestPlaceholders["appRoundIcon"] = "@mipmap/ic_launcher_nightly_round"
-            manifestPlaceholders["appLabel"] = "@string/nightly_app_name"
-            signingConfig = if (nightlyKeystoreFile.isNotBlank()) {
-                signingConfigs.getByName("nightly")
-            } else {
-                signingConfigs.getByName("debug")
-            }
-        }
-
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -194,6 +179,22 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+
+        create("nightly") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".nightly"
+            matchingFallbacks += listOf("release")
+            resValue("string", "nightly_app_name", "Aether Nightly")
+            buildConfigField("String", "UPDATE_CHANNEL", "\"nightly\"")
+            manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher_nightly"
+            manifestPlaceholders["appRoundIcon"] = "@mipmap/ic_launcher_nightly_round"
+            manifestPlaceholders["appLabel"] = "@string/nightly_app_name"
+            signingConfig = if (nightlyKeystoreFile.isNotBlank()) {
+                signingConfigs.getByName("nightly")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
