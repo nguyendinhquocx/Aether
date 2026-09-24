@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		08CF4E928C8BE1C146193EAC /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */; };
 		0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3727F800A2CD973EBC5B5911 /* libiconv.tbd */; };
+		1A78A90847EC640B3208317F /* photon_rs_bg.wasm in Resources */ = {isa = PBXBuildFile; fileRef = EFCC03EC1321002A21933610 /* photon_rs_bg.wasm */; };
 		1B7908CE96343E5791521885 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */; };
 		1E011A81B7404737A35E9B0E /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A2D0B8F33C4B5DA0835EC57 /* fakefs.c */; };
 		24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */; };
@@ -49,6 +50,7 @@
 		DD8DCE33CB9622BA5C1E8CF3 /* AetherFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 464A524053D09517D505CABA /* AetherFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		EC617B7B7015EAFA12902F19 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C144E2F3F6163FCD6F4E718F /* TerminalBuffer.swift */; };
 		ECF24605EA32B181AB66598A /* FakeFSStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29BE8175F732278CF4585431 /* FakeFSStoreTests.swift */; };
+		F3339E5E7AC4F716F7D2E9E1 /* image-resize-worker.js in Resources */ = {isa = PBXBuildFile; fileRef = A2D67D0AD92E183DE5362738 /* image-resize-worker.js */; };
 		FE54CAF7EED3E1E804AED26F /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6388D45CD209D920D70FD4C6 /* TerminalEmulator.swift */; };
 /* End PBXBuildFile section */
 
@@ -135,6 +137,7 @@
 		96E90CBF38DF7D085E3CFAEA /* AetherUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AetherUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A61DAA537D7CB6C092B8C0C /* TerminalCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCanvasView.swift; sourceTree = "<group>"; };
 		A28E41D7474D6ABA5E0A522A /* fetch-polyfill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "fetch-polyfill.js"; path = "../../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/fetch-polyfill.js"; sourceTree = "<group>"; };
+		A2D67D0AD92E183DE5362738 /* image-resize-worker.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "image-resize-worker.js"; sourceTree = "<group>"; };
 		AF079DE4E9E495EEF6637D03 /* Aether.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Aether.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B57B4E3EEEFF797875CB6F3D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BC9B2AB7A93925E98C19F251 /* AetherRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherRuntimeTests.swift; sourceTree = "<group>"; };
@@ -151,6 +154,7 @@
 		E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AetherApp.swift; sourceTree = "<group>"; };
 		EBEDBEDAC4B9C0DC6670F3D7 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		EF75C9934FCC6B20C304F550 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		EFCC03EC1321002A21933610 /* photon_rs_bg.wasm */ = {isa = PBXFileReference; path = photon_rs_bg.wasm; sourceTree = "<group>"; };
 		F66BF0C15BAA8020F92F7D0D /* wasm-polyfill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "wasm-polyfill.js"; path = "../../third_party/ish-arm64/app/RootfsPatch.bundle/files/lib/wasm-polyfill.js"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -251,6 +255,8 @@
 				7FC3C7F439C89DFF299C3D94 /* bridge.mjs */,
 				4B0759D6CB01C983172A15D2 /* extension-bridge.mjs */,
 				87E4E38C502B9B9B1C85857F /* extensions */,
+				A2D67D0AD92E183DE5362738 /* image-resize-worker.js */,
+				EFCC03EC1321002A21933610 /* photon_rs_bg.wasm */,
 				95EE05EFD4A21740A10B6F14 /* root.tar.gz */,
 			);
 			path = Runtime;
@@ -581,6 +587,8 @@
 				9188705105B8907E2640F49A /* extension-bridge.mjs in Resources */,
 				30AD3919E04F3E59C61327F4 /* extensions in Resources */,
 				B0C7744DFFD5B0D7FF572295 /* fetch-polyfill.js in Resources */,
+				F3339E5E7AC4F716F7D2E9E1 /* image-resize-worker.js in Resources */,
+				1A78A90847EC640B3208317F /* photon_rs_bg.wasm in Resources */,
 				7940687B4F74E5160A8EB801 /* root.tar.gz in Resources */,
 				29422E116B5D611E33AB0B9D /* wasm-polyfill.js in Resources */,
 			);

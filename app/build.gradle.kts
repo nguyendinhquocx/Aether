@@ -356,9 +356,14 @@ val copyPiProviderIcons = tasks.register<SyncGeneratedSourceDirectory>("copyPiPr
 val copyPiBridgeAsset = tasks.register<SyncGeneratedSourceDirectory>("copyPiBridgeAsset") {
     dependsOn(buildPiBridge)
     outputDirectory.set(piBridgeGeneratedAssetsDir)
-    from(piBridgeProjectDir.file("dist/bridge.mjs"))
-    eachFile {
-        path = "pi-bridge/$path"
+    from(piBridgeProjectDir.file("dist/bridge.mjs")) {
+        into("pi-bridge")
+    }
+    from(piBridgeProjectDir.file("dist/image-resize-worker.js")) {
+        into("pi-bridge")
+    }
+    from(piBridgeProjectDir.file("dist/photon_rs_bg.wasm")) {
+        into("pi-bridge")
     }
     includeEmptyDirs = false
 }

@@ -36,6 +36,10 @@ targets:
       - path: Resources/Runtime/bridge.mjs
       - path: Resources/Runtime/extension-bridge.mjs
         buildPhase: resources
+      - path: Resources/Runtime/image-resize-worker.js
+        buildPhase: resources
+      - path: Resources/Runtime/photon_rs_bg.wasm
+        buildPhase: resources
       - path: Resources/Runtime/root.tar.gz
         buildPhase: resources
       - path: Resources/Runtime/extensions

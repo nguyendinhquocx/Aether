@@ -3,6 +3,8 @@ package com.zhousl.aether.agentmode
 import android.annotation.SuppressLint
 import android.app.ActivityOptions
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -259,7 +261,10 @@ class AetherAgentModeShizukuService @Keep constructor(
         if (text.isEmpty()) return
         val keyMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
         val events = keyMap.getEvents(text.toCharArray())
-            ?: error("Unable to convert text to keyboard events for this display.")
+        if (events == null) {
+            pasteText(displayId, text)
+            return
+        }
         var downTime = SystemClock.uptimeMillis()
         events.forEach { sourceEvent ->
             val now = SystemClock.uptimeMillis()
@@ -280,6 +285,30 @@ class AetherAgentModeShizukuService @Keep constructor(
                 SystemClock.sleep(4L)
             }
         }
+    }
+
+    private fun pasteText(displayId: Int, text: String) {
+        val clipboard = privilegedContext.getSystemService<ClipboardManager>()
+            ?: error("Clipboard service is unavailable for this display.")
+        clipboard.setPrimaryClip(ClipData.newPlainText("Aether Agent Mode", text))
+        val downTime = SystemClock.uptimeMillis()
+        injectKeyEvent(
+            displayId = displayId,
+            downTime = downTime,
+            eventTime = downTime,
+            action = KeyEvent.ACTION_DOWN,
+            keyCode = KeyEvent.KEYCODE_PASTE,
+            metaState = 0,
+        )
+        SystemClock.sleep(KeyPressDurationMillis)
+        injectKeyEvent(
+            displayId = displayId,
+            downTime = downTime,
+            eventTime = SystemClock.uptimeMillis(),
+            action = KeyEvent.ACTION_UP,
+            keyCode = KeyEvent.KEYCODE_PASTE,
+            metaState = 0,
+        )
     }
 
     override fun captureImageToFd(
