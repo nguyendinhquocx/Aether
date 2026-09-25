@@ -715,6 +715,9 @@ class AlpineRuntime(
         val prootCommand = listOf(
             AlpineHostLinker,
             prootFile.absolutePath,
+            // apk-tools 3 commits its database with O_TMPFILE + linkat(). Android denies
+            // that linkat() in app-private storage; proot turns it into a regular file.
+            "--link2symlink",
             "-0",
             "-r",
             rootfsDir.absolutePath,
@@ -750,6 +753,8 @@ class AlpineRuntime(
         listOf(
             AlpineHostLinker,
             prootFile.absolutePath,
+            // Keep interactive apk installs consistent with non-interactive commands.
+            "--link2symlink",
             "-0",
             "-r",
             rootfsDir.absolutePath,
@@ -776,6 +781,10 @@ class AlpineRuntime(
         buildMap {
             put("HOME", homeDirectory)
             put("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+            // Alpine ships a PEP 668 marker, but this rootfs is a private disposable
+            // sandbox. Allow pip and uv to install packages into the runtime.
+            put("PIP_BREAK_SYSTEM_PACKAGES", "1")
+            put("UV_BREAK_SYSTEM_PACKAGES", "1")
             put("AETHER_RUNTIME", "alpine")
             put("AETHER_HOST_WORKSPACE", workspaceDir.absolutePath)
             put("PROOT_ROOTFS", rootfsDir.absolutePath)
