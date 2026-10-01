@@ -722,7 +722,16 @@ fun SettingsScreen(
         },
         label = "settings_page_transition",
     ) { targetPage ->
-        pageStateHolder.SaveableStateProvider(targetPage.name) {
+        // Extension settings pages and categories all render under one SettingsPage, so key their saved
+        // state by the selected extension page and category. A shared key would restore one category's
+        // positional state (typed text, scroll offset, expanded cards) into another category's controls.
+        val pageStateKey = when (targetPage) {
+            SettingsPage.ExtensionSettings -> "${targetPage.name}:$selectedExtensionSettingsId"
+            SettingsPage.ExtensionSettingsCategory ->
+                "${targetPage.name}:$selectedExtensionSettingsId:$selectedExtensionSettingsCategoryId"
+            else -> targetPage.name
+        }
+        pageStateHolder.SaveableStateProvider(pageStateKey) {
             when (targetPage) {
             SettingsPage.Hub -> SettingsHub(
                 generalSettingsSummary = settingsGeneralSummary(
@@ -3332,7 +3341,10 @@ private fun AetherExtensionControlRow(
         "spacer" -> Spacer(Modifier.height(setting.optInt("size", 8).coerceAtLeast(1).dp))
         "label" -> Text(label, color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         else -> {
-            var value by rememberSaveable(id, stateSaver = TextFieldValue.Saver) {
+            // `id` as an input only resets the state when it changes; restored state is still matched by
+            // composition position unless `key` is set, so a layout change would hand this field another
+            // setting's saved text.
+            var value by rememberSaveable(id, stateSaver = TextFieldValue.Saver, key = "aether-extension-setting:$id") {
                 mutableStateOf(TextFieldValue(setting.optString("value")))
             }
             ChatGptTextField(
@@ -3367,7 +3379,7 @@ private fun AetherExtensionItemCard(
     val deleteArgs = setting.optJSONObject("deleteArgs") ?: JSONObject()
     val toggleAction = setting.optString("toggleAction")
     val hasToggle = setting.has("checked") || setting.has("value") || toggleAction.isNotBlank()
-    var expanded by rememberSaveable(id) { mutableStateOf(setting.optBoolean("expanded", false)) }
+    var expanded by rememberSaveable(id, key = "aether-extension-card-expanded:$id") { mutableStateOf(setting.optBoolean("expanded", false)) }
     var checked by remember(id, setting.optBoolean("checked", setting.optBoolean("value", true))) {
         mutableStateOf(setting.optBoolean("checked", setting.optBoolean("value", true)))
     }
