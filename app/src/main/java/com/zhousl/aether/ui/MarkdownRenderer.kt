@@ -199,6 +199,21 @@ fun MarkdownContent(
     onLinkClick: (String) -> Unit = {},
     fadeSpan: MarkdownFadeSpan? = null,
 ) {
+    StreamingRevealContent(source = markdown, isStreaming = false) { visibleMarkdown ->
+        MarkdownContentBody(visibleMarkdown, modifier, color, workspaceDirectory, allowRootImageRead, onLinkClick, fadeSpan)
+    }
+}
+
+@Composable
+private fun MarkdownContentBody(
+    markdown: String,
+    modifier: Modifier,
+    color: Color,
+    workspaceDirectory: String?,
+    allowRootImageRead: Boolean,
+    onLinkClick: (String) -> Unit,
+    fadeSpan: MarkdownFadeSpan?,
+) {
     val normalizedMarkdown = remember(markdown) { markdown.replace("\r\n", "\n") }
     val blocks = remember(normalizedMarkdown) { parseMarkdown(normalizedMarkdown) }
 
@@ -307,6 +322,7 @@ private fun MarkdownBullets(
                     text = "\u2022",
                     style = MaterialTheme.typography.bodyLarge,
                     color = AetherOnSurface,
+                    modifier = Modifier.streamingBlockReveal(item.sourceOffset),
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 MarkdownRichTextBlock(
@@ -336,6 +352,7 @@ private fun MarkdownNumbers(
                     text = "${index + 1}.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = AetherOnSurface,
+                    modifier = Modifier.streamingBlockReveal(item.sourceOffset),
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 MarkdownRichTextBlock(
@@ -501,6 +518,7 @@ private fun MarkdownCodeFence(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .streamingBlockReveal(code.sourceOffset)
             .background(AetherSurfaceHigh, RoundedCornerShape(18.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
@@ -1125,14 +1143,14 @@ private fun MarkdownRichTextBlock(
         MarkdownTextHtmlBlock(
             text = text.text,
             variant = variant,
-            modifier = modifier,
+            modifier = modifier.streamingBlockReveal(text.sourceOffset),
             onLinkClick = onLinkClick,
         )
         return
     }
 
     MarkdownText(
-        text = inlineMarkdown(text.text, text.sourceOffset, fadeSpan),
+        text = remember(text, fadeSpan) { inlineMarkdown(text.text, text.sourceOffset, fadeSpan) },
         style = style,
         color = color,
         modifier = modifier,
@@ -1178,29 +1196,15 @@ private fun MarkdownText(
         end = text.length,
     ).isNotEmpty()
 
-    if (!hasLinks) {
-        Text(
-            text = text,
-            style = style.copy(textDirection = TextDirection.Content),
-            color = color,
-            modifier = modifier,
-        )
-        return
-    }
-
-    ClickableText(
+    RevealingMarkdownText(
         text = text,
         style = style.copy(color = color, textDirection = TextDirection.Content),
         modifier = modifier,
-    ) { offset ->
-        text.getStringAnnotations(
-            tag = LinkAnnotationTag,
-            start = offset,
-            end = offset,
-        ).firstOrNull()?.let { annotation ->
-            onLinkClick(annotation.item)
-        }
-    }
+        onClick = if (!hasLinks) null else { offset ->
+            text.getStringAnnotations(LinkAnnotationTag, offset, offset)
+                .firstOrNull()?.let { onLinkClick(it.item) }
+        },
+    )
 }
 
 private sealed interface MarkdownBlock {
@@ -2960,7 +2964,7 @@ private fun AnnotatedString.Builder.appendSourceSegment(
 ) {
     if (text.isEmpty()) return
     if (fadeSpan == null || fadeSpan.sourceRange.isEmpty()) {
-        append(text)
+        appendStreamingSource(text, sourceOffset)
         return
     }
 
@@ -2968,7 +2972,7 @@ private fun AnnotatedString.Builder.appendSourceSegment(
     val fadeStart = fadeSpan.sourceRange.first.coerceAtLeast(sourceOffset)
     val fadeEndExclusive = (fadeSpan.sourceRange.last + 1).coerceAtMost(segmentEndExclusive)
     if (fadeEndExclusive <= fadeStart) {
-        append(text)
+        appendStreamingSource(text, sourceOffset)
         return
     }
 

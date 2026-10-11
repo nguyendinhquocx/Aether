@@ -143,11 +143,7 @@ class AetherAppRuntime(
         termuxRuntime = termuxRuntime,
         alpineRuntime = alpineRuntime,
     )
-    val rootSetupController = RootSetupController(
-        context = application,
-        bashTool = bashTool,
-        diagnosticLogger = diagnosticLogger,
-    )
+    val rootSetupController = RootSetupController(context = application)
     val workspaceFileBridge = WorkspaceFileBridge(
         context = application,
         bashTool = bashTool,

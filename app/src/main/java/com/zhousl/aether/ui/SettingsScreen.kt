@@ -139,6 +139,11 @@ import java.time.ZoneId
 import kotlin.math.roundToInt
 import com.zhousl.aether.data.AetherAppExtensionError
 import com.zhousl.aether.data.AgentModeAuthorizationIssue
+import com.zhousl.aether.phoneuse.PhoneUseAccessibilityService
+import com.zhousl.aether.data.AppSettings
+import com.zhousl.aether.data.PhoneUseInputStrategy
+import com.zhousl.aether.data.PhoneUseOutputStrategy
+import com.zhousl.aether.data.AgentModeDisplayOrientation
 import com.zhousl.aether.data.AgentModeAuthorizationMethod
 import com.zhousl.aether.data.AgentModeAuthorizationState
 import com.zhousl.aether.data.AgentModeDisplayState
@@ -157,8 +162,6 @@ import com.zhousl.aether.data.PiPackageCompatibilityIssue
 import com.zhousl.aether.data.PiPackageDetails
 import com.zhousl.aether.data.PackageProfileState
 import com.zhousl.aether.data.ProviderModelOption
-import com.zhousl.aether.data.RootSetupIssue
-import com.zhousl.aether.data.RootSetupState
 import com.zhousl.aether.data.ScheduledTask
 import com.zhousl.aether.data.ScheduledTaskCreator
 import com.zhousl.aether.data.ScheduledTaskSchedule
@@ -231,7 +234,7 @@ private enum class SettingsPage {
     RuntimeDefaults,
     AgentMode,
     Statistics,
-    RootSetupProgress,
+    VirtualDisplayAuthorization,
     Developer,
     About,
 }
@@ -265,25 +268,13 @@ private fun SettingsPage.depth(): Int = when (this) {
     SettingsPage.AlpineTerminal,
     SettingsPage.AlpineFiles,
     SettingsPage.AlpineChrome,
-    SettingsPage.RootSetupProgress -> 2
+    SettingsPage.VirtualDisplayAuthorization -> 2
     SettingsPage.ExtensionSettingsCategory -> 2
     SettingsPage.DefaultChatModel,
     SettingsPage.DefaultTitleModel,
     SettingsPage.DefaultNamingModel,
     SettingsPage.DefaultCompactingModel -> 3
 }
-
-private fun SettingsPage.toRootSetupProgressReturnPage(): RootSetupProgressReturnPage =
-    when (this) {
-        SettingsPage.AgentMode -> RootSetupProgressReturnPage.AgentMode
-        else -> RootSetupProgressReturnPage.Termux
-    }
-
-private fun RootSetupProgressReturnPage.toSettingsPage(): SettingsPage =
-    when (this) {
-        RootSetupProgressReturnPage.Termux -> SettingsPage.Termux
-        RootSetupProgressReturnPage.AgentMode -> SettingsPage.AgentMode
-    }
 
 private fun formatTaskMinute(minuteOfDay: Int): String {
     val normalized = minuteOfDay.coerceIn(0, 1_439)
@@ -342,6 +333,7 @@ private fun settingsLanguageDisplayName(language: AppLanguage): String = when (l
     AppLanguage.English -> stringResource(R.string.language_english)
     AppLanguage.SimplifiedChinese -> stringResource(R.string.language_simplified_chinese)
     AppLanguage.Persian -> stringResource(R.string.language_persian)
+    AppLanguage.Russian -> stringResource(R.string.language_russian)
 }
 
 @Composable
@@ -349,6 +341,7 @@ private fun settingsLanguageSubtitle(language: AppLanguage): String = when (lang
     AppLanguage.English -> stringResource(R.string.settings_language_english_interface)
     AppLanguage.SimplifiedChinese -> stringResource(R.string.settings_language_simplified_chinese_interface)
     AppLanguage.Persian -> stringResource(R.string.settings_language_persian_interface)
+    AppLanguage.Russian -> stringResource(R.string.settings_language_russian_interface)
 }
 
 @Composable
@@ -413,18 +406,20 @@ fun SettingsScreen(
     autoCleanOldCommandHistory: Boolean,
     oldCommandHistoryRetentionHours: Int,
     termuxEnvironmentVariables: List<TermuxEnvironmentVariable>,
-    agentModeAuthorizationEnabled: Boolean,
-    agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
-    agentModeAuthorizationState: AgentModeAuthorizationState,
-    rootSetupState: RootSetupState,
-    rootSetupProgressReturnPage: RootSetupProgressReturnPage?,
+    phoneUseSettings: AppSettings,
+    virtualDisplayAuthorizationState: AgentModeAuthorizationState,
+    isAuthorizingVirtualDisplay: Boolean,
+    onSaveAgentModeDisplayOrientation: (AgentModeDisplayOrientation) -> Unit,
+    onSavePhoneUseOptions: (PhoneUseInputStrategy, PhoneUseOutputStrategy, Boolean) -> Unit,
+    onDisableVirtualDisplay: () -> Unit,
+    onAuthorizeVirtualDisplay: (AgentModeAuthorizationMethod) -> Unit,
+    onCancelVirtualDisplayAuthorization: () -> Unit,
     language: AppLanguage,
     themeMode: AppThemeMode,
     defaultChatModelKey: String,
     defaultTitleModelKey: String,
     defaultNamingModelKey: String,
     defaultCompactingModelKey: String,
-    agentModeDisplayState: AgentModeDisplayState,
     providerConfigs: List<LlmProviderConfig>,
     usageStatisticsSnapshots: List<ChatUsageStatisticsSnapshot>,
     scheduledTasks: List<ScheduledTask>,
@@ -506,18 +501,11 @@ fun SettingsScreen(
     onStartAlpineChrome: suspend () -> Result<Unit>,
     onShouldShowAlpineChromeKeyboard: suspend (Int, Int) -> Result<Boolean>,
     onSetDefaultRuntime: (LocalRuntimeId) -> Unit,
-    onRefreshRootSetup: () -> Unit,
-    onStartRootSetupFromSettings: (RootSetupProgressReturnPage) -> Unit,
-    onDismissRootSetupProgress: () -> Unit,
-    onRequestShizukuPermission: () -> Unit,
-    onRefreshAgentModeAuthorization: (Boolean, AgentModeAuthorizationMethod) -> Unit,
     onOpenShizuku: () -> Unit,
     onInstallShizuku: () -> Unit,
     onReplayOnboarding: () -> Unit,
     onReplayFollowUpOnboarding: () -> Unit,
     onReplayAlpineSetupPreview: () -> Unit,
-    onStopAgentModeDisplay: () -> Unit,
-    onRefreshAgentModeDisplays: (AgentModeAuthorizationMethod) -> Unit,
     onOpenWebsite: () -> Unit,
     onOpenGitHub: () -> Unit,
     onOpenPrivacyPolicy: () -> Unit,
@@ -528,9 +516,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    // Agent Mode only needs a local runtime to hold its workspace and screenshots; either runtime will do.
-    val isLocalRuntimeReadyForAgentMode = termuxSetupState.isReady || alpineSetupState.isReady
-    val agentModeRequiresRuntimeToastLabel = stringResource(R.string.settings_agent_mode_requires_runtime_toast)
     // Mutable field values - survive recomposition & config changes
     var systemPromptValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(systemPrompt))
@@ -556,12 +541,6 @@ fun SettingsScreen(
     // TermuxEnvironmentVariable is not Parcelable; saving this list crashes during state save.
     var termuxEnvironmentVariablesValue by remember {
         mutableStateOf(termuxEnvironmentVariables)
-    }
-    var agentModeAuthorizationEnabledValue by rememberSaveable {
-        mutableStateOf(agentModeAuthorizationEnabled)
-    }
-    var agentModeAuthorizationMethodValue by rememberSaveable {
-        mutableStateOf(agentModeAuthorizationMethod)
     }
     var languageValue by rememberSaveable {
         mutableStateOf(language)
@@ -592,7 +571,6 @@ fun SettingsScreen(
     // Track which provider is being edited
     var editingProviderId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingScheduledTaskId by rememberSaveable { mutableStateOf<String?>(null) }
-    var lastObservedRootSetupIssue by rememberSaveable { mutableStateOf(rootSetupState.issue) }
 
     fun persistSettings() {
         onSave(
@@ -609,18 +587,6 @@ fun SettingsScreen(
             ),
             termuxEnvironmentVariablesValue,
         )
-    }
-
-    LaunchedEffect(rootSetupState.issue) {
-        if (
-            rootSetupState.issue == RootSetupIssue.Ready &&
-            lastObservedRootSetupIssue != RootSetupIssue.Ready
-        ) {
-            agentModeAuthorizationEnabledValue = true
-            agentModeAuthorizationMethodValue = AgentModeAuthorizationMethod.Root
-            onSaveAgentModeAuthorization(true, AgentModeAuthorizationMethod.Root)
-        }
-        lastObservedRootSetupIssue = rootSetupState.issue
     }
 
     fun persistAndExit() {
@@ -645,7 +611,6 @@ fun SettingsScreen(
     // Local page navigation
     var currentPage by rememberSaveable { mutableStateOf(SettingsPage.Hub.name) }
     val page = SettingsPage.valueOf(currentPage)
-    var rootSetupReturnPage by rememberSaveable { mutableStateOf(SettingsPage.Termux.name) }
     var selectedPiPackageSourceValue by rememberSaveable { mutableStateOf("") }
     var selectedExtensionSettingsId by rememberSaveable { mutableStateOf("") }
     var selectedExtensionSettingsCategoryId by rememberSaveable { mutableStateOf("") }
@@ -653,31 +618,6 @@ fun SettingsScreen(
         ?.snapshot
         ?.settings
         .orEmpty()
-
-    fun rootSetupReturnPageValue(): SettingsPage =
-        runCatching { SettingsPage.valueOf(rootSetupReturnPage) }
-            .getOrDefault(SettingsPage.Termux)
-
-    fun openRootSetupProgress(returnPage: SettingsPage) {
-        rootSetupReturnPage = returnPage.name
-        currentPage = SettingsPage.RootSetupProgress.name
-        onStartRootSetupFromSettings(returnPage.toRootSetupProgressReturnPage())
-    }
-
-    fun closeRootSetupProgress() {
-        onDismissRootSetupProgress()
-        currentPage = rootSetupReturnPageValue().name
-    }
-
-    fun runRootSetupAgain() {
-        onStartRootSetupFromSettings(rootSetupReturnPageValue().toRootSetupProgressReturnPage())
-    }
-
-    LaunchedEffect(rootSetupProgressReturnPage) {
-        val returnPage = rootSetupProgressReturnPage ?: return@LaunchedEffect
-        rootSetupReturnPage = returnPage.toSettingsPage().name
-        currentPage = SettingsPage.RootSetupProgress.name
-    }
 
     // Determine parent page for back navigation
     fun parentPage(): SettingsPage = when (page) {
@@ -695,14 +635,17 @@ fun SettingsScreen(
         SettingsPage.AlpineTerminal,
         SettingsPage.AlpineFiles,
         SettingsPage.AlpineChrome -> SettingsPage.Alpine
-        SettingsPage.RootSetupProgress -> rootSetupReturnPageValue()
+        SettingsPage.VirtualDisplayAuthorization -> SettingsPage.AgentMode
         else -> SettingsPage.Hub
     }
 
     BackHandler {
         when (page) {
             SettingsPage.Hub -> persistAndExit()
-            SettingsPage.RootSetupProgress -> closeRootSetupProgress()
+            SettingsPage.VirtualDisplayAuthorization -> {
+                onCancelVirtualDisplayAuthorization()
+                currentPage = SettingsPage.AgentMode.name
+            }
             else -> currentPage = parentPage().name
         }
     }
@@ -786,15 +729,7 @@ fun SettingsScreen(
                 statisticsSummary = buildSettingsStatisticsSummary(usageStatisticsSnapshots),
                 onReplayOnboarding = ::persistAndReplayOnboarding,
                 onNavigate = { page ->
-                    if (page == SettingsPage.AgentMode && !isLocalRuntimeReadyForAgentMode) {
-                        Toast.makeText(
-                            context,
-                            agentModeRequiresRuntimeToastLabel,
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    } else {
-                        currentPage = page.name
-                    }
+                    currentPage = page.name
                 },
                 onBack = ::persistAndExit,
             )
@@ -1163,7 +1098,6 @@ fun SettingsScreen(
             SettingsPage.Termux -> TermuxSettingsPage(
                 title = stringResource(R.string.settings_termux),
                 termuxSetupState = termuxSetupState,
-                rootSetupState = rootSetupState,
                 selectedWorkspaceMode = agentWorkspaceModeValue,
                 environmentVariables = termuxEnvironmentVariablesValue,
                 onWorkspaceModeSelected = {
@@ -1180,8 +1114,6 @@ fun SettingsScreen(
                 onOpenTermux = onOpenTermux,
                 onInstallTermux = onInstallTermux,
                 onRefreshTermuxSetup = onRefreshTermuxSetup,
-                onRefreshRootSetup = onRefreshRootSetup,
-                onConfigureWithRoot = { openRootSetupProgress(SettingsPage.Termux) },
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
 
@@ -1230,54 +1162,39 @@ fun SettingsScreen(
                 onBack = { currentPage = SettingsPage.Hub.name },
             )
 
-            SettingsPage.AgentMode -> AgentModeSettingsPage(
-                title = stringResource(R.string.settings_agent_mode),
-                termuxSetupState = termuxSetupState,
-                alpineSetupState = alpineSetupState,
-                agentModeAuthorizationEnabled = agentModeAuthorizationEnabledValue,
-                agentModeAuthorizationMethod = agentModeAuthorizationMethodValue,
-                agentModeAuthorizationState = agentModeAuthorizationState,
-                rootSetupState = rootSetupState,
-                onAgentModeAuthorizationEnabledChanged = {
-                    agentModeAuthorizationEnabledValue = it
-                    onSaveAgentModeAuthorization(it, agentModeAuthorizationMethodValue)
+            SettingsPage.AgentMode -> PhoneUseSettingsPage(
+                settings = phoneUseSettings,
+                onEnabledChanged = {
+                    onSaveAgentModeAuthorization(it, phoneUseSettings.agentModeAuthorizationMethod)
                 },
-                onAgentModeAuthorizationMethodChanged = {
-                    agentModeAuthorizationMethodValue = it
-                    onSaveAgentModeAuthorization(agentModeAuthorizationEnabledValue, it)
+                onOptionsChanged = onSavePhoneUseOptions,
+                onDisplayOrientationChanged = onSaveAgentModeDisplayOrientation,
+                onVirtualDisplayChanged = { enabled ->
+                    if (enabled) currentPage = SettingsPage.VirtualDisplayAuthorization.name
+                    else onDisableVirtualDisplay()
                 },
-                agentModeDisplayState = agentModeDisplayState,
-                onRequestShizukuPermission = onRequestShizukuPermission,
-                onRefreshAgentModeAuthorization = onRefreshAgentModeAuthorization,
+                onBack = { currentPage = SettingsPage.Hub.name },
+            )
+
+            SettingsPage.VirtualDisplayAuthorization -> VirtualDisplayAuthorizationPage(
+                selectedMethod = phoneUseSettings.agentModeAuthorizationMethod,
+                enabled = phoneUseSettings.phoneUseVirtualDisplayEnabled,
+                state = virtualDisplayAuthorizationState,
+                isAuthorizing = isAuthorizingVirtualDisplay,
+                onAuthorize = onAuthorizeVirtualDisplay,
                 onOpenShizuku = onOpenShizuku,
                 onInstallShizuku = onInstallShizuku,
-                onRequestTermuxPermission = onRequestTermuxPermission,
-                onOpenAppPermissions = onOpenAppPermissions,
-                onOpenTermuxSettings = onOpenTermuxSettings,
-                onOpenTermux = onOpenTermux,
-                onInstallTermux = onInstallTermux,
-                onRefreshTermuxSetup = onRefreshTermuxSetup,
-                onRefreshRootSetup = onRefreshRootSetup,
-                onConfigureWithRoot = { openRootSetupProgress(SettingsPage.AgentMode) },
-                onStopAgentModeDisplay = onStopAgentModeDisplay,
-                onRefreshAgentModeDisplays = onRefreshAgentModeDisplays,
-                onBack = { currentPage = SettingsPage.Hub.name },
+                onCancelAuthorization = onCancelVirtualDisplayAuthorization,
+                onBack = {
+                    onCancelVirtualDisplayAuthorization()
+                    currentPage = SettingsPage.AgentMode.name
+                },
             )
 
             SettingsPage.Statistics -> StatisticsSettingsPage(
                 title = stringResource(R.string.settings_statistics),
                 usageStatisticsSnapshots = usageStatisticsSnapshots,
                 onBack = { currentPage = SettingsPage.Hub.name },
-            )
-
-            SettingsPage.RootSetupProgress -> RootSetupProgressPage(
-                rootSetupState = rootSetupState,
-                termuxSetupState = termuxSetupState,
-                agentModeAuthorizationEnabled = agentModeAuthorizationEnabledValue,
-                agentModeAuthorizationMethod = agentModeAuthorizationMethodValue,
-                agentModeAuthorizationState = agentModeAuthorizationState,
-                onRunRootSetup = ::runRootSetupAgain,
-                onBack = ::closeRootSetupProgress,
             )
 
             SettingsPage.Developer -> DeveloperSettingsPage(
@@ -5305,7 +5222,6 @@ private fun ScheduledTaskEditPage(
 private fun TermuxSettingsPage(
     title: String,
     termuxSetupState: TermuxSetupState,
-    rootSetupState: RootSetupState,
     selectedWorkspaceMode: AgentWorkspaceMode,
     environmentVariables: List<TermuxEnvironmentVariable>,
     onWorkspaceModeSelected: (AgentWorkspaceMode) -> Unit,
@@ -5316,34 +5232,9 @@ private fun TermuxSettingsPage(
     onOpenTermux: () -> Unit,
     onInstallTermux: () -> Unit,
     onRefreshTermuxSetup: () -> Unit,
-    onRefreshRootSetup: () -> Unit,
-    onConfigureWithRoot: () -> Unit,
     onBack: () -> Unit,
 ) {
-    var showAlreadyConfiguredDialog by rememberSaveable { mutableStateOf(false) }
-
-    fun requestRootSetup() {
-        if (termuxSetupState.isReady && !rootSetupState.isRunning) {
-            showAlreadyConfiguredDialog = true
-        } else {
-            onConfigureWithRoot()
-        }
-    }
-
-    if (showAlreadyConfiguredDialog) {
-        RootSetupAlreadyConfiguredDialog(
-            title = stringResource(R.string.settings_termux_already_configured_title),
-            body = stringResource(R.string.settings_termux_already_configured_body),
-            onDismiss = { showAlreadyConfiguredDialog = false },
-            onContinue = {
-                showAlreadyConfiguredDialog = false
-                onConfigureWithRoot()
-            },
-        )
-    }
-
     LaunchedEffect(Unit) {
-        onRefreshRootSetup()
         onRefreshTermuxSetup()
         while (true) {
             delay(SettingsAutoRefreshIntervalMillis)
@@ -5376,17 +5267,6 @@ private fun TermuxSettingsPage(
             variables = environmentVariables,
             onVariablesChanged = onEnvironmentVariablesChanged,
         )
-
-        Spacer(Modifier.height(16.dp))
-
-        SettingsCardGroup {
-            RootSetupSettingsSection(
-                title = stringResource(R.string.settings_root_automatic_setup),
-                rootSetupState = rootSetupState,
-                body = rootSetupSettingsBody(rootSetupState),
-                onConfigureWithRoot = ::requestRootSetup,
-            )
-        }
 
         Spacer(Modifier.height(16.dp))
 
@@ -5787,766 +5667,155 @@ private fun WorkspaceModeSettingsSection(
 }
 
 @Composable
-private fun AgentModeSettingsPage(
-    title: String,
-    termuxSetupState: TermuxSetupState,
-    alpineSetupState: LocalRuntimeSetupState,
-    agentModeAuthorizationEnabled: Boolean,
-    agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
-    agentModeAuthorizationState: AgentModeAuthorizationState,
-    rootSetupState: RootSetupState,
-    onAgentModeAuthorizationEnabledChanged: (Boolean) -> Unit,
-    onAgentModeAuthorizationMethodChanged: (AgentModeAuthorizationMethod) -> Unit,
-    agentModeDisplayState: AgentModeDisplayState,
-    onRequestShizukuPermission: () -> Unit,
-    onRefreshAgentModeAuthorization: (Boolean, AgentModeAuthorizationMethod) -> Unit,
-    onOpenShizuku: () -> Unit,
-    onInstallShizuku: () -> Unit,
-    onRequestTermuxPermission: () -> Unit,
-    onOpenAppPermissions: () -> Unit,
-    onOpenTermuxSettings: () -> Unit,
-    onOpenTermux: () -> Unit,
-    onInstallTermux: () -> Unit,
-    onRefreshTermuxSetup: () -> Unit,
-    onRefreshRootSetup: () -> Unit,
-    onConfigureWithRoot: () -> Unit,
-    onStopAgentModeDisplay: () -> Unit,
-    onRefreshAgentModeDisplays: (AgentModeAuthorizationMethod) -> Unit,
+private fun PhoneUseSettingsPage(
+    settings: AppSettings,
+    onDisplayOrientationChanged: (AgentModeDisplayOrientation) -> Unit,
+    onEnabledChanged: (Boolean) -> Unit,
+    onOptionsChanged: (PhoneUseInputStrategy, PhoneUseOutputStrategy, Boolean) -> Unit,
+    onVirtualDisplayChanged: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
-    var showAlreadyConfiguredDialog by rememberSaveable { mutableStateOf(false) }
-    val agentModeConfigured = agentModeAuthorizationEnabled && agentModeAuthorizationState.isReady
-
-    fun requestRootSetup() {
-        if (agentModeConfigured && !rootSetupState.isRunning) {
-            showAlreadyConfiguredDialog = true
-        } else {
-            onConfigureWithRoot()
-        }
-    }
-
-    fun refreshAgentModeStatus() {
-        onRefreshAgentModeAuthorization(
-            agentModeAuthorizationEnabled,
-            agentModeAuthorizationMethod,
-        )
-        onRefreshAgentModeDisplays(agentModeAuthorizationMethod)
-    }
-
-    if (!termuxSetupState.isReady && !alpineSetupState.isReady) {
-        LaunchedEffect(Unit) {
-            onRefreshTermuxSetup()
-        }
-        SubPageScaffold(
-            title = title,
-            onBack = onBack,
-            trailingIcon = Icons.Rounded.Refresh,
-            onTrailingAction = onRefreshTermuxSetup,
-        ) {
-            SettingsCardGroup {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_agent_mode_unavailable),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = AetherOnSurface,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = stringResource(R.string.settings_agent_mode_unavailable_body),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AetherOnSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            TermuxSetupNotice(
-                setupState = termuxSetupState,
-                onRequestPermission = onRequestTermuxPermission,
-                onOpenAppPermissions = onOpenAppPermissions,
-                onOpenTermuxSettings = onOpenTermuxSettings,
-                onOpenTermux = onOpenTermux,
-                onInstallTermux = onInstallTermux,
-                onRefresh = onRefreshTermuxSetup,
-                showRefreshAction = true,
-            )
-        }
-        return
-    }
-    if (showAlreadyConfiguredDialog) {
-        RootSetupAlreadyConfiguredDialog(
-            title = stringResource(R.string.settings_agent_mode_already_configured),
-            body = if (agentModeAuthorizationMethod == AgentModeAuthorizationMethod.Root) {
-                stringResource(R.string.settings_agent_mode_root_already_configured_body)
-            } else {
-                stringResource(R.string.settings_agent_mode_already_configured_body)
-            },
-            onDismiss = { showAlreadyConfiguredDialog = false },
-            onContinue = {
-                showAlreadyConfiguredDialog = false
-                onConfigureWithRoot()
-            },
-        )
-    }
-
-    LaunchedEffect(agentModeAuthorizationEnabled, agentModeAuthorizationMethod) {
-        onRefreshRootSetup()
-        refreshAgentModeStatus()
-        while (true) {
-            delay(SettingsAutoRefreshIntervalMillis)
-            refreshAgentModeStatus()
-        }
-    }
-    SubPageScaffold(
-        title = title,
-        onBack = onBack,
-        trailingIcon = Icons.Rounded.Refresh,
-        onTrailingAction = ::refreshAgentModeStatus,
-    ) {
-        Text(
-            text = stringResource(R.string.settings_agent_mode_description),
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-
-        Spacer(Modifier.height(16.dp))
-
+    val inputLabels = mapOf(
+        PhoneUseInputStrategy.ElementTreeFirst to stringResource(R.string.phone_use_tree_first),
+        PhoneUseInputStrategy.ScreenshotFirst to stringResource(R.string.phone_use_screenshot_first),
+    )
+    val outputLabels = mapOf(
+        PhoneUseOutputStrategy.ElementFirst to stringResource(R.string.phone_use_element_first),
+        PhoneUseOutputStrategy.GestureFirst to stringResource(R.string.phone_use_gesture_first),
+    )
+    SubPageScaffold(title = stringResource(R.string.settings_agent_mode), onBack = onBack) {
         SettingsCardGroup {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                 SettingsToggleRow(
-                    title = stringResource(R.string.settings_agent_mode_authorization),
-                    subtitle = stringResource(R.string.settings_agent_mode_authorization_subtitle),
-                    checked = agentModeAuthorizationEnabled,
-                    onCheckedChange = onAgentModeAuthorizationEnabledChanged,
+                    verticalAlignment = Alignment.CenterVertically,
+                    title = stringResource(R.string.phone_use_enabled), subtitle = "",
+                    checked = settings.agentModeAuthorizationEnabled, onCheckedChange = onEnabledChanged,
                 )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.settings_authorization_method),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = AetherOnSurface,
-                )
-                Spacer(Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AgentModeAuthorizationMethod.entries.forEach { method ->
-                        SettingsChoiceRow(
-                            title = method.displayName,
-                            subtitle = when (method) {
-                                AgentModeAuthorizationMethod.Shizuku -> stringResource(R.string.settings_agent_mode_method_shizuku_subtitle)
-                                AgentModeAuthorizationMethod.Root -> stringResource(R.string.settings_agent_mode_method_root_subtitle)
-                            },
-                            selected = agentModeAuthorizationMethod == method,
-                            onClick = { onAgentModeAuthorizationMethodChanged(method) },
-                        )
+            }
+            CardDivider()
+            SelectionDropdownField(
+                label = stringResource(R.string.phone_use_input_strategy), supportingText = "",
+                selectedLabel = inputLabels.getValue(settings.phoneUseInputStrategy),
+                options = PhoneUseInputStrategy.entries.map { strategy ->
+                    SelectionOption(strategy.storageValue, inputLabels.getValue(strategy), "",
+                        strategy == settings.phoneUseInputStrategy) {
+                        onOptionsChanged(strategy, settings.phoneUseOutputStrategy, settings.phoneUseAllowStrategySwitch)
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = stringResource(R.string.settings_agent_mode_method_description),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AetherOnSurfaceVariant,
-                )
-                Spacer(Modifier.height(14.dp))
-                AgentModeAuthorizationNotice(
-                    enabled = agentModeAuthorizationEnabled,
-                    method = agentModeAuthorizationMethod,
-                    state = agentModeAuthorizationState,
-                    onRequestShizukuPermission = onRequestShizukuPermission,
-                    onOpenShizuku = onOpenShizuku,
-                    onInstallShizuku = onInstallShizuku,
-                )
-                Spacer(Modifier.height(12.dp))
-                RootSetupSettingsSection(
-                    title = stringResource(R.string.settings_root_automatic_setup),
-                    rootSetupState = rootSetupState,
-                    body = stringResource(R.string.settings_agent_mode_root_setup_body),
-                    onConfigureWithRoot = ::requestRootSetup,
+                },
+            )
+            CardDivider()
+            SelectionDropdownField(
+                label = stringResource(R.string.phone_use_output_strategy), supportingText = "",
+                selectedLabel = outputLabels.getValue(settings.phoneUseOutputStrategy),
+                options = PhoneUseOutputStrategy.entries.map { strategy ->
+                    SelectionOption(strategy.storageValue, outputLabels.getValue(strategy), "",
+                        strategy == settings.phoneUseOutputStrategy) {
+                        onOptionsChanged(settings.phoneUseInputStrategy, strategy, settings.phoneUseAllowStrategySwitch)
+                    }
+                },
+            )
+            CardDivider()
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                SettingsToggleRow(
+                    verticalAlignment = Alignment.CenterVertically,
+                    title = stringResource(R.string.phone_use_allow_strategy_switch), subtitle = "",
+                    checked = settings.phoneUseAllowStrategySwitch,
+                    onCheckedChange = { onOptionsChanged(settings.phoneUseInputStrategy, settings.phoneUseOutputStrategy, it) },
                 )
             }
         }
-
-        Spacer(Modifier.height(16.dp))
-
+        Spacer(Modifier.height(24.dp))
         SettingsCardGroup {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = stringResource(R.string.settings_virtual_display),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = AetherOnSurface,
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                SettingsToggleRow(
+                    verticalAlignment = Alignment.CenterVertically,
+                    title = stringResource(R.string.phone_use_virtual_enabled), subtitle = "",
+                    checked = settings.phoneUseVirtualDisplayEnabled, onCheckedChange = onVirtualDisplayChanged,
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = if (agentModeDisplayState.isActive) {
-                        stringResource(
-                            R.string.settings_agent_mode_display_active,
-                            agentModeDisplayState.displayId ?: "-",
-                            agentModeDisplayState.width,
-                            agentModeDisplayState.height,
-                        )
-                    } else {
-                        stringResource(R.string.settings_agent_mode_no_virtual_display)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AetherOnSurfaceVariant,
+            }
+            if (settings.phoneUseVirtualDisplayEnabled) {
+                CardDivider()
+                val orientationLabels = mapOf(
+                    AgentModeDisplayOrientation.Device to stringResource(R.string.settings_agent_mode_orientation_device),
+                    AgentModeDisplayOrientation.Portrait to stringResource(R.string.settings_agent_mode_orientation_portrait),
+                    AgentModeDisplayOrientation.Landscape to stringResource(R.string.settings_agent_mode_orientation_landscape),
                 )
-                if (agentModeDisplayState.latestWorkspacePath.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = agentModeDisplayState.latestWorkspacePath,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AetherOnSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = stringResource(R.string.settings_visible_displays),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = AetherOnSurface,
-                )
-                Spacer(Modifier.height(8.dp))
-                if (agentModeDisplayState.displays.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.settings_no_visible_displays),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AetherOnSurfaceVariant,
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        agentModeDisplayState.displays.forEach { display ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(
-                                if (display.isAetherDisplay) {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
-                                } else {
-                                    AetherSettingsBackground
-                                }
-                                    )
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.agent_mode_display_id, display.displayId),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = AetherOnSurface,
-                                    )
-                                    Text(
-                                        text = listOf(
-                                            display.name.ifBlank { stringResource(R.string.settings_unnamed_display) },
-                                            "${display.width} x ${display.height}",
-                                            if (display.isAetherDisplay) "Aether" else "",
-                                        ).filter { it.isNotBlank() }.joinToString(" · "),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = AetherOnSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
+                SelectionDropdownField(
+                    label = stringResource(R.string.settings_agent_mode_orientation),
+                    supportingText = stringResource(R.string.settings_agent_mode_orientation_hint),
+                    selectedLabel = orientationLabels.getValue(settings.agentModeDisplayOrientation),
+                    options = AgentModeDisplayOrientation.entries.map { orientation ->
+                        SelectionOption(orientation.storageValue, orientationLabels.getValue(orientation), "",
+                            orientation == settings.agentModeDisplayOrientation) {
+                            onDisplayOrientationChanged(orientation)
                         }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsActionButton(
-                    label = stringResource(R.string.settings_stop_virtual_display),
-                    onClick = onStopAgentModeDisplay,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = agentModeDisplayState.isActive,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RootSetupAlreadyConfiguredDialog(
-    title: String,
-    body: String,
-    onDismiss: () -> Unit,
-    onContinue: () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp)
-                .shadow(22.dp, RoundedCornerShape(28.dp), ambientColor = AetherScrim, spotColor = AetherScrim)
-                .clip(RoundedCornerShape(28.dp))
-                .background(AetherSurfaceHigh)
-                .padding(20.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = AetherOnSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodyMedium,
-                color = AetherOnSurfaceVariant,
-            )
-            Spacer(Modifier.height(18.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.action_cancel),
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f),
-                )
-                SettingsActionButton(
-                    label = stringResource(R.string.action_continue),
-                    onClick = onContinue,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-private enum class RootSetupProgressStepStatus {
-    Pending,
-    Active,
-    Complete,
-    Attention,
-}
-
-@Composable
-private fun RootSetupProgressPage(
-    rootSetupState: RootSetupState,
-    termuxSetupState: TermuxSetupState,
-    agentModeAuthorizationEnabled: Boolean,
-    agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
-    agentModeAuthorizationState: AgentModeAuthorizationState,
-    onRunRootSetup: () -> Unit,
-    onBack: () -> Unit,
-) {
-    val rootAgentModeReady = agentModeAuthorizationEnabled &&
-        agentModeAuthorizationMethod == AgentModeAuthorizationMethod.Root &&
-        agentModeAuthorizationState.isReady
-    val rootStepStatus = when {
-        rootSetupState.isReady || rootSetupState.rootAvailable -> RootSetupProgressStepStatus.Complete
-        rootSetupState.isRunning -> RootSetupProgressStepStatus.Active
-        rootSetupState.issue == RootSetupIssue.Unavailable -> RootSetupProgressStepStatus.Attention
-        else -> RootSetupProgressStepStatus.Pending
-    }
-    val termuxStepStatus = when {
-        rootSetupState.isReady || termuxSetupState.isReady -> RootSetupProgressStepStatus.Complete
-        rootSetupState.isRunning -> RootSetupProgressStepStatus.Active
-        rootSetupState.issue == RootSetupIssue.TermuxNotInstalled ||
-            rootSetupState.issue == RootSetupIssue.Failed -> RootSetupProgressStepStatus.Attention
-        else -> RootSetupProgressStepStatus.Pending
-    }
-    val agentModeStepStatus = when {
-        rootSetupState.isReady || rootAgentModeReady -> RootSetupProgressStepStatus.Complete
-        rootSetupState.isRunning && termuxStepStatus == RootSetupProgressStepStatus.Complete ->
-            RootSetupProgressStepStatus.Active
-        rootSetupState.isRunning -> RootSetupProgressStepStatus.Pending
-        rootSetupState.issue == RootSetupIssue.PermissionDenied ||
-            rootSetupState.issue == RootSetupIssue.Failed -> RootSetupProgressStepStatus.Attention
-        else -> RootSetupProgressStepStatus.Pending
-    }
-
-    SubPageScaffold(
-        title = stringResource(R.string.settings_root_automatic_setup),
-        onBack = onBack,
-    ) {
-        SettingsCardGroup {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(rootSetupProgressAccent(rootSetupState.issue).copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (rootSetupState.isRunning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(34.dp),
-                            strokeWidth = 3.dp,
-                            color = AetherPrimary,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = if (rootSetupState.isReady) Icons.Rounded.Check else Icons.Rounded.Terminal,
-                            contentDescription = null,
-                            tint = rootSetupProgressAccent(rootSetupState.issue),
-                            modifier = Modifier.size(34.dp),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = rootSetupProgressTitle(rootSetupState.issue),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = AetherOnSurface,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = rootSetupProgressBody(rootSetupState.issue),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AetherOnSurfaceVariant,
-                )
-                if (rootSetupState.detail.isNotBlank()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = rootSetupState.detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AetherOnSurfaceVariant,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        SettingsCardGroup {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                RootSetupProgressStep(
-                    title = stringResource(R.string.settings_root_setup_step_root_access),
-                    subtitle = stringResource(R.string.settings_root_setup_step_root_access_subtitle),
-                    status = rootStepStatus,
-                )
-                RootSetupProgressStep(
-                    title = stringResource(R.string.settings_root_setup_step_termux_access),
-                    subtitle = stringResource(R.string.settings_root_setup_step_termux_access_subtitle),
-                    status = termuxStepStatus,
-                )
-                RootSetupProgressStep(
-                    title = stringResource(R.string.settings_root_setup_step_agent_mode),
-                    subtitle = stringResource(R.string.settings_root_setup_step_agent_mode_subtitle),
-                    status = agentModeStepStatus,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        when {
-            rootSetupState.isRunning -> SettingsSubtleActionButton(
-                label = stringResource(R.string.action_back),
-                onClick = onBack,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            rootSetupState.isReady -> Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_run_again),
-                    onClick = onRunRootSetup,
-                    modifier = Modifier.weight(1f),
-                )
-                SettingsActionButton(
-                    label = stringResource(R.string.action_done),
-                    onClick = onBack,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            else -> Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.action_back),
-                    onClick = onBack,
-                    modifier = Modifier.weight(1f),
-                )
-                SettingsActionButton(
-                    label = stringResource(R.string.action_try_again),
-                    onClick = onRunRootSetup,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RootSetupProgressStep(
-    title: String,
-    subtitle: String,
-    status: RootSetupProgressStepStatus,
-) {
-    val (containerColor, contentColor) = when (status) {
-        RootSetupProgressStepStatus.Complete -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f) to AetherPrimary
-        RootSetupProgressStepStatus.Active -> AetherPrimary.copy(alpha = 0.16f) to AetherPrimary
-        RootSetupProgressStepStatus.Attention -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.64f) to MaterialTheme.colorScheme.error
-        RootSetupProgressStepStatus.Pending -> AetherSurface to AetherOnSurfaceVariant
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(AetherSurface)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(containerColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (status == RootSetupProgressStepStatus.Active) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = contentColor,
-                )
-            } else {
-                Icon(
-                    imageVector = when (status) {
-                        RootSetupProgressStepStatus.Complete -> Icons.Rounded.Check
-                        RootSetupProgressStepStatus.Attention -> Icons.Rounded.Info
-                        RootSetupProgressStepStatus.Pending,
-                        RootSetupProgressStepStatus.Active -> Icons.Rounded.Refresh
                     },
-                    contentDescription = null,
-                    tint = contentColor,
-                    modifier = Modifier.size(18.dp),
                 )
             }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = AetherOnSurface,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = AetherOnSurfaceVariant,
-            )
         }
     }
 }
 
 @Composable
-private fun rootSetupProgressAccent(issue: RootSetupIssue): Color = when (issue) {
-    RootSetupIssue.Ready -> AetherPrimary
-    RootSetupIssue.Running,
-    RootSetupIssue.Available -> AetherPrimary
-    RootSetupIssue.PermissionDenied,
-    RootSetupIssue.TermuxNotInstalled,
-    RootSetupIssue.Failed -> MaterialTheme.colorScheme.error
-    RootSetupIssue.Unknown,
-    RootSetupIssue.Unavailable -> AetherOnSurfaceVariant
-}
-
-@Composable
-private fun rootSetupProgressTitle(
-    issue: RootSetupIssue,
-): String = when (issue) {
-RootSetupIssue.Running -> stringResource(R.string.settings_root_setup_configuring)
-    RootSetupIssue.Ready -> stringResource(R.string.settings_root_setup_completed)
-    RootSetupIssue.Available -> stringResource(R.string.settings_root_setup_ready_to_start)
-    RootSetupIssue.Unavailable -> stringResource(R.string.settings_root_setup_root_unavailable)
-    RootSetupIssue.PermissionDenied -> stringResource(R.string.settings_root_setup_permission_denied)
-    RootSetupIssue.TermuxNotInstalled -> stringResource(R.string.settings_root_setup_termux_required)
-    RootSetupIssue.Failed -> stringResource(R.string.settings_root_setup_failed)
-    RootSetupIssue.Unknown -> stringResource(R.string.settings_root_setup_preparing)
-}
-
-@Composable
-private fun rootSetupProgressBody(
-    issue: RootSetupIssue,
-): String = when (issue) {
-RootSetupIssue.Running -> stringResource(R.string.settings_root_setup_progress_body_running)
-    RootSetupIssue.Ready -> stringResource(R.string.settings_root_setup_progress_body_ready)
-    RootSetupIssue.Available,
-    RootSetupIssue.Unknown -> stringResource(R.string.settings_root_setup_progress_body_available)
-    RootSetupIssue.Unavailable -> stringResource(R.string.settings_root_setup_progress_body_unavailable)
-    RootSetupIssue.PermissionDenied -> stringResource(R.string.settings_root_setup_progress_body_permission_denied)
-    RootSetupIssue.TermuxNotInstalled -> stringResource(R.string.settings_root_setup_progress_body_termux_not_installed)
-    RootSetupIssue.Failed -> stringResource(R.string.settings_root_setup_progress_body_failed)
-}
-@Composable
-private fun RootSetupSettingsSection(
-    title: String,
-    rootSetupState: RootSetupState,
-    body: String,
-    onConfigureWithRoot: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.labelLarge,
-                color = AetherOnSurface,
-            )
-            if (rootSetupState.isRunning) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = AetherPrimary,
-                )
-            }
-        }
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-        )
-        if (rootSetupState.detail.isNotBlank()) {
-            Text(
-                text = rootSetupState.detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = AetherOnSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        SettingsSubtleActionButton(
-            label = when (rootSetupState.issue) {
-                RootSetupIssue.Running -> stringResource(R.string.settings_configuring)
-                RootSetupIssue.Ready -> stringResource(R.string.settings_run_root_setup_again)
-                RootSetupIssue.Unavailable -> stringResource(R.string.settings_try_root_setup)
-                else -> stringResource(R.string.settings_configure_with_root)
-            },
-            onClick = onConfigureWithRoot,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !rootSetupState.isRunning,
-        )
-    }
-}
-
-@Composable
-private fun rootSetupSettingsBody(
-    rootSetupState: RootSetupState,
-): String = when (rootSetupState.issue) {
-    RootSetupIssue.Ready -> stringResource(R.string.settings_root_setup_body_ready)
-
-    RootSetupIssue.Available,
-    RootSetupIssue.Running -> stringResource(R.string.settings_root_setup_body_available)
-
-    RootSetupIssue.Unavailable,
-    RootSetupIssue.Unknown -> stringResource(R.string.settings_root_setup_body_unavailable)
-
-    RootSetupIssue.PermissionDenied,
-    RootSetupIssue.TermuxNotInstalled,
-    RootSetupIssue.Failed -> stringResource(R.string.settings_root_setup_body_failed)
-}
-
-@Composable
-private fun AgentModeAuthorizationNotice(
+private fun VirtualDisplayAuthorizationPage(
+    selectedMethod: AgentModeAuthorizationMethod,
     enabled: Boolean,
-    method: AgentModeAuthorizationMethod,
     state: AgentModeAuthorizationState,
-    onRequestShizukuPermission: () -> Unit,
+    isAuthorizing: Boolean,
+    onAuthorize: (AgentModeAuthorizationMethod) -> Unit,
+    onCancelAuthorization: () -> Unit,
     onOpenShizuku: () -> Unit,
     onInstallShizuku: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    val statusText = when {
-        enabled && method == AgentModeAuthorizationMethod.Root -> when (state.issue) {
-            AgentModeAuthorizationIssue.Ready -> stringResource(R.string.settings_root_authorization_ready)
-            AgentModeAuthorizationIssue.RootUnavailable -> stringResource(R.string.settings_root_authorization_no_su)
-            AgentModeAuthorizationIssue.RootPermissionMissing -> stringResource(R.string.settings_root_authorization_grant_su)
-            AgentModeAuthorizationIssue.RootPermissionDenied -> stringResource(R.string.settings_root_authorization_denied)
-            AgentModeAuthorizationIssue.Error -> state.detail.ifBlank {
-                stringResource(R.string.settings_root_authorization_inspect_failed)
-            }
-            else -> state.detail.ifBlank {
-                stringResource(R.string.settings_root_authorization_refresh_first)
-            }
-        }
-        !enabled -> stringResource(R.string.settings_agent_mode_authorization_off)
-        method == AgentModeAuthorizationMethod.Root -> stringResource(R.string.settings_agent_mode_root_requests_su)
-        else -> when (state.issue) {
-            AgentModeAuthorizationIssue.Ready -> stringResource(R.string.settings_shizuku_authorized)
-            AgentModeAuthorizationIssue.ShizukuNotInstalled -> stringResource(R.string.settings_shizuku_install_first)
-            AgentModeAuthorizationIssue.ShizukuNotRunning -> stringResource(R.string.settings_shizuku_start_first)
-            AgentModeAuthorizationIssue.ShizukuPermissionMissing -> stringResource(R.string.settings_shizuku_grant_permission)
-            AgentModeAuthorizationIssue.ShizukuPermissionDenied -> stringResource(R.string.settings_shizuku_permission_denied)
-            AgentModeAuthorizationIssue.Disabled -> stringResource(R.string.settings_shizuku_save_then_refresh)
-            AgentModeAuthorizationIssue.RootUnavailable,
-            AgentModeAuthorizationIssue.RootPermissionMissing,
-            AgentModeAuthorizationIssue.RootPermissionDenied -> state.detail.ifBlank {
-                stringResource(R.string.settings_switch_to_root_to_inspect)
-            }
-            AgentModeAuthorizationIssue.Error -> state.detail.ifBlank {
-                stringResource(R.string.settings_shizuku_inspect_failed)
-            }
-        }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = stringResource(R.string.settings_authorization_status),
-            style = MaterialTheme.typography.labelLarge,
-            color = AetherOnSurface,
-        )
-        Text(
-            text = if (state.issue == AgentModeAuthorizationIssue.Error && state.detail.isNotBlank()) {
-                state.detail
-            } else {
-                statusText
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = AetherOnSurfaceVariant,
-        )
-
-        when {
-            !enabled || method == AgentModeAuthorizationMethod.Root -> Unit
-
-            state.issue == AgentModeAuthorizationIssue.ShizukuNotInstalled -> {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_install_shizuku),
-                    onClick = onInstallShizuku,
-                    modifier = Modifier.fillMaxWidth(),
+    var method by rememberSaveable { mutableStateOf(
+        selectedMethod.takeIf { it != AgentModeAuthorizationMethod.Accessibility } ?: AgentModeAuthorizationMethod.Shizuku
+    ) }
+    var requested by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (enabled) onBack() }
+    SubPageScaffold(title = stringResource(R.string.settings_virtual_display), onBack = onBack) {
+        Text(stringResource(R.string.phone_use_virtual_grant), style = MaterialTheme.typography.bodyMedium,
+            color = AetherOnSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+        Spacer(Modifier.height(16.dp))
+        SettingsCardGroup {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf(AgentModeAuthorizationMethod.Root, AgentModeAuthorizationMethod.Shizuku).forEach { option ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                            .background(if (method == option) MaterialTheme.colorScheme.primaryContainer else AetherSettingsBackground)
+                            .clickable(enabled = !isAuthorizing) { onCancelAuthorization(); method = option; requested = false }
+                            .padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.foundation.Image(
+                            painter = painterResource(if (option == AgentModeAuthorizationMethod.Root) R.drawable.root_mark else R.drawable.shizuku_mark),
+                            contentDescription = null,
+                            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(7.dp),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Text(option.displayName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        if (method == option) Icon(Icons.Rounded.Check, contentDescription = null, tint = AetherPrimary)
+                    }
+                }
+                if (requested && !state.isReady && state.detail.isNotBlank()) {
+                    Text(state.detail, style = MaterialTheme.typography.bodySmall, color = AetherOnSurfaceVariant)
+                }
+                if (requested && method == AgentModeAuthorizationMethod.Shizuku) {
+                    when (state.issue) {
+                        AgentModeAuthorizationIssue.ShizukuNotInstalled -> SettingsSubtleActionButton(
+                            label = stringResource(R.string.settings_install_shizuku), onClick = onInstallShizuku,
+                            modifier = Modifier.fillMaxWidth())
+                        AgentModeAuthorizationIssue.ShizukuNotRunning -> SettingsSubtleActionButton(
+                            label = stringResource(R.string.settings_open_shizuku), onClick = onOpenShizuku,
+                            modifier = Modifier.fillMaxWidth())
+                        else -> Unit
+                    }
+                }
+                SettingsActionButton(
+                    label = stringResource(if (isAuthorizing) R.string.phone_use_authorizing else R.string.settings_grant_access),
+                    enabled = !isAuthorizing, modifier = Modifier.fillMaxWidth(),
+                    onClick = { requested = true; onAuthorize(method) },
                 )
             }
-
-            state.issue == AgentModeAuthorizationIssue.ShizukuNotRunning -> {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_open_shizuku),
-                    onClick = onOpenShizuku,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            state.issue == AgentModeAuthorizationIssue.ShizukuPermissionMissing ||
-                state.issue == AgentModeAuthorizationIssue.ShizukuPermissionDenied -> {
-                SettingsSubtleActionButton(
-                    label = stringResource(R.string.settings_grant_access),
-                    onClick = onRequestShizukuPermission,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            else -> Unit
         }
     }
 }

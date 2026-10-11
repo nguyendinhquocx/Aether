@@ -29,7 +29,7 @@ internal object AgentModeServiceProtocol {
 }
 
 /**
- * Entry point of the privileged Agent Mode process, run through `app_process` as shell (Shizuku)
+ * Entry point of the privileged Phone Use process, run through `app_process` as shell (Shizuku)
  * or root with Aether's APK on the class path.
  *
  * This replaces Shizuku's UserService starter, which builds the service's Application through
@@ -48,8 +48,8 @@ object AgentModeServiceStarter {
             start(args)
         } catch (throwable: Throwable) {
             val cause = (throwable as? InvocationTargetException)?.targetException ?: throwable
-            Log.e(Tag, "Agent Mode service failed to start", cause)
-            System.err.println("Agent Mode service failed to start: $cause")
+            Log.e(Tag, "Phone Use service failed to start", cause)
+            System.err.println("Phone Use service failed to start: $cause")
             cause.printStackTrace()
             exitProcess(1)
         }
@@ -82,7 +82,7 @@ object AgentModeServiceStarter {
                 }
             )
         systemContext.sendBroadcastAsUser(intent, user)
-        Log.i(Tag, "Agent Mode service started for $packageName in user $userId")
+        Log.i(Tag, "Phone Use service started for $packageName in user $userId")
         Looper.loop()
     }
 

@@ -92,7 +92,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.zhousl.aether.data.AgentModeAuthorizationMethod
+import com.zhousl.aether.phoneuse.PhoneUseAccessibilityService
 import com.zhousl.aether.data.AutomaticModelPurpose
 import com.zhousl.aether.data.LlmProviderConfig
 import com.zhousl.aether.data.PiProviderCatalog
@@ -102,8 +102,6 @@ import com.zhousl.aether.data.availableModelOptions
 import com.zhousl.aether.data.findModelOption
 import com.zhousl.aether.data.resolveAutomaticModelKey
 import com.zhousl.aether.data.sortedByPreferredModelName
-import com.zhousl.aether.data.RootSetupIssue
-import com.zhousl.aether.data.RootSetupState
 import com.zhousl.aether.runtime.LocalRuntimeIssue
 import com.zhousl.aether.runtime.LocalRuntimeSetupState
 import com.zhousl.aether.data.pi.PiCoreSetupPhase
@@ -145,7 +143,6 @@ private val InitialOnboardingSteps = listOf(
 private val FollowUpOnboardingSteps = listOf(
     OnboardingStep.LocalRuntimeChoice,
     OnboardingStep.TermuxSetup,
-    OnboardingStep.AgentModeAuthorization,
 )
 
 private val TourBackground: Color
@@ -189,8 +186,6 @@ fun OnboardingScreen(
     piCoreSetupState: PiCoreSetupState,
     termuxSetupState: TermuxSetupState,
     alpineSetupState: LocalRuntimeSetupState,
-    rootSetupState: RootSetupState,
-    agentModeAuthorizationMethod: AgentModeAuthorizationMethod,
     setupPreviewMode: Boolean = false,
     onFetchModels: (LlmProviderConfig, (List<String>) -> Unit) -> Unit,
     onStartProviderLogin: (String, String, ProviderAuthMethod, String) -> Unit,
@@ -208,9 +203,6 @@ fun OnboardingScreen(
     onInitializeAlpineRuntime: () -> Unit,
     onRetryAlpineSetup: () -> Unit,
     onRefreshAlpineSetup: () -> Unit,
-    onRefreshRootSetup: () -> Unit,
-    onConfigureWithRoot: () -> Unit,
-    onSaveAgentModeAuthorization: (Boolean, AgentModeAuthorizationMethod) -> Unit,
     onCompleteFollowUp: () -> Unit,
 ) {
 
@@ -229,16 +221,7 @@ fun OnboardingScreen(
     }
 
     fun indexOf(step: OnboardingStep): Int = steps.indexOf(step).coerceAtLeast(0)
-    fun continueAfterLocalAccessSetup() {
-        onCompleteFollowUp()
-    }
-    fun continueAfterTermuxStep() {
-        if (termuxSetupState.isReady || alpineSetupState.isReady) {
-            currentStep = OnboardingStep.AgentModeAuthorization
-        } else {
-            onCompleteFollowUp()
-        }
-    }
+    fun continueAfterTermuxStep() { onCompleteFollowUp() }
 
     AnimatedContent(
         targetState = currentStep,
@@ -337,32 +320,17 @@ fun OnboardingScreen(
                 stepIndex = stepIndex,
                 stepCount = steps.size,
                 setupState = termuxSetupState,
-                rootSetupState = rootSetupState,
                 onClose = onClose,
                 onBack = { currentStep = OnboardingStep.LocalRuntimeChoice },
                 onContinue = ::continueAfterTermuxStep,
-                onRootConfigured = ::continueAfterLocalAccessSetup,
                 onRequestPermission = onRequestTermuxPermission,
                 onOpenAppPermissions = onOpenAppPermissions,
                 onOpenTermuxSettings = onOpenTermuxSettings,
                 onOpenTermux = onOpenTermux,
                 onInstallTermux = onInstallTermux,
                 onRefresh = onRefreshTermuxSetup,
-                onRefreshRootSetup = onRefreshRootSetup,
-                onConfigureWithRoot = onConfigureWithRoot,
             )
 
-            OnboardingStep.AgentModeAuthorization -> AgentModeAuthorizationStep(
-                stepIndex = stepIndex,
-                stepCount = steps.size,
-                initialMethod = agentModeAuthorizationMethod,
-                onBack = { currentStep = OnboardingStep.TermuxSetup },
-                onClose = onClose,
-                onContinue = { enabled, method ->
-                    onSaveAgentModeAuthorization(enabled, method)
-                    onCompleteFollowUp()
-                },
-            )
 
         }
     }
@@ -1276,26 +1244,21 @@ private fun TermuxStep(
     stepIndex: Int,
     stepCount: Int,
     setupState: TermuxSetupState,
-    rootSetupState: RootSetupState,
     onClose: () -> Unit,
     onBack: () -> Unit,
     onContinue: () -> Unit,
-    onRootConfigured: () -> Unit,
     onRequestPermission: () -> Unit,
     onOpenAppPermissions: () -> Unit,
     onOpenTermuxSettings: () -> Unit,
     onOpenTermux: () -> Unit,
     onInstallTermux: () -> Unit,
     onRefresh: () -> Unit,
-    onRefreshRootSetup: () -> Unit,
-    onConfigureWithRoot: () -> Unit,
 ) {
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val setupCommandCopiedLabel = stringResource(R.string.onboarding_termux_setup_command_copied)
     var shouldAutoContinue by rememberSaveable(stepIndex) { mutableStateOf(!setupState.isReady) }
-    var showRootSetupPrompt by rememberSaveable(stepIndex) { mutableStateOf(true) }
     fun copyTermuxSetupCommand() {
         clipboardManager.setText(AnnotatedString(TermuxContract.ExternalAppsSetupCommand))
         Toast.makeText(
@@ -1309,17 +1272,8 @@ private fun TermuxStep(
         onOpenTermux()
     }
 
-    LaunchedEffect(stepIndex) {
-        onRefreshRootSetup()
-    }
-    LaunchedEffect(showRootSetupPrompt, rootSetupState.isReady) {
-        if (showRootSetupPrompt && rootSetupState.isReady) {
-            delay(820)
-            onRootConfigured()
-        }
-    }
-    LaunchedEffect(showRootSetupPrompt, setupState.isReady) {
-        if (!showRootSetupPrompt && shouldAutoContinue && setupState.isReady) {
+    LaunchedEffect(setupState.isReady) {
+        if (shouldAutoContinue && setupState.isReady) {
             shouldAutoContinue = false
             delay(820)
             onContinue()
@@ -1329,196 +1283,7 @@ private fun TermuxStep(
     ConversationStepPage(
         stepIndex = stepIndex,
         stepCount = stepCount,
-message = stringResource(R.string.onboarding_termux_message),
-        onBack = onBack,
-        topRightLabel = stringResource(R.string.common_close),
-        onTopRight = onClose,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            if (showRootSetupPrompt) {
-                RootSetupPrompt(
-                    rootSetupState = rootSetupState,
-                    onUseRoot = onConfigureWithRoot,
-                    onContinueManual = { showRootSetupPrompt = false },
-                    onRootConfigured = onRootConfigured,
-                    onInstallTermux = onInstallTermux,
-                )
-            } else {
-                StepLead(
-                    icon = Icons.Rounded.Terminal,
-                    accent = termuxStatusColor(setupState.issue),
-                    title = stringResource(R.string.settings_termux),
-                    body = termuxStatusSentence(setupState),
-                )
-                when (setupState.issue) {
-                    TermuxSetupIssue.Ready -> TourActionRow(
-                        primaryLabel = stringResource(R.string.common_continue),
-                        onPrimary = onContinue,
-                        secondaryLabel = stringResource(R.string.common_refresh),
-                        onSecondary = onRefresh,
-                    )
-
-                    TermuxSetupIssue.NotInstalled -> TourActionRow(
-                        primaryLabel = stringResource(R.string.common_install),
-                        onPrimary = onInstallTermux,
-                        secondaryLabel = stringResource(R.string.common_skip),
-                        onSecondary = onContinue,
-                    )
-
-                    TermuxSetupIssue.PermissionMissing -> {
-                        TourActionRow(
-                            primaryLabel = stringResource(R.string.common_grant_access),
-                            onPrimary = onRequestPermission,
-                            secondaryLabel = stringResource(R.string.common_skip),
-                            onSecondary = onContinue,
-                        )
-                        SecondaryTextAction(label = stringResource(R.string.onboarding_app_settings), onClick = onOpenAppPermissions)
-                    }
-
-                    TermuxSetupIssue.ExternalAppsDisabled -> {
-                        TourActionRow(
-                            primaryLabel = if (setupState.previouslyConfigured) stringResource(R.string.common_open) else stringResource(R.string.onboarding_copy_and_open_termux),
-                            onPrimary = if (setupState.previouslyConfigured) onOpenTermux else ::copyTermuxSetupCommandAndOpenTermux,
-                            secondaryLabel = stringResource(R.string.common_skip),
-                            onSecondary = onContinue,
-                        )
-                    }
-
-                    TermuxSetupIssue.DispatchFailed -> {
-                        TourActionRow(
-                            primaryLabel = if (setupState.previouslyConfigured) stringResource(R.string.common_open) else stringResource(R.string.common_open_termux),
-                            onPrimary = onOpenTermux,
-                            secondaryLabel = stringResource(R.string.common_skip),
-                            onSecondary = onContinue,
-                        )
-                        if (!setupState.previouslyConfigured) {
-                            SecondaryTextAction(label = stringResource(R.string.onboarding_copy_setup_command), onClick = ::copyTermuxSetupCommand)
-                            SecondaryTextAction(label = stringResource(R.string.onboarding_termux_settings), onClick = onOpenTermuxSettings)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RootSetupPrompt(
-    rootSetupState: RootSetupState,
-    onUseRoot: () -> Unit,
-    onContinueManual: () -> Unit,
-    onRootConfigured: () -> Unit,
-    onInstallTermux: () -> Unit,
-) {
-
-    StepLead(
-        icon = Icons.Rounded.VerifiedUser,
-        accent = when (rootSetupState.issue) {
-            RootSetupIssue.Ready -> TourGreen
-            RootSetupIssue.Available,
-            RootSetupIssue.Running -> TourBlue
-            RootSetupIssue.PermissionDenied,
-            RootSetupIssue.TermuxNotInstalled,
-            RootSetupIssue.Failed -> TourGold
-            RootSetupIssue.Unknown,
-            RootSetupIssue.Unavailable -> TourTextSecondary
-        },
-        title = stringResource(R.string.onboarding_root_shortcut),
-        body = rootSetupPromptBody(rootSetupState),
-    )
-
-    when (rootSetupState.issue) {
-        RootSetupIssue.Running -> {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(22.dp),
-                    strokeWidth = 2.dp,
-                    color = TourBlue,
-                )
-                Text(
-                    text = stringResource(R.string.onboarding_waiting_root_authorization),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TourTextSecondary,
-                )
-            }
-            SecondaryTextAction(
-                label = stringResource(R.string.onboarding_continue_manual_setup),
-                onClick = onContinueManual,
-            )
-        }
-
-        RootSetupIssue.Ready -> TourActionRow(
-            primaryLabel = stringResource(R.string.common_continue),
-            onPrimary = onRootConfigured,
-            secondaryLabel = stringResource(R.string.onboarding_manual_setup),
-            onSecondary = onContinueManual,
-        )
-
-        RootSetupIssue.TermuxNotInstalled -> TourActionRow(
-            primaryLabel = stringResource(R.string.common_install),
-            onPrimary = onInstallTermux,
-            secondaryLabel = stringResource(R.string.onboarding_continue_manual_setup),
-            onSecondary = onContinueManual,
-        )
-
-        RootSetupIssue.Available -> {
-            TourActionRow(
-                primaryLabel = stringResource(R.string.onboarding_use_root_setup),
-                onPrimary = onUseRoot,
-                secondaryLabel = stringResource(R.string.onboarding_continue_manual_setup),
-                onSecondary = onContinueManual,
-            )
-        }
-
-        RootSetupIssue.Unknown,
-        RootSetupIssue.Unavailable,
-        RootSetupIssue.PermissionDenied,
-        RootSetupIssue.Failed -> TourActionRow(
-            primaryLabel = stringResource(R.string.onboarding_use_root_setup),
-            onPrimary = onUseRoot,
-            secondaryLabel = stringResource(R.string.onboarding_continue_manual_setup),
-            onSecondary = onContinueManual,
-        )
-    }
-}
-
-@Composable
-private fun rootSetupPromptBody(rootSetupState: RootSetupState): String = when (rootSetupState.issue) {
-    RootSetupIssue.Unknown -> stringResource(R.string.onboarding_root_body_unknown)
-    RootSetupIssue.Available -> stringResource(R.string.onboarding_root_body_available)
-    RootSetupIssue.Running -> stringResource(R.string.onboarding_root_body_running)
-    RootSetupIssue.Ready -> stringResource(R.string.onboarding_root_body_ready)
-    RootSetupIssue.Unavailable -> stringResource(R.string.onboarding_root_body_unavailable)
-    RootSetupIssue.PermissionDenied -> rootSetupState.detail.ifBlank {
-        stringResource(R.string.onboarding_root_body_permission_denied)
-    }
-    RootSetupIssue.TermuxNotInstalled -> stringResource(R.string.onboarding_root_body_termux_not_installed)
-    RootSetupIssue.Failed -> rootSetupState.detail.ifBlank {
-        stringResource(R.string.onboarding_root_body_failed)
-    }
-}
-
-@Composable
-private fun AgentModeAuthorizationStep(
-    stepIndex: Int,
-    stepCount: Int,
-    initialMethod: AgentModeAuthorizationMethod,
-    onBack: () -> Unit,
-    onClose: () -> Unit,
-    onContinue: (Boolean, AgentModeAuthorizationMethod) -> Unit,
-) {
-
-    ConversationStepPage(
-        stepIndex = stepIndex,
-        stepCount = stepCount,
-        message = stringResource(R.string.onboarding_agent_mode_message),
+        message = stringResource(R.string.onboarding_termux_message),
         onBack = onBack,
         topRightLabel = stringResource(R.string.common_close),
         onTopRight = onClose,
@@ -1528,33 +1293,57 @@ private fun AgentModeAuthorizationStep(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             StepLead(
-                icon = Icons.Rounded.SmartToy,
-                accent = TourGreen,
-                title = stringResource(R.string.settings_agent_mode),
-                body = stringResource(R.string.onboarding_agent_mode_choose_method),
+                icon = Icons.Rounded.Terminal,
+                accent = termuxStatusColor(setupState.issue),
+                title = stringResource(R.string.settings_termux),
+                body = termuxStatusSentence(setupState),
             )
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                AgentModeStageButton(
-                    label = "Shizuku",
-                    subtitle = stringResource(R.string.onboarding_agent_mode_shizuku_subtitle),
-                    drawableRes = R.drawable.shizuku_mark,
-                    onClick = { onContinue(true, AgentModeAuthorizationMethod.Shizuku) },
+            when (setupState.issue) {
+                TermuxSetupIssue.Ready -> TourActionRow(
+                    primaryLabel = stringResource(R.string.common_continue),
+                    onPrimary = onContinue,
+                    secondaryLabel = stringResource(R.string.common_refresh),
+                    onSecondary = onRefresh,
                 )
-                AgentModeStageButton(
-                    label = "Root",
-                    subtitle = stringResource(R.string.onboarding_agent_mode_root_subtitle),
-                    drawableRes = R.drawable.root_mark,
-                    onClick = { onContinue(true, AgentModeAuthorizationMethod.Root) },
+
+                TermuxSetupIssue.NotInstalled -> TourActionRow(
+                    primaryLabel = stringResource(R.string.common_install),
+                    onPrimary = onInstallTermux,
+                    secondaryLabel = stringResource(R.string.common_skip),
+                    onSecondary = onContinue,
                 )
-                AgentModeStageButton(
-                    label = stringResource(R.string.common_skip),
-                    subtitle = stringResource(R.string.onboarding_agent_mode_skip_subtitle),
-                    drawableRes = R.drawable.skip_mark,
-                    onClick = { onContinue(false, initialMethod) },
-                )
+
+                TermuxSetupIssue.PermissionMissing -> {
+                    TourActionRow(
+                        primaryLabel = stringResource(R.string.common_grant_access),
+                        onPrimary = onRequestPermission,
+                        secondaryLabel = stringResource(R.string.common_skip),
+                        onSecondary = onContinue,
+                    )
+                    SecondaryTextAction(label = stringResource(R.string.onboarding_app_settings), onClick = onOpenAppPermissions)
+                }
+
+                TermuxSetupIssue.ExternalAppsDisabled -> {
+                    TourActionRow(
+                        primaryLabel = if (setupState.previouslyConfigured) stringResource(R.string.common_open) else stringResource(R.string.onboarding_copy_and_open_termux),
+                        onPrimary = if (setupState.previouslyConfigured) onOpenTermux else ::copyTermuxSetupCommandAndOpenTermux,
+                        secondaryLabel = stringResource(R.string.common_skip),
+                        onSecondary = onContinue,
+                    )
+                }
+
+                TermuxSetupIssue.DispatchFailed -> {
+                    TourActionRow(
+                        primaryLabel = if (setupState.previouslyConfigured) stringResource(R.string.common_open) else stringResource(R.string.common_open_termux),
+                        onPrimary = onOpenTermux,
+                        secondaryLabel = stringResource(R.string.common_skip),
+                        onSecondary = onContinue,
+                    )
+                    if (!setupState.previouslyConfigured) {
+                        SecondaryTextAction(label = stringResource(R.string.onboarding_copy_setup_command), onClick = ::copyTermuxSetupCommand)
+                        SecondaryTextAction(label = stringResource(R.string.onboarding_termux_settings), onClick = onOpenTermuxSettings)
+                    }
+                }
             }
         }
     }
@@ -1769,52 +1558,6 @@ private fun BrandMarkBadge(
             contentDescription = null,
             modifier = Modifier.size(imageSize),
         )
-    }
-}
-
-@Composable
-private fun AgentModeStageButton(
-    label: String,
-    subtitle: String,
-    @DrawableRes drawableRes: Int,
-    onClick: () -> Unit,
-) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(86.dp),
-        shape = RoundedCornerShape(26.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = TourSurface,
-            contentColor = TourTextPrimary,
-        ),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            BrandMarkBadge(drawableRes = drawableRes)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                horizontalAlignment = Alignment.Start,
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TourTextPrimary,
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TourTextSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
     }
 }
 

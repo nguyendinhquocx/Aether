@@ -11,6 +11,8 @@ import com.zhousl.aether.data.pi.PiAgentRunner
 import com.zhousl.aether.data.pi.PiCompletionClient
 import com.zhousl.aether.data.pi.PiKernelBridge
 import com.zhousl.aether.termux.TermuxBashTool
+import com.zhousl.aether.phoneuse.PhoneUseAccessibilityService
+import com.zhousl.aether.phoneuse.foregroundPhoneUseOverlay
 import com.zhousl.aether.ui.AttachmentKind
 import com.zhousl.aether.ui.AssistantResponseBlock
 import com.zhousl.aether.ui.ChatAttachment
@@ -94,6 +96,9 @@ data class PendingSessionInput(
 data class SessionExecutionState(
     val sessionId: String,
     val isRunning: Boolean = false,
+    val phoneUseEnabled: Boolean = false,
+    // Retain public commentary across tool calls, status changes and Steer checkpoints.
+    val phoneUseCommentary: AssistantResponseBlock.Text? = null,
     val pendingToolInvocations: List<ChatToolInvocation> = emptyList(),
     val pendingResponseBlocks: List<AssistantResponseBlock> = emptyList(),
     val pendingAssistantText: String = "",
@@ -103,6 +108,14 @@ data class SessionExecutionState(
     val activeResponseGroupId: String? = null,
     val activeTurnStartedAtMillis: Long? = null,
 )
+
+/** Switching to the app being controlled must not suspend the Phone Use agent itself. */
+internal fun needsForegroundExecutionService(
+    settings: AppSettings,
+    executionStates: Map<String, SessionExecutionState>,
+): Boolean = executionStates.values.any {
+    it.isRunning && (settings.keepTasksRunningInBackground || it.phoneUseEnabled)
+}
 
 data class ShowcaseReplayState(val playing: Boolean = false, val paused: Boolean = false, val speed: Float = 1f)
 
@@ -116,6 +129,8 @@ data class SessionTurnRequest(
     val agentModeEnabled: Boolean,
     val chromeEnabled: Boolean,
     val providerConfigs: List<LlmProviderConfig> = emptyList(),
+    val forkPiSession: Boolean = false,
+    val piBranchMessageId: String? = null,
 )
 
 data class SessionTurnEvent(
@@ -154,6 +169,7 @@ private data class ProviderRequestCheckpoint(
     val pendingToolInvocations: List<ChatToolInvocation>,
     val pendingResponseBlocks: List<AssistantResponseBlock>,
     val pendingAssistantText: String,
+    val phoneUseCommentary: AssistantResponseBlock.Text?,
     val activeReasoningBlockId: String?,
     val activeDirectReasoningSummaryChunkId: String?,
     val reasoningFirstSummarySubmitted: Boolean,
@@ -251,9 +267,9 @@ class SessionExecutionManager(
         scope.launch {
             settingsRepository.settings.collect { settings ->
                 currentSettings.value = settings
+                updatePhoneUseOverlay(settings, _executionStates.value)
                 if (
-                    settings.keepTasksRunningInBackground &&
-                    _executionStates.value.values.any { it.isRunning }
+                    needsForegroundExecutionService(settings, _executionStates.value)
                 ) {
                     ensureForegroundServiceRunning()
                 }
@@ -309,6 +325,8 @@ class SessionExecutionManager(
             it.copy(
                 sessionId = request.sessionId,
                 isRunning = true,
+                phoneUseEnabled = request.agentModeEnabled,
+                phoneUseCommentary = null,
                 pendingToolInvocations = emptyList(),
                 pendingResponseBlocks = emptyList(),
                 pendingAssistantText = "",
@@ -567,6 +585,7 @@ class SessionExecutionManager(
         updateExecutionState(handle.sessionId) { current ->
             current.copy(
                 activeResponseGroupId = responseIdentity.responseGroupId,
+                phoneUseEnabled = request.agentModeEnabled,
                 pendingToolInvocations = emptyList(),
                 pendingResponseBlocks = emptyList(),
                 pendingAssistantText = "",
@@ -701,6 +720,15 @@ class SessionExecutionManager(
                 isReasoningModel = isReasoningModel,
                 modelsDevThinkingLevels = modelsDevThinkingLevels,
                 modelsDevLimits = modelsDevLimits,
+                sessionBranch = if (request.forkPiSession) {
+                    com.zhousl.aether.data.pi.PiSessionBranch(
+                        request.piBranchMessageId?.let { messageId ->
+                            chatRepository.getAgentMessageEntryIds(handle.sessionId, messageId).lastOrNull()
+                        },
+                    )
+                } else {
+                    null
+                },
                 onToolEvent = emitToolEvent,
                 onToolProgress = emitToolEvent,
                 onAssistantReasoningDelta = { delta ->
@@ -743,6 +771,7 @@ class SessionExecutionManager(
                             pendingStatusDetail = "",
                             pendingAssistantText = pendingTrailingAssistantText(pendingResponseBlocks),
                             pendingResponseBlocks = pendingResponseBlocks,
+                            phoneUseCommentary = pendingResponseBlocks.filterIsInstance<AssistantResponseBlock.Text>().lastOrNull(),
                         )
                     }
                 },
@@ -772,6 +801,7 @@ class SessionExecutionManager(
                                     pendingToolInvocations = checkpoint.pendingToolInvocations,
                                     pendingResponseBlocks = checkpoint.pendingResponseBlocks,
                                     pendingAssistantText = checkpoint.pendingAssistantText,
+                                    phoneUseCommentary = checkpoint.phoneUseCommentary,
                                 )
                             }
                         }
@@ -1694,13 +1724,34 @@ class SessionExecutionManager(
                 put(sessionId, transform(current))
             }
         }
+        updatePhoneUseOverlay(currentSettings.value, _executionStates.value)
         requestAssistantCheckpoint(sessionId)
         if (
-            currentSettings.value.keepTasksRunningInBackground &&
-            _executionStates.value.values.any { it.isRunning }
+            needsForegroundExecutionService(currentSettings.value, _executionStates.value)
         ) {
             ensureForegroundServiceRunning()
         }
+    }
+
+    private fun updatePhoneUseOverlay(
+        settings: AppSettings,
+        states: Map<String, SessionExecutionState>,
+    ) {
+        PhoneUseAccessibilityService.updateForegroundOverlay(foregroundPhoneUseOverlay(settings, states.values))
+    }
+
+    /** Same non-cancelling queue as the conversation composer, guarded against a stale overlay. */
+    internal fun steerFromPhoneUse(sessionId: String, runId: Long, text: String): Boolean {
+        val state = _executionStates.value[sessionId] ?: return false
+        if (!state.isRunning || !state.phoneUseEnabled || state.activeTurnStartedAtMillis != runId) return false
+        val content = text.trim().takeIf { it.isNotEmpty() } ?: return false
+        val now = System.currentTimeMillis()
+        return submitFollowUp(sessionId, ChatMessage(
+            id = "user-$now-${UUID.randomUUID()}",
+            author = MessageAuthor.User,
+            text = content,
+            createdAtMillis = now,
+        ), SessionFollowUpMode.Steer)
     }
 
     private fun requestAssistantCheckpoint(sessionId: String) {
@@ -1788,7 +1839,7 @@ class SessionExecutionManager(
 
     private fun validateRequest(request: SessionTurnRequest): String? = when {
         request.agentModeEnabled && !request.settings.agentModeAuthorizationEnabled ->
-                "Agent Mode is selected, but authorization is disabled. Enable it in Settings > Agent Mode first."
+                "Phone Use is selected, but authorization is disabled. Enable it in Settings > Phone Use first."
 
         request.chromeEnabled &&
             request.settings.alpinePackageProfiles["chrome"]?.installed != true ->
@@ -2032,11 +2083,11 @@ class SessionExecutionManager(
             }
 
             "aether_agent_mode_manage" -> when (arguments?.optString("action").orEmpty().lowercase()) {
-                "set_authorization" -> if (invocation.isRunning) "Updating Agent Mode authorization" else "Updated Agent Mode authorization"
+                "set_authorization" -> if (invocation.isRunning) "Updating Phone Use authorization" else "Updated Phone Use authorization"
                 "request_shizuku_permission" -> if (invocation.isRunning) "Requesting Shizuku permission" else "Requested Shizuku permission"
-                "stop_display" -> if (invocation.isRunning) "Stopping Agent Mode display" else "Stopped Agent Mode display"
-                "refresh_displays" -> if (invocation.isRunning) "Refreshing Agent Mode displays" else "Refreshed Agent Mode displays"
-                else -> if (invocation.isRunning) "Checking Agent Mode authorization" else "Checked Agent Mode authorization"
+                "stop_display" -> if (invocation.isRunning) "Stopping Phone Use display" else "Stopped Phone Use display"
+                "refresh_displays" -> if (invocation.isRunning) "Refreshing Phone Use displays" else "Refreshed Phone Use displays"
+                else -> if (invocation.isRunning) "Checking Phone Use authorization" else "Checked Phone Use authorization"
             }
 
             "aether_developer_manage" -> if (invocation.isRunning) "Reading Aether diagnostics" else "Read Aether diagnostics"
@@ -3034,6 +3085,7 @@ class SessionExecutionManager(
                     pendingToolInvocations = state.pendingToolInvocations,
                     pendingResponseBlocks = state.pendingResponseBlocks,
                     pendingAssistantText = state.pendingAssistantText,
+                    phoneUseCommentary = state.phoneUseCommentary,
                     activeReasoningBlockId = activeReasoningBlockId,
                     activeDirectReasoningSummaryChunkId = activeDirectReasoningSummaryChunkId,
                     reasoningFirstSummarySubmitted = reasoningFirstSummarySubmitted,

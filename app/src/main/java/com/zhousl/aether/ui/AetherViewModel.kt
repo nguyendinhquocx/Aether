@@ -16,6 +16,13 @@ import com.zhousl.aether.data.AetherModOperationDecision
 import com.zhousl.aether.data.AetherModServiceMethod
 import com.zhousl.aether.data.AppUpdateManager
 import com.zhousl.aether.data.AutomaticModelPurpose
+import com.zhousl.aether.phoneuse.PhoneUseAccessibilityService
+import com.zhousl.aether.data.PhoneUsePermissionRequestPolicy
+import com.zhousl.aether.data.phoneUseSelectionAfterMenuClick
+import com.zhousl.aether.data.PhoneUseInputStrategy
+import com.zhousl.aether.data.PhoneUseOutputStrategy
+import com.zhousl.aether.data.phoneUseAuthorizationMethod
+import com.zhousl.aether.data.AgentModeDisplayOrientation
 import com.zhousl.aether.data.AgentModeAuthorizationMethod
 import com.zhousl.aether.data.AgentWorkspaceMode
 import com.zhousl.aether.data.AlpineEnvironmentVariable
@@ -212,15 +219,18 @@ class AetherViewModel(
     fun pauseShowcase() = sessionExecutionManager.toggleShowcasePause(_uiState.value.currentSessionId)
     fun setShowcaseSpeed(speed: Float) = sessionExecutionManager.setShowcaseSpeed(_uiState.value.currentSessionId, speed)
 
+    private var pendingVirtualDisplayMethod: AgentModeAuthorizationMethod? = null
+    private val phoneUsePermissionPolicy = PhoneUsePermissionRequestPolicy()
+
     init {
         registerCoreModServices()
         if (!com.zhousl.aether.BuildConfig.SHOWCASE_MODE) {
             refreshTermuxSetup()
-            refreshRootSetup()
             refreshImportedPiExtensions()
         }
 
         viewModelScope.launch {
+            settingsRepository.initializePhoneUseIfNeeded()
             settingsRepository.initializeLanguageIfNeeded()
             settingsRepository.settings.collect { settings ->
                 if (settings.privacyPolicyAccepted) {
@@ -400,6 +410,19 @@ class AetherViewModel(
             }
         }
         viewModelScope.launch {
+            PhoneUseAccessibilityService.connected.collect { connected ->
+                if (connected) dismissPhoneUsePermissionDialog()
+                agentModeController.refreshAuthorization(_uiState.value.settings)
+            }
+        }
+        viewModelScope.launch {
+            agentModeController.virtualDisplayAuthorizationState.collect { state ->
+                _uiState.update { it.copy(virtualDisplayAuthorizationState = state) }
+                completeVirtualDisplayAuthorizationIfReady()
+
+            }
+        }
+        viewModelScope.launch {
             agentModeController.authorizationState.collect { authorizationState ->
                 _uiState.update { current -> current.copy(agentModeAuthorizationState = authorizationState) }
             }
@@ -536,78 +559,6 @@ class AetherViewModel(
         }
     }
 
-    fun configureLocalAccessWithRoot() {
-        val currentRootState = _uiState.value.rootSetupState
-        if (currentRootState.isRunning) return
-        trackTermuxSetupStarted(source = "root_setup")
-        trackPermissionRequested(
-            permission = "root_su",
-            source = "root_setup",
-        )
-        _uiState.update { current ->
-            current.copy(
-                rootSetupState = RootSetupState(
-                    issue = RootSetupIssue.Running,
-                    detail = "Root access is available. Preparing Termux command access and Root Agent Mode...",
-                    rootAvailable = currentRootState.rootAvailable,
-                    suPath = currentRootState.suPath,
-                    lastUpdatedMillis = System.currentTimeMillis(),
-                )
-            )
-        }
-        viewModelScope.launch {
-            val rootState = rootSetupController.configureLocalAccess()
-            trackPermissionResult(
-                permission = "root_su",
-                granted = rootState.isReady,
-                source = "root_setup",
-                result = rootState.issue.name.lowercase(),
-            )
-            if (rootState.isReady) {
-                val settings = _uiState.value.settings
-                val updatedSettings = settings.withRuntimeEnabled(LocalRuntimeId.Termux).copy(
-                    agentModeAuthorizationEnabled = true,
-                    agentModeAuthorizationMethod = AgentModeAuthorizationMethod.Root,
-                    termuxSetupCompleted = true,
-                )
-                settingsRepository.markRootSetupComplete()
-                agentModeController.refreshAuthorization(updatedSettings)
-            }
-            val inspectedSetupState = withContext(Dispatchers.IO) { bashTool.inspectSetup() }
-            val setupState = rememberTermuxSetupCompleted(inspectedSetupState)
-            trackTermuxSetupState(setupState, source = "root_setup")
-            _uiState.update { current ->
-                current.copy(
-                    rootSetupState = rootState,
-                    termuxSetupState = setupState,
-                )
-            }
-            emitTransientMessage(
-                if (rootState.isReady) {
-                    uiString(R.string.message_root_setup_completed)
-                } else {
-                    uiString(R.string.message_root_setup_failed, rootState.detail.ifBlank { rootState.issue.name })
-                }
-            )
-        }
-    }
-
-    fun startRootSetupFromSettings(returnPage: RootSetupProgressReturnPage) {
-        _uiState.update { current ->
-            current.copy(
-                currentScreen = AppScreen.Settings,
-                rootSetupProgressReturnPage = returnPage,
-            )
-        }
-        configureLocalAccessWithRoot()
-    }
-
-    fun dismissRootSetupProgress() {
-        _uiState.update { current ->
-            current.copy(rootSetupProgressReturnPage = null)
-        }
-    }
-
     private suspend fun inspectTermuxSetupWithRootRepair(): TermuxSetupState {
         syncTermuxSettings()
         val setupState = bashTool.inspectSetup()
@@ -646,7 +597,7 @@ class AetherViewModel(
             snapshot.rootSetupState.isReady ||
                 (
                     snapshot.settings.agentModeAuthorizationEnabled &&
-                        snapshot.settings.agentModeAuthorizationMethod == AgentModeAuthorizationMethod.Root
+                        snapshot.settings.phoneUseAuthorizationMethod == AgentModeAuthorizationMethod.Root
                     ),
         )
         bashTool.setEnvironmentVariables(snapshot.settings.termuxEnvironmentVariables)
@@ -1583,14 +1534,6 @@ class AetherViewModel(
         }
     }
 
-    fun saveOnboardingAgentModeAuthorization(
-        enabled: Boolean,
-        method: AgentModeAuthorizationMethod,
-    ) {
-        viewModelScope.launch {
-            settingsRepository.updateAgentModeAuthorization(enabled, method)
-        }
-    }
 
     fun appendDraftAttachments(uris: List<Uri>) {
         if (uris.isEmpty()) return
@@ -1671,7 +1614,6 @@ class AetherViewModel(
         _uiState.update {
             it.copy(
                 currentScreen = AppScreen.Chat,
-                rootSetupProgressReturnPage = null,
             )
         }
     }
@@ -2326,6 +2268,8 @@ class AetherViewModel(
                     fallbackModelKey = resolveDefaultChatModelKey(snapshot.settings, snapshot.providerConfigs),
                 ),
                 requestMessages = updatedSession.messages,
+                forkPiSession = true,
+                piBranchMessageId = piBranchMessageId,
                 selectedSkillIds = updatedSession.selectedSkillIds,
                 activeSkills = updatedSession.activeSkills,
                 activeMcpServerIds = updatedSession.activeMcpServerIds,
@@ -2354,58 +2298,7 @@ class AetherViewModel(
                 moveToFront = true,
             )
         }
-        viewModelScope.launch {
-            navigatePiBranch(
-                sessionId = sessionId,
-                aetherMessageId = piBranchMessageId,
-                settings = turnRequest.settings,
-                resetWhenMissing = true,
-            )
-            sessionExecutionManager.startTurn(turnRequest)
-        }
-    }
-
-    private suspend fun navigatePiBranch(
-        sessionId: String,
-        aetherMessageId: String?,
-        settings: AppSettings,
-        resetWhenMissing: Boolean = false,
-    ) {
-        val workspaceDirectory = workspaceFileBridge.workspaceDirectory(
-            sessionId = sessionId,
-            mode = settings.agentWorkspaceMode,
-        )
-        val alpineWorkspaceDirectory = runtime.runtimeRouter.alpineWorkspaceDirectory()
-        val metadata = runtime.chatRepository.getAgentSessionMetadata(sessionId)
-        val entryId = aetherMessageId?.let { messageId ->
-            runtime.chatRepository.getAgentMessageEntryIds(sessionId, messageId).lastOrNull()
-        }
-        runCatching {
-            piKernelBridge.navigateSession(
-                sessionId = sessionId,
-                entryId = entryId.orEmpty(),
-                reset = entryId == null && resetWhenMissing,
-                sessionPayload = JSONObject().apply {
-                    put("session_file", metadata?.jsonlPath.orEmpty())
-                    put("workspace_directory", alpineWorkspaceDirectory)
-                    put("termux_workspace_directory", workspaceDirectory)
-                    put("runtime", metadata?.runtime ?: settings.defaultRuntimeId?.storageValue.orEmpty())
-                    put("platform", "android")
-                    put("workspace_trusted", true)
-                    put("model_config", settings.toCatalogPiModelConfig().toJson())
-                    put("system_prompt", "")
-                    put("host_tools", JSONArray())
-                },
-            )
-        }.onFailure { throwable ->
-            diagnosticLogger.exception(
-                category = "pi_bridge",
-                event = "navigate_session_branch_failed",
-                throwable = throwable,
-                level = "warn",
-                sessionId = sessionId,
-            )
-        }
+        sessionExecutionManager.startTurn(turnRequest)
     }
 
     fun switchUserMessageBranch(
@@ -2493,10 +2386,80 @@ class AetherViewModel(
         }
     }
 
+
+    private fun requestPhoneUsePermissionIfNeeded(force: Boolean = false) {
+        val settings = _uiState.value.settings
+        if (!settings.agentModeAuthorizationEnabled || PhoneUseAccessibilityService.isEnabled(getApplication())) {
+            _uiState.update { it.copy(showPhoneUsePermissionDialog = false) }
+            return
+        }
+        if (phoneUsePermissionPolicy.shouldRequest(settings.agentModeAuthorizationEnabled,
+                granted = false, manuallyEnabled = force)) {
+            _uiState.update { it.copy(showPhoneUsePermissionDialog = true) }
+        }
+    }
+
+    fun dismissPhoneUsePermissionDialog() {
+        _uiState.update { it.copy(showPhoneUsePermissionDialog = false) }
+    }
+
+    fun savePhoneUseOptions(input: PhoneUseInputStrategy, output: PhoneUseOutputStrategy, allowSwitch: Boolean) {
+        _uiState.update { it.copy(settings = it.settings.copy(
+            phoneUseInputStrategy = input, phoneUseOutputStrategy = output, phoneUseAllowStrategySwitch = allowSwitch,
+        )) }
+        viewModelScope.launch { settingsRepository.updatePhoneUseOptions(input, output, allowSwitch) }
+    }
+
+    fun cancelVirtualDisplayAuthorization() {
+        pendingVirtualDisplayMethod = null
+        agentModeController.cancelVirtualDisplayAuthorization()
+    }
+
+    private suspend fun completeVirtualDisplayAuthorizationIfReady() {
+        val method = pendingVirtualDisplayMethod ?: return
+        val authorization = agentModeController.virtualDisplayAuthorizationState.value
+        if (!authorization.isReady || authorization.method != method) return
+        pendingVirtualDisplayMethod = null
+        _uiState.update { it.copy(settings = it.settings.copy(
+            phoneUseVirtualDisplayEnabled = true, agentModeAuthorizationMethod = method,
+        )) }
+        settingsRepository.updateVirtualDisplay(true, method)
+    }
+
+    fun saveAgentModeDisplayOrientation(orientation: AgentModeDisplayOrientation) {
+        if (_uiState.value.settings.agentModeDisplayOrientation == orientation) return
+        if (_uiState.value.settings.phoneUseVirtualDisplayEnabled) agentModeController.stopDisplay()
+        _uiState.update { it.copy(settings = it.settings.copy(agentModeDisplayOrientation = orientation)) }
+        viewModelScope.launch { settingsRepository.updateAgentModeDisplayOrientation(orientation) }
+    }
+
+    fun disableVirtualDisplay() {
+        cancelVirtualDisplayAuthorization()
+        agentModeController.stopDisplay()
+        _uiState.update { it.copy(settings = it.settings.copy(phoneUseVirtualDisplayEnabled = false)) }
+        viewModelScope.launch {
+            settingsRepository.updateVirtualDisplay(false, _uiState.value.settings.agentModeAuthorizationMethod)
+        }
+    }
+
+    fun authorizeVirtualDisplay(method: AgentModeAuthorizationMethod) {
+        if (_uiState.value.isAuthorizingVirtualDisplay) return
+        pendingVirtualDisplayMethod = method
+        _uiState.update { it.copy(isAuthorizingVirtualDisplay = true) }
+        viewModelScope.launch {
+            try {
+                agentModeController.authorizeVirtualDisplay(method)
+                completeVirtualDisplayAuthorizationIfReady()
+            }
+            finally { _uiState.update { it.copy(isAuthorizingVirtualDisplay = false) } }
+        }
+    }
+
     fun saveAgentModeAuthorization(
         enabled: Boolean,
         method: AgentModeAuthorizationMethod,
     ) {
+        val wasEnabled = _uiState.value.settings.agentModeAuthorizationEnabled
         _uiState.update { current ->
             current.copy(
                 settings = current.settings.copy(
@@ -2505,6 +2468,7 @@ class AetherViewModel(
                 ),
             )
         }
+        requestPhoneUsePermissionIfNeeded(force = enabled && !wasEnabled)
         viewModelScope.launch {
             settingsRepository.updateAgentModeAuthorization(enabled, method)
         }
@@ -3267,13 +3231,29 @@ class AetherViewModel(
     }
 
 
+    fun toggleComposerAgentModeSelected() {
+        val current = _uiState.value
+        val selected = current.sessions.firstOrNull { it.id == current.currentSessionId }?.agentModeEnabled
+            ?: current.draftAgentModeEnabled
+        setComposerAgentModeSelected(phoneUseSelectionAfterMenuClick(
+            selected = selected,
+            enabled = current.settings.agentModeAuthorizationEnabled,
+            granted = PhoneUseAccessibilityService.isEnabled(getApplication()),
+        ))
+    }
+
     fun setComposerAgentModeSelected(selected: Boolean) {
         var didUpdate = false
         var persistedSelected = false
         var sessionIdForPersistence: String? = null
+        val shouldRequestAccessibility = selected &&
+            _uiState.value.settings.agentModeAuthorizationEnabled &&
+            !PhoneUseAccessibilityService.isEnabled(getApplication())
+        // Access belongs to the explicit menu action, independent of session persistence or cancellation.
+        if (shouldRequestAccessibility) requestPhoneUsePermissionIfNeeded(force = true)
         _uiState.update { current ->
             val resolvedSelected = selected &&
-                current.isAgentModeReady()
+                (current.isAgentModeReady() || shouldRequestAccessibility)
             persistedSelected = resolvedSelected
             if (current.currentSessionId == DraftSessionId) {
                 if (current.draftAgentModeEnabled == resolvedSelected) {
@@ -3306,7 +3286,7 @@ class AetherViewModel(
         if (didUpdate && persistedSessionId != null) {
             persistSessionMutation(persistedSessionId) { session ->
                 val resolvedSelected = selected &&
-                    _uiState.value.isAgentModeReady()
+                    (_uiState.value.isAgentModeReady() || shouldRequestAccessibility)
                 if (session.agentModeEnabled == resolvedSelected) {
                     null
                 } else {
@@ -4222,6 +4202,8 @@ class AetherViewModel(
                     fallbackModelKey = resolveDefaultChatModelKey(current.settings, current.providerConfigs),
                 ),
                 requestMessages = requestMessages,
+                forkPiSession = isEditingExistingMessage,
+                piBranchMessageId = editedMessagePredecessorId,
                 selectedSkillIds = requestSelectedSkillIds,
                 activeSkills = requestActiveSkills,
                 activeMcpServerIds = requestActiveMcpServerIds,
@@ -4269,19 +4251,7 @@ class AetherViewModel(
                 settings = turnRequest.settings,
             )
         }
-        if (isEditingExistingMessage) {
-            viewModelScope.launch {
-                navigatePiBranch(
-                    sessionId = targetSessionId,
-                    aetherMessageId = editedMessagePredecessorId,
-                    settings = turnRequest.settings,
-                    resetWhenMissing = true,
-                )
-                sessionExecutionManager.startTurn(turnRequest)
-            }
-        } else {
-            sessionExecutionManager.startTurn(turnRequest)
-        }
+        sessionExecutionManager.startTurn(turnRequest)
         if ("message_sent" in aetherAppExtensionManager.state.value.snapshot.eventNames) {
             aetherAppExtensionManager.emitEvent(
                 event = "message_sent",
@@ -6046,6 +6016,11 @@ class AetherViewModel(
         )
         put("autoCleanOldCommandHistory", autoCleanOldCommandHistory)
         put("oldCommandHistoryRetentionHours", oldCommandHistoryRetentionHours)
+        put("phoneUseInputStrategy", phoneUseInputStrategy.storageValue)
+        put("phoneUseOutputStrategy", phoneUseOutputStrategy.storageValue)
+        put("phoneUseAllowStrategySwitch", phoneUseAllowStrategySwitch)
+        put("phoneUseVirtualDisplayEnabled", phoneUseVirtualDisplayEnabled)
+        put("agentModeDisplayOrientation", agentModeDisplayOrientation.storageValue)
         put("agentModeAuthorizationEnabled", agentModeAuthorizationEnabled)
         put("agentModeAuthorizationMethod", agentModeAuthorizationMethod.storageValue)
         put("language", language.storageValue)
@@ -6144,6 +6119,11 @@ class AetherViewModel(
             alpineEnvironmentVariables = parseImportedAlpineEnvironmentVariables(
                 json.optJSONArray("alpineEnvironmentVariables")
             ),
+            phoneUseInputStrategy = PhoneUseInputStrategy.fromStorage(json.optString("phoneUseInputStrategy")),
+            phoneUseOutputStrategy = PhoneUseOutputStrategy.fromStorage(json.optString("phoneUseOutputStrategy")),
+            phoneUseAllowStrategySwitch = json.optBoolean("phoneUseAllowStrategySwitch", true),
+            phoneUseVirtualDisplayEnabled = json.optBoolean("phoneUseVirtualDisplayEnabled", false),
+            agentModeDisplayOrientation = AgentModeDisplayOrientation.fromStorage(json.optString("agentModeDisplayOrientation")),
             agentModeAuthorizationEnabled = json.optBoolean(
                 "agentModeAuthorizationEnabled",
                 defaults.agentModeAuthorizationEnabled,
@@ -6342,7 +6322,7 @@ private fun AetherUiState.isLocalRuntimeReadyForAgentMode(): Boolean =
             rootSetupState.isReady ||
             (
                 settings.agentModeAuthorizationEnabled &&
-                    settings.agentModeAuthorizationMethod == AgentModeAuthorizationMethod.Root &&
+                    settings.phoneUseAuthorizationMethod == AgentModeAuthorizationMethod.Root &&
                     agentModeAuthorizationState.isReady
                 )
         )

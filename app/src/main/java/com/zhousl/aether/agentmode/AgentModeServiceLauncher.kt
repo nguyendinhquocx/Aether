@@ -24,7 +24,7 @@ import rikka.shizuku.Shizuku
 private const val ProcessPollIntervalMillis = 200L
 private const val MaxErrorOutputChars = 4_000
 
-/** A running Agent Mode service process and the binder it published. */
+/** A running Phone Use service process and the binder it published. */
 internal class AgentModeServiceHandle(
     val service: IAetherAgentModeService,
     private val process: Process,
@@ -62,7 +62,7 @@ internal object AgentModeServiceLauncher {
                 val service = IAetherAgentModeService.Stub.asInterface(binder)
                 if (service == null) {
                     received.completeExceptionally(
-                        IllegalStateException("Agent Mode service returned an invalid binder.")
+                        IllegalStateException("Phone Use service returned an invalid binder.")
                     )
                 } else {
                     received.complete(service)
@@ -96,7 +96,7 @@ internal object AgentModeServiceLauncher {
                         delay(ProcessPollIntervalMillis)
                         if (received.isCompleted) break
                         error(
-                            "Agent Mode service process exited with code " +
+                            "Phone Use service process exited with code " +
                                 "${runCatching { started.exitValue() }.getOrDefault(-1)}." +
                                 describeOutput()
                         )
@@ -111,7 +111,7 @@ internal object AgentModeServiceLauncher {
             runCatching { process?.destroy() }
             if (throwable is TimeoutCancellationException) {
                 throw IllegalStateException(
-                    "Timed out starting Agent Mode service after $timeoutMillis ms." + describeOutput(),
+                    "Timed out starting Phone Use service after $timeoutMillis ms." + describeOutput(),
                     throwable,
                 )
             }

@@ -69,6 +69,40 @@ class SettingsRepository(
         }
     }
 
+    suspend fun initializePhoneUseIfNeeded() {
+        context.dataStore.edit { preferences ->
+            if (preferences[PHONE_USE_DEFAULTS_INITIALIZED] != true) {
+                // Old Agent Mode opt-in does not express a choice about foreground Phone Use.
+                preferences[AGENT_MODE_AUTHORIZATION_ENABLED] = true
+                preferences[PHONE_USE_VIRTUAL_DISPLAY_ENABLED] = false
+                preferences[PHONE_USE_DEFAULTS_INITIALIZED] = true
+            }
+        }
+    }
+
+    suspend fun updatePhoneUseOptions(
+        input: PhoneUseInputStrategy,
+        output: PhoneUseOutputStrategy,
+        allowSwitch: Boolean,
+    ) {
+        context.dataStore.edit {
+            it[PHONE_USE_INPUT_STRATEGY] = input.storageValue
+            it[PHONE_USE_OUTPUT_STRATEGY] = output.storageValue
+            it[PHONE_USE_ALLOW_STRATEGY_SWITCH] = allowSwitch
+        }
+    }
+
+    suspend fun updateAgentModeDisplayOrientation(orientation: AgentModeDisplayOrientation) {
+        context.dataStore.edit { it[AGENT_MODE_DISPLAY_ORIENTATION] = orientation.storageValue }
+    }
+
+    suspend fun updateVirtualDisplay(enabled: Boolean, method: AgentModeAuthorizationMethod) {
+        context.dataStore.edit {
+            it[PHONE_USE_VIRTUAL_DISPLAY_ENABLED] = enabled
+            it[AGENT_MODE_AUTHORIZATION_METHOD] = method.storageValue
+        }
+    }
+
     suspend fun repairBuiltInSkillSelectionDefaults() {
         context.dataStore.edit { preferences ->
             if (preferences[BUILT_IN_SKILL_SELECTION_REPAIRED] == true) return@edit
@@ -149,7 +183,12 @@ class SettingsRepository(
             alpineEnvironmentVariables = parseAlpineEnvironmentVariables(
                 preferences[ALPINE_ENVIRONMENT_VARIABLES].orEmpty()
             ),
-            agentModeAuthorizationEnabled = preferences[AGENT_MODE_AUTHORIZATION_ENABLED] ?: false,
+            phoneUseInputStrategy = PhoneUseInputStrategy.fromStorage(preferences[PHONE_USE_INPUT_STRATEGY]),
+            phoneUseOutputStrategy = PhoneUseOutputStrategy.fromStorage(preferences[PHONE_USE_OUTPUT_STRATEGY]),
+            phoneUseAllowStrategySwitch = preferences[PHONE_USE_ALLOW_STRATEGY_SWITCH] ?: true,
+            phoneUseVirtualDisplayEnabled = preferences[PHONE_USE_VIRTUAL_DISPLAY_ENABLED] ?: false,
+            agentModeDisplayOrientation = AgentModeDisplayOrientation.fromStorage(preferences[AGENT_MODE_DISPLAY_ORIENTATION]),
+            agentModeAuthorizationEnabled = preferences[AGENT_MODE_AUTHORIZATION_ENABLED] ?: true,
             agentModeAuthorizationMethod = AgentModeAuthorizationMethod.fromStorage(
                 preferences[AGENT_MODE_AUTHORIZATION_METHOD],
                 defaultValue = defaultAgentModeAuthorizationMethod(context),
@@ -451,6 +490,12 @@ class SettingsRepository(
             it[ALPINE_PACKAGE_PROFILES] = serializePackageProfileStates(settings.alpinePackageProfiles)
             it[ALPINE_ENVIRONMENT_VARIABLES] =
                 serializeAlpineEnvironmentVariables(settings.alpineEnvironmentVariables)
+            it[PHONE_USE_DEFAULTS_INITIALIZED] = true
+            it[PHONE_USE_INPUT_STRATEGY] = settings.phoneUseInputStrategy.storageValue
+            it[PHONE_USE_OUTPUT_STRATEGY] = settings.phoneUseOutputStrategy.storageValue
+            it[PHONE_USE_ALLOW_STRATEGY_SWITCH] = settings.phoneUseAllowStrategySwitch
+            it[PHONE_USE_VIRTUAL_DISPLAY_ENABLED] = settings.phoneUseVirtualDisplayEnabled
+            it[AGENT_MODE_DISPLAY_ORIENTATION] = settings.agentModeDisplayOrientation.storageValue
             it[AGENT_MODE_AUTHORIZATION_ENABLED] = settings.agentModeAuthorizationEnabled
             it[AGENT_MODE_AUTHORIZATION_METHOD] = settings.agentModeAuthorizationMethod.storageValue
             it[LANGUAGE] = settings.language.storageValue
@@ -523,6 +568,7 @@ class SettingsRepository(
         method: AgentModeAuthorizationMethod,
     ) {
         context.dataStore.edit {
+            it[PHONE_USE_DEFAULTS_INITIALIZED] = true
             it[AGENT_MODE_AUTHORIZATION_ENABLED] = enabled
             it[AGENT_MODE_AUTHORIZATION_METHOD] = method.storageValue
         }
@@ -539,24 +585,6 @@ class SettingsRepository(
             it[DEFAULT_TITLE_MODEL_KEY] = title
             it[DEFAULT_NAMING_MODEL_KEY] = naming
             it[DEFAULT_COMPACTING_MODEL_KEY] = compacting
-        }
-    }
-
-    suspend fun markRootSetupComplete() {
-        context.dataStore.edit { preferences ->
-            val enabledRuntimes = resolveEnabledRuntimeIds(
-                rawValue = preferences[ENABLED_RUNTIME_IDS],
-                termuxSetupCompleted = true,
-                alpineSetupCompleted = preferences[ALPINE_SETUP_COMPLETED] ?: false,
-            ) + LocalRuntimeId.Termux
-            preferences[TERMUX_SETUP_COMPLETED] = true
-            preferences[ENABLED_RUNTIME_IDS] = serializeRuntimeIds(enabledRuntimes)
-            if (preferences[DEFAULT_RUNTIME_ID] == null) {
-                preferences[DEFAULT_RUNTIME_ID] = LocalRuntimeId.Termux.storageValue
-            }
-            preferences[AGENT_MODE_AUTHORIZATION_ENABLED] = true
-            preferences[AGENT_MODE_AUTHORIZATION_METHOD] =
-                AgentModeAuthorizationMethod.Root.storageValue
         }
     }
 
@@ -677,6 +705,12 @@ class SettingsRepository(
             stringPreferencesKey("alpine_package_profiles")
         val ALPINE_ENVIRONMENT_VARIABLES =
             stringPreferencesKey("alpine_environment_variables")
+        val PHONE_USE_DEFAULTS_INITIALIZED = booleanPreferencesKey("phone_use_defaults_initialized")
+        val PHONE_USE_INPUT_STRATEGY = stringPreferencesKey("phone_use_input_strategy")
+        val PHONE_USE_OUTPUT_STRATEGY = stringPreferencesKey("phone_use_output_strategy")
+        val PHONE_USE_ALLOW_STRATEGY_SWITCH = booleanPreferencesKey("phone_use_allow_strategy_switch")
+        val AGENT_MODE_DISPLAY_ORIENTATION = stringPreferencesKey("agent_mode_display_orientation")
+        val PHONE_USE_VIRTUAL_DISPLAY_ENABLED = booleanPreferencesKey("phone_use_virtual_display_enabled")
         val AGENT_MODE_AUTHORIZATION_ENABLED =
             booleanPreferencesKey("agent_mode_authorization_enabled")
         val AGENT_MODE_AUTHORIZATION_METHOD =
@@ -987,12 +1021,7 @@ private val ShizukuManagerPackages = listOf(
 
 private fun defaultAgentModeAuthorizationMethod(
     context: Context,
-): AgentModeAuthorizationMethod =
-    if (isAnyPackageInstalled(context, ShizukuManagerPackages)) {
-        AgentModeAuthorizationMethod.Shizuku
-    } else {
-        AgentModeAuthorizationMethod.Root
-    }
+): AgentModeAuthorizationMethod = AgentModeAuthorizationMethod.Accessibility
 
 private fun isAnyPackageInstalled(
     context: Context,

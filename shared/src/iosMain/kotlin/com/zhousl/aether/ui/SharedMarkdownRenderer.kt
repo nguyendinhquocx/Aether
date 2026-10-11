@@ -180,6 +180,7 @@ internal fun SharedMarkdownTextContent(
                 )
                 is SharedMarkdownTextBlock.CodeFence -> Box(
                     modifier = Modifier.fillMaxWidth()
+                        .streamingBlockReveal(block.code.sourceOffset)
                         .background(AetherSurfaceHigh, RoundedCornerShape(18.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                 ) {
@@ -204,7 +205,7 @@ private fun SharedMarkdownBullets(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items.forEach { item ->
             Row(modifier = Modifier.fillMaxWidth()) {
-                Text("\u2022", style = MaterialTheme.typography.bodyLarge, color = AetherOnSurface)
+                Text("\u2022", style = MaterialTheme.typography.bodyLarge, color = AetherOnSurface, modifier = Modifier.streamingBlockReveal(item.sourceOffset))
                 Spacer(Modifier.width(10.dp))
                 SharedMarkdownRichTextBlock(
                     text = item,
@@ -229,7 +230,7 @@ private fun SharedMarkdownNumbers(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items.forEachIndexed { index, item ->
             Row(modifier = Modifier.fillMaxWidth()) {
-                Text("${index + 1}.", style = MaterialTheme.typography.bodyLarge, color = AetherOnSurface)
+                Text("${index + 1}.", style = MaterialTheme.typography.bodyLarge, color = AetherOnSurface, modifier = Modifier.streamingBlockReveal(item.sourceOffset))
                 Spacer(Modifier.width(10.dp))
                 SharedMarkdownRichTextBlock(
                     text = item,
@@ -381,35 +382,25 @@ private fun SharedMarkdownRichTextBlock(
             text = text.text,
             variant = variant,
             onOpenLink = onOpenLink,
-            modifier = modifier,
+            modifier = modifier.streamingBlockReveal(text.sourceOffset),
         )
         return
     }
-    val annotated = sharedInlineMarkdown(text, fadeSpan)
+    val annotated = remember(text, fadeSpan) { sharedInlineMarkdown(text, fadeSpan) }
     val hasLinks = annotated.getStringAnnotations(
         tag = SharedMarkdownLinkAnnotationTag,
         start = 0,
         end = annotated.length,
     ).isNotEmpty()
-    if (!hasLinks) {
-        Text(
-            annotated,
-            style = style.copy(textDirection = TextDirection.Content),
-            color = color,
-            modifier = modifier,
-        )
-    } else {
-        @Suppress("DEPRECATION")
-        ClickableText(
-            text = annotated,
-            style = style.copy(color = color, textDirection = TextDirection.Content),
-            modifier = modifier,
-            onClick = { offset ->
-                annotated.getStringAnnotations(SharedMarkdownLinkAnnotationTag, offset, offset)
-                    .firstOrNull()?.let { onOpenLink(it.item) }
-            },
-        )
-    }
+    RevealingMarkdownText(
+        text = annotated,
+        style = style.copy(color = color, textDirection = TextDirection.Content),
+        modifier = modifier,
+        onClick = if (!hasLinks) null else { offset ->
+            annotated.getStringAnnotations(SharedMarkdownLinkAnnotationTag, offset, offset)
+                .firstOrNull()?.let { onOpenLink(it.item) }
+        },
+    )
 }
 
 @Composable
@@ -801,14 +792,14 @@ private fun AnnotatedString.Builder.appendSharedSourceSegment(
 ) {
     if (text.isEmpty()) return
     if (fadeSpan == null || fadeSpan.sourceRange.isEmpty()) {
-        append(text)
+        appendStreamingSource(text, sourceOffset)
         return
     }
     val segmentEnd = sourceOffset + text.length
     val fadeStart = fadeSpan.sourceRange.first.coerceAtLeast(sourceOffset)
     val fadeEnd = (fadeSpan.sourceRange.last + 1).coerceAtMost(segmentEnd)
     if (fadeEnd <= fadeStart) {
-        append(text)
+        appendStreamingSource(text, sourceOffset)
         return
     }
     val localStart = fadeStart - sourceOffset

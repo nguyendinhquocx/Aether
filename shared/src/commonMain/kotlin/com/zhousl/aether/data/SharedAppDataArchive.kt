@@ -347,6 +347,11 @@ private fun AppSettings.toAndroidAppSettingsJson(): JsonObject = buildJsonObject
     })
     put("autoCleanOldCommandHistory", autoCleanOldCommandHistory)
     put("oldCommandHistoryRetentionHours", oldCommandHistoryRetentionHours)
+    put("phoneUseInputStrategy", phoneUseInputStrategy.storageValue)
+    put("phoneUseOutputStrategy", phoneUseOutputStrategy.storageValue)
+    put("phoneUseAllowStrategySwitch", phoneUseAllowStrategySwitch)
+    put("phoneUseVirtualDisplayEnabled", phoneUseVirtualDisplayEnabled)
+    put("agentModeDisplayOrientation", agentModeDisplayOrientation.storageValue)
     put("agentModeAuthorizationEnabled", agentModeAuthorizationEnabled)
     put("agentModeAuthorizationMethod", agentModeAuthorizationMethod.storageValue)
     put("language", language.storageValue)
@@ -442,6 +447,11 @@ private fun parseAndroidAppSettings(value: JsonObject): AppSettings {
         alpineEnvironmentVariables = parseImportedAlpineEnvironmentVariables(
             value["alpineEnvironmentVariables"] as? JsonArray,
         ),
+        phoneUseInputStrategy = PhoneUseInputStrategy.fromStorage(value.stringValue("phoneUseInputStrategy")),
+        phoneUseOutputStrategy = PhoneUseOutputStrategy.fromStorage(value.stringValue("phoneUseOutputStrategy")),
+        phoneUseAllowStrategySwitch = value.booleanValueOrDefault("phoneUseAllowStrategySwitch", true),
+        phoneUseVirtualDisplayEnabled = value.booleanValueOrDefault("phoneUseVirtualDisplayEnabled", false),
+        agentModeDisplayOrientation = AgentModeDisplayOrientation.fromStorage(value.stringValue("agentModeDisplayOrientation")),
         agentModeAuthorizationEnabled = value.booleanValueOrDefault(
             "agentModeAuthorizationEnabled",
             defaults.agentModeAuthorizationEnabled,

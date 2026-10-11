@@ -20,6 +20,10 @@ enum class AgentModeAuthorizationMethod(
     val storageValue: String,
     val displayName: String,
 ) {
+    Accessibility(
+        storageValue = "accessibility",
+        displayName = "Phone Use",
+    ),
     Root(
         storageValue = "root",
         displayName = "Root",
@@ -32,9 +36,41 @@ enum class AgentModeAuthorizationMethod(
     companion object {
         fun fromStorage(
             value: String?,
-            defaultValue: AgentModeAuthorizationMethod = Shizuku,
+            defaultValue: AgentModeAuthorizationMethod = Accessibility,
         ): AgentModeAuthorizationMethod =
             entries.firstOrNull { it.storageValue == value } ?: defaultValue
+    }
+}
+
+/** Android Phone Use virtual-display geometry; Device preserves the existing physical size. */
+@Serializable
+enum class AgentModeDisplayOrientation(val storageValue: String) {
+    Device("device"),
+    Portrait("portrait"),
+    Landscape("landscape");
+
+    companion object {
+        fun fromStorage(value: String?): AgentModeDisplayOrientation =
+            entries.firstOrNull { it.storageValue == value } ?: Device
+    }
+}
+
+
+@Serializable
+enum class PhoneUseInputStrategy(val storageValue: String) {
+    ElementTreeFirst("element_tree_first"), ScreenshotFirst("screenshot_first");
+    companion object {
+        fun fromStorage(value: String?): PhoneUseInputStrategy =
+            entries.firstOrNull { it.storageValue == value } ?: ElementTreeFirst
+    }
+}
+
+@Serializable
+enum class PhoneUseOutputStrategy(val storageValue: String) {
+    ElementFirst("element_first"), GestureFirst("gesture_first");
+    companion object {
+        fun fromStorage(value: String?): PhoneUseOutputStrategy =
+            entries.firstOrNull { it.storageValue == value } ?: ElementFirst
     }
 }
 
@@ -54,6 +90,10 @@ enum class AppLanguage(
     Persian(
         storageValue = "fa",
         languageTag = "fa",
+    ),
+    Russian(
+        storageValue = "ru",
+        languageTag = "ru",
     );
 
     companion object {
@@ -162,8 +202,13 @@ data class AppSettings(
     val alpineSetupCompleted: Boolean = false,
     val alpinePackageProfiles: Map<String, PackageProfileState> = emptyMap(),
     val alpineEnvironmentVariables: List<AlpineEnvironmentVariable> = emptyList(),
-    val agentModeAuthorizationEnabled: Boolean = false,
-    val agentModeAuthorizationMethod: AgentModeAuthorizationMethod = AgentModeAuthorizationMethod.Shizuku,
+    val agentModeAuthorizationEnabled: Boolean = true,
+    val agentModeAuthorizationMethod: AgentModeAuthorizationMethod = AgentModeAuthorizationMethod.Accessibility,
+    val phoneUseInputStrategy: PhoneUseInputStrategy = PhoneUseInputStrategy.ElementTreeFirst,
+    val phoneUseOutputStrategy: PhoneUseOutputStrategy = PhoneUseOutputStrategy.ElementFirst,
+    val phoneUseAllowStrategySwitch: Boolean = true,
+    val phoneUseVirtualDisplayEnabled: Boolean = false,
+    val agentModeDisplayOrientation: AgentModeDisplayOrientation = AgentModeDisplayOrientation.Device,
     val language: AppLanguage = defaultAppLanguage(),
     val themeMode: AppThemeMode = AppThemeMode.System,
     val defaultChatModelKey: String = "",
@@ -176,6 +221,10 @@ data class AppSettings(
     val privacyPolicyAccepted: Boolean = false,
     val lastUpdateCheckAtMillis: Long = 0L,
 )
+
+/** Root/Shizuku is only used when the user enables Virtual Display. */
+val AppSettings.phoneUseAuthorizationMethod: AgentModeAuthorizationMethod
+    get() = if (phoneUseVirtualDisplayEnabled) agentModeAuthorizationMethod else AgentModeAuthorizationMethod.Accessibility
 
 @Serializable
 data class LlmCustomHeader(
@@ -236,6 +285,7 @@ fun defaultAppLanguage(): AppLanguage {
 fun appLanguageForTag(languageTag: String): AppLanguage = when {
     languageTag.startsWith("zh", ignoreCase = true) -> AppLanguage.SimplifiedChinese
     languageTag.startsWith("fa", ignoreCase = true) -> AppLanguage.Persian
+    languageTag.startsWith("ru", ignoreCase = true) -> AppLanguage.Russian
     else -> AppLanguage.English
 }
 

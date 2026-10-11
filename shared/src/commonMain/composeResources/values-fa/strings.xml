@@ -167,7 +167,7 @@
     <string name="chat_first_prompt_ready_subtitle">برای آزمایش اتر روی ارسال ضربه بزنید.</string>
     <string name="chat_editing_earlier_message_title">در حال ویرایش پیام قبلی</string>
     <string name="chat_editing_earlier_message_subtitle">ارسال جایگزین پاسخ هایی می شود که بعد از آن آمده است.</string>
-    <string name="chat_agent_mode_virtual_display">نمایش مجازی Agent Mode</string>
+    <string name="chat_agent_mode_virtual_display">Virtual Display</string>
     <string name="chat_agent_mode_preview_pending">پیش نمایش نمایش مجازی پس از شروع نمایندگی ظاهر می شود.</string>
     <string name="chat_live">زندگی کنید</string>
     <string name="chat_standby">آماده به کار</string>
@@ -191,9 +191,11 @@
     <string name="language_english" translatable="false">English</string>
     <string name="language_simplified_chinese" translatable="false">简体中文</string>
     <string name="language_persian" translatable="false">فارسی</string>
+    <string name="language_russian" translatable="false">Русский</string>
     <string name="settings_language_english_interface">رابط انگلیسی</string>
     <string name="settings_language_simplified_chinese_interface">رابط چینی ساده شده</string>
     <string name="settings_language_persian_interface">رابط فارسی</string>
+    <string name="settings_language_russian_interface">رابط روسی</string>
     <string name="settings_theme">موضوع</string>
     <string name="settings_theme_description">ظاهر برنامه را انتخاب کنید.</string>
     <string name="theme_system">سیستم</string>
@@ -233,22 +235,22 @@
     <string name="settings_reliability">قابلیت اطمینان</string>
     <string name="settings_agent_skills">مهارت های عامل</string>
     <string name="settings_termux">ترموکس</string>
-    <string name="settings_agent_mode">حالت عامل</string>
+    <string name="settings_agent_mode">Phone Use</string>
     <string name="settings_statistics">آمار</string>
     <string name="settings_statistics_empty">هنوز استفاده ای ثبت نشده است. برای مشاهده آمار یک پاسخ مدل را تکمیل کنید.</string>
     <string name="settings_statistics_summary">%1$s نشانه · %2$d نوبت</string>
     <string name="settings_agent_mode_unavailable">حالت عامل در دسترس نیست</string>
     <string name="settings_agent_mode_already_configured">حالت عامل قبلاً پیکربندی شده است</string>
-    <string name="settings_agent_mode_description">ابزارهای نمایش مجازی مجزا را با Shizuku یا Root مجاز کنید. بدون هیچ کدام از گزینه‌ها، از این روی دستگاه‌ها رد شوید.</string>
+    <string name="settings_agent_mode_description">Phone Use controls apps on the foreground screen through Android Accessibility. The Agent reads elements first and requests screenshots only when needed.</string>
     <string name="settings_agent_mode_authorization">مجوز حالت عامل</string>
-    <string name="settings_agent_mode_authorization_subtitle">ابزارهای نمایش مجازی ایزوله را فعال می کند. به Shizuku یا Root نیاز دارد.</string>
+    <string name="settings_agent_mode_authorization_subtitle">Read and operate on-screen elements through Accessibility. No Root or Shizuku required.</string>
     <string name="settings_authorization_method">روش مجوز</string>
-    <string name="settings_agent_mode_method_shizuku_subtitle">از یک سرویس شیزوکو بالا استفاده می کند.</string>
-    <string name="settings_agent_mode_method_root_subtitle">از پوسته ریشه برای ورودی ممتاز استفاده می کند.</string>
-    <string name="settings_agent_mode_method_description">حالت Shizuku نمایشگر را از سرویس کاربر Shizuku ایجاد می کند تا برنامه ها بتوانند از صفحه اصلی نمایش داده شوند. حالت ریشه آزمایشی باقی می ماند.</string>
+    <string name="settings_agent_mode_method_shizuku_subtitle">Create a background Virtual Display with granted Shizuku access; operate it through Accessibility.</string>
+    <string name="settings_agent_mode_method_root_subtitle">Create a background Virtual Display with granted Root access; operate it through Accessibility.</string>
+    <string name="settings_agent_mode_method_description">Virtual Display runs apps in the background with the same Accessibility controls and a live preview card. Requires granted Root or Shizuku access and Android 11 or later.</string>
     <string name="settings_virtual_display">نمایش مجازی</string>
     <string name="settings_agent_mode_display_active">نمایش %1$s در %2$d x %3$d فعال است.</string>
-    <string name="settings_agent_mode_no_virtual_display">هیچ نمایش مجازی Agent Mode فعال نیست.</string>
+    <string name="settings_agent_mode_no_virtual_display">هیچ نمایش مجازی Phone Use فعال نیست.</string>
     <string name="settings_visible_displays">نمایشگرهای قابل مشاهده</string>
     <string name="settings_no_visible_displays">در حال حاضر هیچ نمایشگری برای Aether قابل مشاهده نیست.</string>
     <string name="settings_unnamed_display">بی نام</string>
@@ -266,21 +268,21 @@
     <string name="settings_shizuku_start_first">Shizuku را شروع کنید، سپس این وضعیت را بازخوانی کنید.</string>
     <string name="settings_shizuku_grant_permission">قبل از استفاده از حالت عامل، مجوز Aether را در Shizuku اعطا کنید.</string>
     <string name="settings_shizuku_permission_denied">اجازه Shizuku رد شد. دوباره آن را درخواست کنید یا Aether را در Shizuku فعال کنید.</string>
-    <string name="settings_shizuku_save_then_refresh">تنظیمات Agent Mode را ذخیره کنید، سپس وضعیت Shizuku را بازخوانی کنید.</string>
+    <string name="settings_shizuku_save_then_refresh">تنظیمات Phone Use را ذخیره کنید، سپس وضعیت Shizuku را بازخوانی کنید.</string>
     <string name="settings_switch_to_root_to_inspect">برای بررسی وضعیت Root به حالت Root بروید.</string>
     <string name="settings_shizuku_inspect_failed">بررسی وضعیت Shizuku ممکن نیست.</string>
     <string name="settings_authorization_status">وضعیت مجوز</string>
     <string name="settings_install_shizuku">Shizuku را نصب کنید</string>
     <string name="settings_open_shizuku">Shizuku را باز کنید</string>
     <string name="settings_grant_access">اجازه دسترسی</string>
-    <string name="settings_agent_mode_requires_runtime_toast">تنظیمات Termux یا Alpine را قبل از پیکربندی Agent Mode تکمیل کنید.</string>
+    <string name="settings_agent_mode_requires_runtime_toast">تنظیمات Termux یا Alpine را قبل از پیکربندی Phone Use تکمیل کنید.</string>
     <string name="settings_requires_runtime_setup">به تنظیمات Termux یا Alpine نیاز دارد</string>
     <string name="settings_root_setup_step_root_access">دسترسی ریشه</string>
     <string name="settings_root_setup_step_root_access_subtitle">su را شناسایی کنید و منتظر مجوز باشید.</string>
     <string name="settings_root_setup_step_termux_access">دسترسی به فرمان Termux</string>
     <string name="settings_root_setup_step_termux_access_subtitle">برنامه های خارجی را فعال کنید و اجازه فرمان بدهید.</string>
-    <string name="settings_root_setup_step_agent_mode">حالت عامل ریشه</string>
-    <string name="settings_root_setup_step_agent_mode_subtitle">مجوز ریشه را برای کنترل دستگاه محلی انتخاب کنید.</string>
+    <string name="settings_root_setup_step_agent_mode">Virtual Display (Root)</string>
+    <string name="settings_root_setup_step_agent_mode_subtitle">Prepare Root access for background Virtual Display. Accessibility must be enabled separately.</string>
     <string name="settings_root_setup_completed">راه اندازی ریشه تکمیل شد</string>
     <string name="settings_root_setup_ready_to_start">آماده برای شروع</string>
     <string name="settings_root_setup_root_unavailable">ریشه در دسترس نیست</string>
@@ -330,7 +332,7 @@
     <string name="settings_treat_termux_as_ready">با Termux به عنوان آماده رفتار کنید</string>
     <string name="settings_termux_ready_toggle_subtitle">روشن = آماده خاموش = آماده نیست</string>
     <string name="settings_replay_follow_up_tour">پخش مجدد تور پیگیری</string>
-    <string name="settings_replay_follow_up_tour_description">از انتخاب مسیر شروع می‌شود، سپس تنظیمات محلی و مجوز Agent Mode را طی می‌کند.</string>
+    <string name="settings_replay_follow_up_tour_description">از انتخاب مسیر شروع می‌شود، سپس تنظیمات محلی و مجوز Phone Use را طی می‌کند.</string>
     <string name="settings_replay_second_part">پخش مجدد قسمت دوم</string>
     <string name="settings_update_downloading_percent">در حال دانلود %1$d%%</string>
     <string name="settings_update_downloading">در حال دانلود به روز رسانی</string>
@@ -345,8 +347,8 @@
     <string name="settings_github">گیت هاب</string>
     <string name="settings_privacy_policy">سیاست حفظ حریم خصوصی</string>
     <string name="settings_download_and_install">دانلود و نصب کنید</string>
-    <string name="settings_root_setup_progress_body_running">اتر در حال درخواست su است، دسترسی به فرمان Termux را فعال می کند و حالت عامل ریشه را آماده می کند.</string>
-    <string name="settings_root_setup_progress_body_ready">دسترسی به فرمان Termux و مجوز حالت عامل ریشه آماده است.</string>
+    <string name="settings_root_setup_progress_body_running">Aether is requesting su, enabling Termux command access, and preparing Root access for Virtual Display.</string>
+    <string name="settings_root_setup_progress_body_ready">Termux command access and Root access for Virtual Display are ready. Enable Accessibility to use Phone Use.</string>
     <string name="settings_root_setup_progress_body_available">راه اندازی را برای اعطای su و تکمیل پیکربندی دسترسی محلی شروع کنید.</string>
     <string name="settings_root_setup_progress_body_unavailable">هیچ باینری سو در این دستگاه شناسایی نشد.</string>
     <string name="settings_root_setup_progress_body_permission_denied">سو را به Aether اعطا کنید، سپس دوباره راه‌اندازی خودکار Root را امتحان کنید.</string>
@@ -354,10 +356,10 @@
     <string name="settings_root_setup_progress_body_failed">دستور setup با یک خطا به پایان رسید. جزئیات بالا را مرور کنید و پس از آماده شدن دوباره امتحان کنید.</string>
     <string name="settings_root_setup_configuring">پیکربندی تنظیمات ریشه</string>
     <string name="settings_custom_instructions_variables_hint">از {{current_datetime}}، {{current_date}}، {{current_time}}، {{timezone}} و {{unix_timestamp}} پشتیبانی می‌کند.</string>
-    <string name="settings_agent_mode_unavailable_body">ابتدا Termux یا Alpine را پیکربندی کنید. Agent Mode برای فضای کاری و جریان اسکرین شات خود به یک زمان اجرای محلی نیاز دارد، بنابراین تا زمانی که یکی از آن‌ها آماده نباشد، مجوز فعال نمی شود.</string>
-    <string name="settings_agent_mode_root_already_configured_body">مجوز حالت عامل ریشه از قبل آماده است. نیازی به اجرای مجدد Root Automatic Setup ندارید.</string>
-    <string name="settings_agent_mode_already_configured_body">مجوز حالت عامل از قبل آماده است. نیازی به تنظیم خودکار ریشه نیست. ادامه، Agent Mode را مجدداً به Root پیکربندی می کند.</string>
-    <string name="settings_agent_mode_root_setup_body">از su برای انتخاب حالت Root و آماده سازی کنترل محلی دستگاه به طور خودکار استفاده کنید.</string>
+    <string name="settings_agent_mode_unavailable_body">Set up Termux or Alpine to run the Agent. You can grant Accessibility access before configuring a runtime.</string>
+    <string name="settings_agent_mode_root_already_configured_body">Root access for Virtual Display is ready. You do not need to run Root automatic setup again.</string>
+    <string name="settings_agent_mode_already_configured_body">Phone Use is ready. Continuing with Root setup will switch to background Virtual Display (Root).</string>
+    <string name="settings_agent_mode_root_setup_body">Use su to prepare Root access for Virtual Display. Enable Phone Use in Accessibility settings separately.</string>
     <string name="settings_developer">تنظیمات برنامه نویس</string>
     <string name="settings_about">درباره</string>
     <string name="settings_get_started_tour">شروع به تور</string>
@@ -369,7 +371,7 @@
     <string name="settings_background_runs_off">پس زمینه اجرا می شود</string>
     <string name="settings_connected">متصل شد</string>
     <string name="settings_setup_required">راه اندازی لازم است</string>
-    <string name="settings_agent_mode_subtitle">مجوز و نمایش مجازی</string>
+    <string name="settings_agent_mode_subtitle">Accessibility and Virtual Display</string>
     <string name="settings_get_started_tour_subtitle">جریان فرود و راه اندازی اولین اجرا را دوباره پخش کنید</string>
     <string name="settings_developer_subtitle">جریان پیوستن بعدی را دوباره پخش کنید</string>
     <string name="settings_release_summary">%1$s را منتشر کنید</string>
@@ -589,16 +591,16 @@
     <string name="termux_access_not_granted">دسترسی Termux داده نشده است</string>
 
     <!-- Agent -->
-    <string name="agent_mode_label">حالت عامل</string>
+    <string name="agent_mode_label">Phone Use</string>
     <string name="agent_mode_display_id">نمایش %1$d</string>
-    <string name="agent_mode_replay_frame">فریم پخش مجدد Agent Mode</string>
+    <string name="agent_mode_replay_frame">Virtual Display replay frame</string>
     <string name="agent_mode_replay_preview_unavailable">پیش نمایش در دسترس نیست</string>
 
     <!-- Onboarding -->
-    <string name="onboarding_root_body_unknown">اگر این گوشی Root داشته باشد، Aether می تواند Termux و Agent Mode را به صورت خودکار پیکربندی کند.</string>
-    <string name="onboarding_root_body_available">روت موجود است. اعطای su به Aether برای رد شدن از مراحل دستی Termux و Agent Mode.</string>
-    <string name="onboarding_root_body_running">اتر برنامه‌های خارجی Termux را فعال می‌کند، اجازه فرمان را می‌دهد و Root Agent Mode را انتخاب می‌کند.</string>
-    <string name="onboarding_root_body_ready">راه اندازی ریشه کامل شده است. Termux و Agent Mode آماده هستند.</string>
+    <string name="onboarding_root_body_unknown">Root can configure Termux and optional Virtual Display. Enable Accessibility separately to use Phone Use.</string>
+    <string name="onboarding_root_body_available">Root is available. Grant su to configure Termux and optional Virtual Display; Phone Use also needs Accessibility.</string>
+    <string name="onboarding_root_body_running">Aether is enabling Termux external apps, granting command permission, and preparing Root access for Virtual Display.</string>
+    <string name="onboarding_root_body_ready">Root setup is complete. Termux is ready; enable Accessibility to use Phone Use.</string>
     <string name="onboarding_root_body_unavailable">اگر روت دارید، تنظیمات خودکار را امتحان کنید. در غیر این صورت با جریان دستی موجود ادامه دهید.</string>
     <string name="onboarding_root_body_permission_denied">دسترسی ریشه رد شد یا به پایان رسید.</string>
     <string name="onboarding_root_body_termux_not_installed">ابتدا Termux را نصب کنید، سپس Aether می تواند این تنظیمات را با Root تمام کند.</string>
@@ -651,10 +653,10 @@
     <string name="onboarding_continue_manual_setup">راه اندازی دستی را ادامه دهید</string>
     <string name="onboarding_manual_setup">راه اندازی دستی</string>
     <string name="onboarding_use_root_setup">از Root setup استفاده کنید</string>
-    <string name="onboarding_agent_mode_message">حالت عامل اختیاری است. برای کنترل نمایشگر اندروید ایزوله به Root یا Shizuku نیاز دارد.</string>
-    <string name="onboarding_agent_mode_choose_method">یک روش مجوز را انتخاب کنید یا فعلاً از آن صرفنظر کنید.</string>
-    <string name="onboarding_agent_mode_shizuku_subtitle">هنگام نصب برنامه از سرویس شیزوکو بالا استفاده کنید.</string>
-    <string name="onboarding_agent_mode_root_subtitle">از پوسته ریشه برای ورودی ممتاز در دستگاه های روت شده استفاده کنید.</string>
+    <string name="onboarding_agent_mode_message">Phone Use lets the Agent operate apps on your screen through Android Accessibility. Root and Shizuku are optional, for background Virtual Display only.</string>
+    <string name="onboarding_agent_mode_choose_method">Enable Aether in Accessibility settings. The Agent uses elements first, with screenshots and coordinate taps when needed. You can enable Virtual Display later in Phone Use settings.</string>
+    <string name="onboarding_agent_mode_shizuku_subtitle">Optional background Virtual Display with Shizuku and Accessibility.</string>
+    <string name="onboarding_agent_mode_root_subtitle">Optional background Virtual Display with Root and Accessibility.</string>
     <string name="onboarding_agent_mode_skip_subtitle">حالت Agent را خاموش بگذارید و بعداً از تنظیمات آن را فعال کنید.</string>
     <string name="onboarding_paste_it_here">آن را اینجا بچسبانید</string>
 
@@ -755,8 +757,8 @@
     <string name="tool_title_tapping_agent_mode_display">روی نمایشگر حالت عامل ضربه بزنید</string>
     <string name="tool_title_tapped_agent_mode_display">روی نمایشگر حالت عامل ضربه بزنید</string>
     <string name="tool_title_swiping_agent_mode_display">صفحه نمایش حالت عامل</string>
-    <string name="tool_title_swiped_agent_mode_display">صفحه نمایش Swiped Agent Mode</string>
-    <string name="tool_title_typing_agent_mode">در حالت Agent Mode تایپ کنید</string>
+    <string name="tool_title_swiped_agent_mode_display">صفحه نمایش Swiped Phone Use</string>
+    <string name="tool_title_typing_agent_mode">در حالت Phone Use تایپ کنید</string>
     <string name="tool_title_typed_agent_mode">در حالت عامل تایپ شده است</string>
     <string name="tool_title_capturing_agent_mode_display">گرفتن نمایشگر حالت عامل</string>
     <string name="tool_title_captured_agent_mode_display">صفحه نمایش حالت عامل ضبط شده</string>
@@ -844,11 +846,11 @@
     <string name="settings_runtime_termux_unavailable_subtitle">Termux را قبل از انتخاب به عنوان پیش فرض پیکربندی کنید.</string>
     <string name="settings_runtime_alpine_ready_subtitle">لینوکس VM اختصاصی برنامه داخلی برای ابزارهای توسعه.</string>
     <string name="settings_runtime_alpine_unavailable_subtitle">قبل از اینکه Alpine را به عنوان پیش فرض انتخاب کنید، مقداردهی اولیه کنید.</string>
-    <string name="onboarding_local_runtime_choice_message">آیا می خواهید Termux + Agent Mode را راه اندازی کنید؟</string>
+    <string name="onboarding_local_runtime_choice_message">آیا می خواهید Termux + Phone Use را راه اندازی کنید؟</string>
     <string name="onboarding_alpine_vm_title">ماشین مجازی آلپاین</string>
     <string name="onboarding_alpine_vm_subtitle">برای سازگاری قوی تر لینوکس و خدمات محلی گسترده تر، این را انتخاب کنید.</string>
     <string name="onboarding_termux_agent_mode_title">Termux + حالت عامل</string>
-    <string name="onboarding_termux_agent_mode_subtitle">برای کار با دستگاه از دستورات Termux و Agent Mode استفاده کنید.</string>
+    <string name="onboarding_termux_agent_mode_subtitle">برای کار با دستگاه از دستورات Termux و Phone Use استفاده کنید.</string>
     <string name="onboarding_configure_termux_agent_mode">راه اندازی کنید</string>
     <string name="onboarding_not_now">الان نه</string>
     <string name="onboarding_alpine_runtime_message">محیط داخلی Alpine Linux را تنظیم کنید. در فضای ذخیره‌سازی برنامه خصوصی Aether باقی می‌ماند.</string>
@@ -941,4 +943,17 @@
     <string name="settings_native_mod_restart_required">برای اعمال این تنظیمات Native Mod، Aether را مجددا راه اندازی کنید.</string>
     <string name="settings_native_mod_enable_next_start">Native Mods را در شروع بعدی فعال کنید</string>
     <string name="settings_native_mod_disable_next_start">دفعه بعد در حالت ایمن Native Mod شروع کنید</string>
+    <string name="phone_use_enabled">فعال‌سازی Phone Use</string>
+    <string name="phone_use_input_strategy">راهبرد ورودی</string>
+    <string name="phone_use_output_strategy">راهبرد خروجی</string>
+    <string name="phone_use_tree_first">درخت عناصر در اولویت</string>
+    <string name="phone_use_screenshot_first">تصویر صفحه در اولویت</string>
+    <string name="phone_use_element_first">عملیات عناصر در اولویت</string>
+    <string name="phone_use_gesture_first">حرکات مختصاتی در اولویت</string>
+    <string name="phone_use_allow_strategy_switch">اجازهٔ تغییر راهبرد جایگزین به عامل</string>
+    <string name="phone_use_virtual_enabled">فعال‌سازی Virtual Display (آزمایشی)</string>
+    <string name="phone_use_virtual_grant">روش مجوز Virtual Display را انتخاب کنید.</string>
+    <string name="phone_use_authorizing">در حال اعطای مجوز…</string>
+    <string name="phone_use_permission_title">فعال‌سازی دسترس‌پذیری Phone Use</string>
+    <string name="phone_use_permission_body">برای کنترل گوشی توسط عامل، Aether را در تنظیمات دسترس‌پذیری Android فعال کنید.</string>
 </resources>

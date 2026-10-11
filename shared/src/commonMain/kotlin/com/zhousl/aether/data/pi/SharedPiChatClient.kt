@@ -169,6 +169,7 @@ class SharedPiChatClient(
         isReasoningModel: Boolean? = null,
         modelsDevThinkingLevels: List<String>? = null,
         modelsDevLimits: ModelsDevModelLimits? = null,
+        sessionBranch: PiSessionBranch? = null,
         onAssistantTextDelta: suspend (String) -> Unit = {},
         onAssistantReasoningDelta: suspend (String) -> Unit = {},
         onAssistantReasoningSummaryDelta: suspend (String) -> Unit = {},
@@ -201,6 +202,11 @@ class SharedPiChatClient(
         val payload = buildJsonObject {
             put("model_config", modelConfig)
             put("session_id", resolvedSessionId)
+            sessionBranch?.let { branch ->
+                put("session_branch", buildJsonObject {
+                    put("entry_id", branch.entryId.orEmpty())
+                })
+            }
             put("system_prompt", systemPrompt.ifBlank { platformDefaultSystemPrompt() })
             put("messages", messages.withSkillCommand(skillCommand).toPiMessages())
             put("workspace_directory", workspaceDirectory)

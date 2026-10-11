@@ -167,10 +167,6 @@ private const val ToolInvocationCollapseThreshold = 3
 private const val ToolTransitionDurationMillis = 360
 private const val ToolInvocationAutoExpandDelayMillis = 1_000L
 private const val ToolGroupCollapseStageDelayMillis = 180L
-private const val StreamingChunkFadeDurationMillis = 400
-private const val StreamingInitialChunkFadeDurationMillis = 600
-private const val StreamingCjkChunkLength = 1
-private const val StreamingFallbackChunkLength = 18
 private const val FaviconFetchTimeoutMillis = 3_000
 private const val MinimumEpochMillis = 946_684_800_000L
 private const val TavilyFallbackDomain = "tavily.com"
@@ -1845,152 +1841,15 @@ fun StreamingMarkdownContent(
     allowRootImageRead: Boolean,
     onLinkClick: (String) -> Unit,
 ) {
-    var trackedSource by remember { mutableStateOf("") }
-    var activeFadeRange by remember { mutableStateOf<IntRange?>(null) }
-    var activeFadeDurationMillis by remember { mutableStateOf(StreamingChunkFadeDurationMillis) }
-    val fadeProgress = remember { Animatable(1f) }
-
-    LaunchedEffect(markdown) {
-        if (markdown.isBlank()) {
-            trackedSource = ""
-            activeFadeRange = null
-            fadeProgress.snapTo(1f)
-            return@LaunchedEffect
-        }
-
-        if (!markdown.startsWith(trackedSource)) {
-            trackedSource = ""
-            activeFadeRange = null
-            fadeProgress.snapTo(1f)
-        }
-
-        val deltaStart = trackedSource.length
-        val delta = markdown.removePrefix(trackedSource)
-        trackedSource = markdown
-        if (delta.isEmpty()) return@LaunchedEffect
-
-        activeFadeRange = deltaStart until markdown.length
-        activeFadeDurationMillis = if (deltaStart == 0) {
-            StreamingInitialChunkFadeDurationMillis
-        } else {
-            StreamingChunkFadeDurationMillis
-        }
-    }
-
-    LaunchedEffect(activeFadeRange, activeFadeDurationMillis) {
-        val fadeRange = activeFadeRange ?: return@LaunchedEffect
-        if (fadeRange.first > fadeRange.last) {
-            fadeProgress.snapTo(1f)
-            return@LaunchedEffect
-        }
-
-        fadeProgress.snapTo(0f)
-        fadeProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = activeFadeDurationMillis, easing = LinearEasing),
+    StreamingRevealContent(source = markdown) { visibleMarkdown ->
+        MarkdownContent(
+            markdown = visibleMarkdown,
+            modifier = Modifier.fillMaxWidth(),
+            workspaceDirectory = workspaceDirectory,
+            allowRootImageRead = allowRootImageRead,
+            onLinkClick = onLinkClick,
         )
     }
-
-    val streamingFrame = remember(markdown, activeFadeRange, fadeProgress.value) {
-        val normalizedFadeRange = activeFadeRange?.let { range ->
-            val clampedStart = range.first.coerceIn(0, markdown.length)
-            val clampedEndExclusive = (range.last + 1).coerceIn(clampedStart, markdown.length)
-            if (clampedEndExclusive <= clampedStart) {
-                null
-            } else {
-                clampedStart until clampedEndExclusive
-            }
-        }
-
-        StreamingMarkdownFrame(
-            markdown = markdown,
-            fadeSpan = normalizedFadeRange?.let { range ->
-                MarkdownFadeSpan(
-                    sourceRange = range,
-                    alpha = fadeProgress.value.coerceIn(0f, 1f),
-                )
-            },
-        )
-    }
-
-    MarkdownContent(
-        markdown = streamingFrame.markdown,
-        modifier = Modifier.fillMaxWidth(),
-        workspaceDirectory = workspaceDirectory,
-        allowRootImageRead = allowRootImageRead,
-        onLinkClick = onLinkClick,
-        fadeSpan = streamingFrame.fadeSpan,
-    )
-}
-
-private data class StreamingMarkdownFrame(
-    val markdown: String,
-    val fadeSpan: MarkdownFadeSpan?,
-)
-
-private fun extractStreamingRevealUnits(buffer: String): Pair<List<String>, String> {
-    if (buffer.isEmpty()) return emptyList<String>() to ""
-
-    val units = mutableListOf<String>()
-    var start = 0
-    var index = 0
-
-    while (index < buffer.length) {
-        val char = buffer[index]
-        val nextChar = buffer.getOrNull(index + 1)
-        val tokenLength = index - start + 1
-
-        val shouldSplit = when {
-            isStreamingTokenBoundary(char) -> true
-            char.isWhitespace() && start < index -> true
-            isCjkCharacter(char) && tokenLength >= StreamingCjkChunkLength && nextChar != null && isCjkCharacter(nextChar) -> true
-            tokenLength >= StreamingFallbackChunkLength &&
-                nextChar != null &&
-                !nextChar.isWhitespace() &&
-                !isStreamingTokenBoundary(nextChar) -> true
-            else -> false
-        }
-
-        if (shouldSplit) {
-            var end = index + 1
-            while (end < buffer.length && buffer[end].isWhitespace() && buffer[end] != '\n') {
-                end += 1
-            }
-            units += buffer.substring(start, end)
-            start = end
-            index = end
-            continue
-        }
-
-        index += 1
-    }
-
-    return units to buffer.substring(start)
-}
-
-private fun isStreamingTokenBoundary(char: Char): Boolean =
-    isSentenceBoundary(char) ||
-        char == ',' ||
-        char == '\uFF0C' ||
-        char == '\u3001' ||
-        char == ')' ||
-        char == ']' ||
-        char == '}'
-
-private fun isSentenceBoundary(char: Char): Boolean =
-    char == '\n' || char == '.' || char == '!' || char == '?' ||
-        char == '。' || char == '！' || char == '？' ||
-        char == ';' || char == '；' || char == ':' || char == '：'
-
-private fun isCjkCharacter(char: Char): Boolean {
-    val block = Character.UnicodeBlock.of(char)
-    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.HIRAGANA ||
-        block == Character.UnicodeBlock.KATAKANA ||
-        block == Character.UnicodeBlock.HANGUL_SYLLABLES
 }
 
 @Composable
@@ -4413,7 +4272,7 @@ private fun buildAgentModeReplayFrames(
             !invocation.toolName.equals("browser", ignoreCase = true)
         ) return@forEach
         val output = parseJsonObject(invocation.outputJson) ?: return@forEach
-        if (!output.optBoolean("ok")) return@forEach
+        if (!output.optBoolean("ok") || output.optString("mode") == "foreground") return@forEach
         val previewPath = output.optString("preview_path").ifBlank {
             output.optString("previewPath").ifBlank {
                 output.optString("screenshot_path")

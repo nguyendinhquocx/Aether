@@ -7,6 +7,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AetherToolExecutorTest {
+    @Test fun virtualDisplayExposesExplicitOrientationOverride() {
+        val definition = AetherToolExecutor.hostToolDefinitions(agentModeEnabled = true).getJSONObject(0)
+        val orientation = definition.getJSONObject("parameters").getJSONObject("properties").getJSONObject("orientation")
+        assertEquals(listOf("device", "portrait", "landscape"),
+            (0 until orientation.getJSONArray("enum").length()).map { orientation.getJSONArray("enum").getString(it) })
+        assertTrue(orientation.getString("description").contains("Virtual Display"))
+    }
+
     @Test
     fun hostToolDefinitionsDoNotDuplicatePiNativeTools() {
         val definitions = AetherToolExecutor.hostToolDefinitions()

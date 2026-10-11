@@ -1,5 +1,12 @@
 package com.zhousl.aether.ui
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
 import android.os.Build
@@ -109,6 +116,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
@@ -137,7 +145,6 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -346,6 +353,7 @@ fun ConversationScreen(
     onSetSkillSelected: (String, Boolean) -> Unit,
     onSetMcpServerSelected: (String, Boolean) -> Unit,
     onSetAgentModeSelected: (Boolean) -> Unit,
+    onToggleAgentModeSelected: () -> Unit,
     onSetChromeSelected: (Boolean) -> Unit,
     onCancelEdit: () -> Unit,
     onSend: () -> Unit,
@@ -605,6 +613,7 @@ fun ConversationScreen(
                         ),
                 )
             } else {
+                StreamingRevealHost(conversationKey = conversationStateKey) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -755,6 +764,7 @@ fun ConversationScreen(
                         )
                     }
                 }
+                }
             }
 
             ConversationTopOverlay(
@@ -798,6 +808,7 @@ fun ConversationScreen(
                 onSetSkillSelected = onSetSkillSelected,
                 onSetMcpServerSelected = onSetMcpServerSelected,
                 onSetAgentModeSelected = onSetAgentModeSelected,
+                onToggleAgentModeSelected = onToggleAgentModeSelected,
                 onSetChromeSelected = onSetChromeSelected,
                 onCancelEdit = onCancelEdit,
                 onPickImages = onPickImages,
@@ -1540,7 +1551,7 @@ private fun PendingAssistantTimeline(
     onDetachAgentModePreviewSurface: (Surface) -> Unit,
 ) {
     val visiblePendingInvocations = pendingToolInvocations.filterNot {
-        it.isAgentModeDisplayInvocation() || it.isChromeDisplayInvocation()
+        (agentModeDisplayState.isVirtualDisplay && it.isAgentModeDisplayInvocation()) || it.isChromeDisplayInvocation()
     }
     val blockAgentModeInvocations = blocks.flatMap { it.agentModeToolInvocations() }
     val pendingAgentModeInvocations = pendingToolInvocations.filter { it.isAgentModeDisplayInvocation() }
@@ -1549,6 +1560,7 @@ private fun PendingAssistantTimeline(
     val agentModePreviewVisible =
         agentModeSelected &&
             agentModeDisplayState.isActive &&
+                    agentModeDisplayState.isVirtualDisplay &&
             (blockAgentModeInvocations.isNotEmpty() ||
                 pendingAgentModeInvocations.isNotEmpty() ||
                 agentModeDisplayState.latestPreviewPath.isNotBlank())
@@ -1771,6 +1783,7 @@ private fun PendingAssistantTimelineBlock(
                     isLastBlock &&
                     agentModeSelected &&
                     agentModeDisplayState.isActive &&
+                    agentModeDisplayState.isVirtualDisplay &&
                     block.toolInvocations.any { it.toolName.equals("agent_display", ignoreCase = true) }
             if (shouldShowAgentModePreview) {
                 AgentModePreviewPanel(
@@ -2287,6 +2300,7 @@ private fun ConversationComposerOverlay(
     onSetSkillSelected: (String, Boolean) -> Unit,
     onSetMcpServerSelected: (String, Boolean) -> Unit,
     onSetAgentModeSelected: (Boolean) -> Unit,
+    onToggleAgentModeSelected: () -> Unit,
     onSetChromeSelected: (Boolean) -> Unit,
     onCancelEdit: () -> Unit,
     onPickImages: () -> Unit,
@@ -2353,6 +2367,7 @@ private fun ConversationComposerOverlay(
                     onSetSkillSelected = onSetSkillSelected,
                     onSetMcpServerSelected = onSetMcpServerSelected,
                     onSetAgentModeSelected = onSetAgentModeSelected,
+                    onToggleAgentModeSelected = onToggleAgentModeSelected,
                     onSetChromeSelected = onSetChromeSelected,
                     onCancelEdit = onCancelEdit,
                     onPickImages = onPickImages,
@@ -2402,6 +2417,7 @@ private fun ConversationComposerBar(
     onSetSkillSelected: (String, Boolean) -> Unit,
     onSetMcpServerSelected: (String, Boolean) -> Unit,
     onSetAgentModeSelected: (Boolean) -> Unit,
+    onToggleAgentModeSelected: () -> Unit,
     onSetChromeSelected: (Boolean) -> Unit,
     onCancelEdit: () -> Unit,
     onPickImages: () -> Unit,
@@ -2947,7 +2963,7 @@ private fun ConversationComposerBar(
                                             iconContainerColor = AetherSurfaceHigh,
                                             onClick = {
                                                 runAfterAttachmentMenuDismiss {
-                                                    onSetAgentModeSelected(!agentModeSelected)
+                                                    onToggleAgentModeSelected()
                                                 }
                                             },
                                         )
@@ -3180,15 +3196,35 @@ private fun AgentModePreviewPanel(
     onAttachSurface: (Surface) -> Unit,
     onDetachSurface: (Surface) -> Unit,
 ) {
-    val resolvedLabel = label ?: stringResource(R.string.agent_mode_label)
+    val resolvedLabel = label ?: stringResource(R.string.settings_virtual_display)
     val resolvedContentDescription =
         contentDescription ?: stringResource(R.string.chat_agent_mode_virtual_display)
     val resolvedPendingText =
         pendingText ?: stringResource(R.string.chat_agent_mode_preview_pending)
+    // Fullscreen is an explicit, foreground-only action, never restored from saved UI state.
+    var fullscreen by remember { mutableStateOf(false) }
+    var showFullscreenButton by remember { mutableStateOf(false) }
+    val previewLifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(previewLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                fullscreen = false
+                showFullscreenButton = false
+            }
+        }
+        previewLifecycle.addObserver(observer)
+        onDispose { previewLifecycle.removeObserver(observer) }
+    }
     val bitmap = remember(displayState.latestPreviewPath, displayState.lastUpdatedMillis) {
         displayState.latestPreviewPath
             .takeIf { it.isNotBlank() }
             ?.let { BitmapFactory.decodeFile(it) }
+    }
+    LaunchedEffect(displayState.isActive, bitmap) {
+        if (!displayState.isActive && bitmap == null) {
+            fullscreen = false
+            showFullscreenButton = false
+        }
     }
     Column(
         modifier = Modifier
@@ -3209,117 +3245,30 @@ private fun AgentModePreviewPanel(
             )
         }
         if (displayState.isActive || bitmap != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(agentModePreviewBackdropBrush()),
-                contentAlignment = Alignment.Center,
-            ) {
-                var previewSize by remember { mutableStateOf(IntSize.Zero) }
-                val density = LocalDensity.current
-                val imagePaddingPx = with(density) { 10.dp.toPx() }
-                val cursorOffset = remember(
-                    previewSize,
-                    displayState.width,
-                    displayState.height,
-                    displayState.cursorX,
-                    displayState.cursorY,
-                ) {
-                    resolveAgentModeCursorOffset(
-                        previewSize = previewSize,
-                        imagePaddingPx = imagePaddingPx,
-                        displayWidth = displayState.width,
-                        displayHeight = displayState.height,
-                        cursorX = displayState.cursorX,
-                        cursorY = displayState.cursorY,
-                    )
-                }
-                val animationDurationMillis = displayState.cursorAnimationDurationMillis.coerceIn(80, 1_200)
-                val animatedCursorOffset by animateIntOffsetAsState(
-                    targetValue = cursorOffset,
-                    animationSpec = tween(durationMillis = animationDurationMillis, easing = ChatGptMotionEasing),
-                    label = "agent_mode_cursor_offset",
-                )
-                if (displayState.isActive && useLiveSurface) {
-                    AgentModeLivePreviewSurface(
-                        displayState = displayState,
-                        onAttachSurface = onAttachSurface,
-                        onDetachSurface = onDetachSurface,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(10.dp)
-                            .aspectRatio(
-                                displayState.width.coerceAtLeast(1).toFloat() /
-                                    displayState.height.coerceAtLeast(1).toFloat(),
-                                matchHeightConstraintsFirst = true,
-                            )
-                            .clip(RoundedCornerShape(14.dp)),
-                    )
-                } else if (displayState.isActive && !useLiveSurface) {
-                    PlatformWebView(
-                        url = AlpineChromeViewerUrl,
-                        scrollEnabled = false,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(10.dp)
-                            .aspectRatio(
-                                displayState.width.coerceAtLeast(1).toFloat() /
-                                    displayState.height.coerceAtLeast(1).toFloat(),
-                                matchHeightConstraintsFirst = true,
-                            )
-                            .clip(RoundedCornerShape(14.dp)),
-                    )
-                } else if (bitmap != null) {
-                    Image(
-                    bitmap = bitmap.asImageBitmap(),
+            if (!fullscreen) {
+                AgentModePreviewViewport(
+                    displayState = displayState,
+                    bitmap = bitmap,
                     contentDescription = resolvedContentDescription,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(10.dp)
-                        .clip(RoundedCornerShape(14.dp)),
-                        contentScale = ContentScale.Fit,
-                    )
+                    useLiveSurface = useLiveSurface,
+                    overlayText = overlayText,
+                    workspaceDirectory = workspaceDirectory,
+                    allowRootImageRead = allowRootImageRead,
+                    onOpenLink = onOpenLink,
+                    onAttachSurface = onAttachSurface,
+                    onDetachSurface = onDetachSurface,
+                    modifier = Modifier.fillMaxWidth().height(280.dp)
+                        .clip(RoundedCornerShape(18.dp)).clickable { showFullscreenButton = !showFullscreenButton },
+                )
+            } else {
+                // Only one live Surface/WebView exists at a time.
+                Box(Modifier.fillMaxWidth().height(280.dp), contentAlignment = Alignment.Center) {
+                    Text(stringResource(R.string.agent_mode_fullscreen), color = AetherOnSurfaceVariant)
                 }
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .onSizeChanged { previewSize = it },
-                ) {
-                    AgentModeCursor(
-                        modifier = Modifier
-                            .offset {
-                                val tipInsetPx = with(density) { 5.dp.roundToPx() }
-                                IntOffset(animatedCursorOffset.x - tipInsetPx, animatedCursorOffset.y - tipInsetPx)
-                            }
-                            .size(30.dp),
-                    )
-                    if (overlayText.isNotBlank()) {
-                        val bubbleOffset = remember(
-                            cursorOffset,
-                            previewSize,
-                            density,
-                        ) {
-                            resolveAgentModeBubbleOffset(
-                                cursorOffset = cursorOffset,
-                                previewSize = previewSize,
-                                density = density,
-                            )
-                        }
-                        val animatedBubbleOffset by animateIntOffsetAsState(
-                            targetValue = bubbleOffset,
-                            animationSpec = tween(durationMillis = animationDurationMillis, easing = ChatGptMotionEasing),
-                            label = "agent_mode_bubble_offset",
-                        )
-                        AgentModeCursorTextBubble(
-                            text = overlayText,
-                            workspaceDirectory = workspaceDirectory,
-                            allowRootImageRead = allowRootImageRead,
-                            onOpenLink = onOpenLink,
-                            modifier = Modifier.offset { animatedBubbleOffset },
-                        )
-                    }
+            }
+            if (showFullscreenButton && !fullscreen) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomEnd) {
+                TextButton(onClick = { fullscreen = true }) {
+                    Text(stringResource(R.string.agent_mode_fullscreen))
                 }
             }
         } else {
@@ -3328,6 +3277,201 @@ private fun AgentModePreviewPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = AetherOnSurfaceVariant,
             )
+        }
+    }
+    if (fullscreen && (displayState.isActive || bitmap != null)) {
+        AgentModeFullscreenPreview(
+            displayState = displayState,
+            bitmap = bitmap,
+            contentDescription = resolvedContentDescription,
+            useLiveSurface = useLiveSurface,
+            overlayText = overlayText,
+            workspaceDirectory = workspaceDirectory,
+            allowRootImageRead = allowRootImageRead,
+            onOpenLink = onOpenLink,
+            onAttachSurface = onAttachSurface,
+            onDetachSurface = onDetachSurface,
+            onDismiss = { fullscreen = false },
+        )
+    }
+
+}
+
+
+@Composable
+private fun AgentModePreviewViewport(
+    displayState: AgentModeDisplayState,
+    bitmap: android.graphics.Bitmap?,
+    contentDescription: String,
+    useLiveSurface: Boolean,
+    overlayText: String,
+    workspaceDirectory: String,
+    allowRootImageRead: Boolean,
+    onOpenLink: (String) -> Unit,
+    onAttachSurface: (Surface) -> Unit,
+    onDetachSurface: (Surface) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(
+        modifier = modifier.background(agentModePreviewBackdropBrush()),
+        contentAlignment = Alignment.Center,
+    ) {
+        val ratio = displayState.width.coerceAtLeast(1).toFloat() / displayState.height.coerceAtLeast(1)
+        val availableWidth = (maxWidth - 20.dp).coerceAtLeast(1.dp)
+        val availableHeight = (maxHeight - 20.dp).coerceAtLeast(1.dp)
+        val previewWidth = minOf(availableWidth, availableHeight * ratio)
+        val previewHeight = previewWidth / ratio
+        var previewSize by remember { mutableStateOf(IntSize.Zero) }
+        val density = LocalDensity.current
+        val imagePaddingPx = with(density) { 10.dp.toPx() }
+        val cursorOffset = remember(
+            previewSize,
+            displayState.width,
+            displayState.height,
+            displayState.cursorX,
+            displayState.cursorY,
+        ) {
+            resolveAgentModeCursorOffset(
+                previewSize = previewSize,
+                imagePaddingPx = imagePaddingPx,
+                displayWidth = displayState.width,
+                displayHeight = displayState.height,
+                cursorX = displayState.cursorX,
+                cursorY = displayState.cursorY,
+            )
+        }
+        val animationDurationMillis = displayState.cursorAnimationDurationMillis.coerceIn(80, 1_200)
+        val animatedCursorOffset by animateIntOffsetAsState(
+            targetValue = cursorOffset,
+            animationSpec = tween(durationMillis = animationDurationMillis, easing = ChatGptMotionEasing),
+            label = "agent_mode_cursor_offset",
+        )
+        if (displayState.isActive && useLiveSurface) {
+            // Replace listeners capturing old buffer dimensions after a display recreation.
+            key(displayState.displayId, displayState.width, displayState.height) {
+                AgentModeLivePreviewSurface(
+                    displayState = displayState,
+                    onAttachSurface = onAttachSurface,
+                    onDetachSurface = onDetachSurface,
+                    modifier = Modifier
+                        .size(previewWidth, previewHeight)
+                        .clip(RoundedCornerShape(14.dp)),
+                )
+            }
+        } else if (displayState.isActive && !useLiveSurface) {
+            PlatformWebView(
+                url = AlpineChromeViewerUrl,
+                scrollEnabled = false,
+                modifier = Modifier
+                    .size(previewWidth, previewHeight)
+                    .clip(RoundedCornerShape(14.dp)),
+            )
+        } else if (bitmap != null) {
+            Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp)
+                .clip(RoundedCornerShape(14.dp)),
+                contentScale = ContentScale.Fit,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .onSizeChanged { previewSize = it },
+        ) {
+            AgentModeCursor(
+                modifier = Modifier
+                    .offset {
+                        val tipInsetPx = with(density) { 5.dp.roundToPx() }
+                        IntOffset(animatedCursorOffset.x - tipInsetPx, animatedCursorOffset.y - tipInsetPx)
+                    }
+                    .size(30.dp),
+            )
+            if (overlayText.isNotBlank()) {
+                val bubbleOffset = remember(
+                    cursorOffset,
+                    previewSize,
+                    density,
+                ) {
+                    resolveAgentModeBubbleOffset(
+                        cursorOffset = cursorOffset,
+                        previewSize = previewSize,
+                        density = density,
+                    )
+                }
+                val animatedBubbleOffset by animateIntOffsetAsState(
+                    targetValue = bubbleOffset,
+                    animationSpec = tween(durationMillis = animationDurationMillis, easing = ChatGptMotionEasing),
+                    label = "agent_mode_bubble_offset",
+                )
+                AgentModeCursorTextBubble(
+                    text = overlayText,
+                    workspaceDirectory = workspaceDirectory,
+                    allowRootImageRead = allowRootImageRead,
+                    onOpenLink = onOpenLink,
+                    modifier = Modifier.offset { animatedBubbleOffset },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentModeFullscreenPreview(
+    displayState: AgentModeDisplayState,
+    bitmap: android.graphics.Bitmap?,
+    contentDescription: String,
+    useLiveSurface: Boolean,
+    overlayText: String,
+    workspaceDirectory: String,
+    allowRootImageRead: Boolean,
+    onOpenLink: (String) -> Unit,
+    onAttachSurface: (Surface) -> Unit,
+    onDetachSurface: (Surface) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        DisposableEffect(window) {
+            @Suppress("DEPRECATION")
+            val previousVisibility = window?.decorView?.systemUiVisibility
+            @Suppress("DEPRECATION")
+            window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            onDispose {
+                @Suppress("DEPRECATION")
+                if (previousVisibility != null) window?.decorView?.systemUiVisibility = previousVisibility
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            AgentModePreviewViewport(
+                displayState = displayState,
+                bitmap = bitmap,
+                contentDescription = contentDescription,
+                useLiveSurface = useLiveSurface,
+                overlayText = overlayText,
+                workspaceDirectory = workspaceDirectory,
+                allowRootImageRead = allowRootImageRead,
+                onOpenLink = onOpenLink,
+                onAttachSurface = onAttachSurface,
+                onDetachSurface = onDetachSurface,
+                modifier = Modifier.fillMaxSize(),
+            )
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+            ) {
+                Text(stringResource(R.string.agent_mode_exit_fullscreen), color = Color.White)
+            }
         }
     }
 }

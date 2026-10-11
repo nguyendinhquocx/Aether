@@ -1480,7 +1480,7 @@ test("rehydrates a persisted AgentSession before navigation", async (t) => {
   assert.equal(navigation.session_leaf_id, first.session_leaf_id);
 });
 
-test("retry and edit navigate the API transcript and preserve abandoned branches", async (t) => {
+test("retry and edit fork the API transcript after session recreation and preserve abandoned branches", async (t) => {
   const workspace = await mkdtemp(join(tmpdir(), "aether-retry-tree-"));
   t.after(() => rm(workspace, { recursive: true, force: true }));
   const requests = [];
@@ -1512,10 +1512,16 @@ test("retry and edit navigate the API transcript and preserve abandoned branches
     .filter((message) => message.role === "user" || message.role === "assistant")
     .map((message) => [message.role, typeof message.content === "string"
       ? message.content : message.content.map((part) => part.text ?? "").join("")]);
+  // A cold bridge reopens navigation with fewer tools/skills than run_turn.
+  // The real turn then recreates AgentSession from the same JSONL file.
+  await client.request("cold-bridge", "close_session", { session_id: payload([]).session_id });
   await client.request("retry-fourth-branch", "navigate_session", {
     ...payload([]), entry_id: replies[2].session_leaf_id,
   });
-  await client.request("retry-fourth", "run_turn", payload([userMessage("user-4")]));
+  await client.request("retry-fourth", "run_turn", {
+    ...payload([userMessage("user-4")]), skill_paths: [workspace],
+    session_branch: { entry_id: replies[2].session_leaf_id },
+  });
   assert.deepEqual(transcript(), [
     ["user", "user-1"], ["assistant", "answer-1"],
     ["user", "user-2"], ["assistant", "answer-2"],
@@ -1524,15 +1530,56 @@ test("retry and edit navigate the API transcript and preserve abandoned branches
   await client.request("restore-original-branch", "navigate_session", {
     ...payload([]), entry_id: replies[4].session_leaf_id,
   });
-  await client.request("continue-original", "run_turn", payload([userMessage("user-6")]));
+  await client.request("continue-original", "run_turn", {
+    ...payload([userMessage("user-6")]),
+    session_branch: { entry_id: replies[4].session_leaf_id },
+  });
   assert.ok(transcript().some(([role, text]) => role === "assistant" && text === "answer-5"));
   assert.ok(!transcript().some(([, text]) => text === "answer-6"));
   await client.request("retry-first-branch", "navigate_session", { ...payload([]), reset: true });
-  await client.request("retry-first", "run_turn", payload([userMessage("user-1")]));
+  await client.request("retry-first", "run_turn", {
+    ...payload([userMessage("user-1")]), host_tools: [hostTool("different_tool")],
+    session_branch: {},
+  });
   assert.deepEqual(transcript(), [["user", "user-1"]]);
   await client.request("edit-first-branch", "navigate_session", { ...payload([]), reset: true });
-  await client.request("edit-first", "run_turn", payload([userMessage("edited first")]));
+  await client.request("edit-first", "run_turn", {
+    ...payload([userMessage("edited first")]), session_branch: {},
+  });
   assert.deepEqual(transcript(), [["user", "edited first"]]);
+
+  // Edit a middle turn after a real process restart and model/tool changes.
+  await client.close();
+  const restarted = new BridgeClient();
+  await restarted.request("edit-second", "run_turn", {
+    ...payload([userMessage("edited second")]),
+    model_config: { ...config, model_id: "changed-model" },
+    host_tools: [hostTool("different_tool")],
+    session_branch: { entry_id: replies[0].session_leaf_id },
+  });
+  assert.deepEqual(transcript(), [
+    ["user", "user-1"], ["assistant", "answer-1"], ["user", "edited second"],
+  ]);
+
+  // Missing refs must retain the visible prefix without restoring the old tail.
+  await restarted.request("legacy-edit-second", "run_turn", {
+    ...payload([
+      userMessage("user-1"),
+      { role: "assistant", content: [{ type: "text", text: "answer-1" }] },
+      userMessage("legacy edited second"),
+    ]),
+    session_branch: {},
+  });
+  assert.deepEqual(transcript(), [
+    ["user", "user-1"], ["assistant", "answer-1"], ["user", "legacy edited second"],
+  ]);
+
+  const requestCount = requests.length;
+  await assert.rejects(restarted.request("invalid-branch", "run_turn", {
+    ...payload([userMessage("must never be sent")]),
+    session_branch: { entry_id: "missing-entry" },
+  }), /not found/);
+  assert.equal(requests.length, requestCount);
 });
 
 test("imports validated Pi JSONL into a relocated session file", async (t) => {

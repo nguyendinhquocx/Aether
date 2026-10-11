@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.zhousl.aether.data.needsForegroundExecutionService
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,8 +39,7 @@ class AetherForegroundService : Service() {
             ) { chatState, executionStates, settings ->
                 Triple(chatState.sessions, executionStates, settings)
             }.collectLatest { (sessions, executionStates, settings) ->
-                val activeCount = executionStates.values.count { it.isRunning }
-                if (activeCount == 0 || !settings.keepTasksRunningInBackground) {
+                if (!needsForegroundExecutionService(settings, executionStates)) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 } else {

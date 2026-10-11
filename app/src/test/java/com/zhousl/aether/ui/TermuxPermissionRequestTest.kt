@@ -1,6 +1,5 @@
 package com.zhousl.aether.ui
 
-import com.zhousl.aether.data.RootSetupIssue
 import com.zhousl.aether.termux.TermuxSetupIssue
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -59,18 +58,4 @@ class TermuxPermissionRequestTest {
         )
     }
 
-    @Test
-    fun rootSetupPermissionGateMatchesPermissionMissingState() {
-        assertTrue(shouldRequestTermuxPermissionBeforeRootSetup(TermuxSetupIssue.PermissionMissing))
-        assertFalse(shouldRequestTermuxPermissionBeforeRootSetup(TermuxSetupIssue.Ready))
-        assertFalse(shouldRequestTermuxPermissionBeforeRootSetup(TermuxSetupIssue.NotInstalled))
-    }
-
-    @Test
-    fun resumesRootSetupOnlyWhenItStoppedForMissingTermux() {
-        assertTrue(shouldResumeRootSetupAfterTermuxPermission(RootSetupIssue.TermuxNotInstalled))
-        assertFalse(shouldResumeRootSetupAfterTermuxPermission(RootSetupIssue.PermissionDenied))
-        assertFalse(shouldResumeRootSetupAfterTermuxPermission(RootSetupIssue.Failed))
-        assertFalse(shouldResumeRootSetupAfterTermuxPermission(RootSetupIssue.Unknown))
-    }
 }

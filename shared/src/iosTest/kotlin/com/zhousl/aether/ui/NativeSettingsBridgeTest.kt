@@ -151,6 +151,15 @@ class NativeSettingsBridgeTest {
     }
 
     @Test
+    fun settingsPatchSupportsRussianLanguage() {
+        val original = AppSettings(language = AppLanguage.English)
+        val updated = original.withNativeSettingsPatch(
+            JsonObject(mapOf("language" to JsonPrimitive("ru")))
+        )
+        assertEquals(AppLanguage.Russian, updated.language)
+    }
+
+    @Test
     fun snapshotExportsProviderCatalogModelsAndPreservesAdvancedProviderFields() {
         val provider = LlmProviderConfig(
             id = "provider-config",

@@ -62,6 +62,7 @@ class PiAgentRunner(
         isReasoningModel: Boolean = true,
         modelsDevThinkingLevels: List<String>? = null,
         modelsDevLimits: ModelsDevModelLimits? = null,
+        sessionBranch: PiSessionBranch? = null,
         onToolEvent: suspend (AgentToolEvent) -> Unit = {},
         onToolProgress: (suspend (AgentToolEvent) -> Unit)? = null,
         onAssistantTextDelta: suspend (String) -> Unit = {},
@@ -115,6 +116,9 @@ class PiAgentRunner(
                     val extensionLoadOptions = piExtensionStateRepository?.loadOptions()
                     put("model_config", modelConfig.toJson())
                     put("session_id", resolvedSessionId)
+                    sessionBranch?.let { branch ->
+                        put("session_branch", JSONObject().put("entry_id", branch.entryId.orEmpty()))
+                    }
                     if (sessionFile.isNotBlank()) put("session_file", sessionFile)
                     put("system_prompt", prompt())
                     put(

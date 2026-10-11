@@ -662,12 +662,13 @@ internal fun SettingsToggleRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    verticalAlignment: Alignment.Vertical = Alignment.Bottom,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val showText = title.isNotBlank() || subtitle.isNotBlank()
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom,
+        verticalAlignment = verticalAlignment,
     ) {
         if (showText) {
             Column(modifier = Modifier.weight(1f)) {

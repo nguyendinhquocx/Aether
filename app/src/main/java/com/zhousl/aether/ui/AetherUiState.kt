@@ -35,13 +35,8 @@ enum class OnboardingStep {
     TermuxSetup,
     LocalRuntimeChoice,
     AlpineSetup,
-    AgentModeAuthorization,
 }
 
-enum class RootSetupProgressReturnPage {
-    Termux,
-    AgentMode,
-}
 
 enum class MessageAuthor {
     User,
@@ -291,7 +286,6 @@ data class AetherUiState(
     val alpinePackageInstallProgress: Map<String, AlpineSetupProgress> = emptyMap(),
     val developerTermuxReadyOverride: Boolean? = null,
     val rootSetupState: RootSetupState = RootSetupState(),
-    val rootSetupProgressReturnPage: RootSetupProgressReturnPage? = null,
     val installedSkills: List<InstalledSkill> = emptyList(),
     val installedPiExtensions: List<InstalledPiExtension> = emptyList(),
     val hasLoadedInstalledPiExtensions: Boolean = false,
@@ -321,5 +315,8 @@ data class AetherUiState(
     val agentModeDisplayState: AgentModeDisplayState = AgentModeDisplayState(),
     val chromeDisplayState: AgentModeDisplayState = AgentModeDisplayState(),
     val agentModeAuthorizationState: AgentModeAuthorizationState = AgentModeAuthorizationState(),
+    val showPhoneUsePermissionDialog: Boolean = false,
+    val virtualDisplayAuthorizationState: AgentModeAuthorizationState = AgentModeAuthorizationState(),
+    val isAuthorizingVirtualDisplay: Boolean = false,
     val appUpdate: AppUpdateUiState = AppUpdateUiState(),
 )

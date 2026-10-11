@@ -483,11 +483,8 @@ private fun AetherAppContent(
         developerOverride = uiState.developerTermuxReadyOverride,
         termuxSetupCompleted = uiState.settings.termuxSetupCompleted,
     )
-    // Agent Mode needs a local runtime only for its workspace and screenshot flow; Termux and Alpine are interchangeable.
+    // Phone Use needs a local runtime only for its workspace and screenshot flow; Termux and Alpine are interchangeable.
     val localRuntimeReadyForAgentMode = effectiveTermuxSetupState.isReady || uiState.alpineSetupState.isReady
-    val agentModeReady = uiState.settings.agentModeAuthorizationEnabled &&
-        localRuntimeReadyForAgentMode &&
-        uiState.agentModeAuthorizationState.isReady
     val agentModeSelected = activeSession?.agentModeEnabled ?: uiState.draftAgentModeEnabled
     val chromeAvailable = uiState.alpineSetupState.isReady &&
         uiState.settings.alpinePackageProfiles["chrome"]?.installed == true
@@ -732,22 +729,10 @@ private fun AetherAppContent(
         termuxPermissionLauncher.launch(TermuxContract.RunCommandPermission)
     }
 
-    fun runRootSetupAfterTermuxPermission(
-        source: String,
-        action: () -> Unit,
-    ) {
-        if (shouldRequestTermuxPermissionBeforeRootSetup(uiState.termuxSetupState.issue)) {
-            requestTermuxPermission(source = source, onGranted = action)
-        } else {
-            action()
-        }
-    }
-
     LaunchedEffect(
         uiState.isStartupRouteResolved,
         uiState.settings.privacyPolicyAccepted,
         uiState.termuxSetupState.issue,
-        uiState.rootSetupState.issue,
     ) {
         if (
             shouldAutoRequestTermuxPermission(
@@ -759,14 +744,7 @@ private fun AetherAppContent(
         ) {
             didAutoRequestTermuxPermission = true
             requestTermuxPermission(
-                source = if (shouldResumeRootSetupAfterTermuxPermission(uiState.rootSetupState.issue)) {
-                    "root_setup_termux_installed_permission"
-                } else {
-                    "termux_detected_permission_missing"
-                },
-                onGranted = viewModel::configureLocalAccessWithRoot.takeIf {
-                    shouldResumeRootSetupAfterTermuxPermission(uiState.rootSetupState.issue)
-                },
+                source = "termux_detected_permission_missing",
             )
         }
     }
@@ -874,8 +852,6 @@ private fun AetherAppContent(
                         } else {
                             uiState.alpineSetupState
                         },
-                        rootSetupState = uiState.rootSetupState,
-                        agentModeAuthorizationMethod = uiState.settings.agentModeAuthorizationMethod,
                         onFetchModels = viewModel::fetchModels,
                         onStartProviderLogin = viewModel::startProviderLogin,
                         onSubmitProviderAuthPrompt = viewModel::submitProviderAuthPrompt,
@@ -918,19 +894,6 @@ private fun AetherAppContent(
                                 viewModel.refreshAlpineSetup(startPiIfReady = true)
                             }
                         },
-                        onRefreshRootSetup = viewModel::refreshRootSetup,
-                        onConfigureWithRoot = {
-                            runRootSetupAfterTermuxPermission(
-                                source = "onboarding_root_setup_termux_permission",
-                                action = viewModel::configureLocalAccessWithRoot,
-                            )
-                        },
-                        onSaveAgentModeAuthorization = { enabled, method ->
-                            viewModel.saveOnboardingAgentModeAuthorization(enabled, method)
-                            if (enabled && method == AgentModeAuthorizationMethod.Shizuku) {
-                                viewModel.requestShizukuPermission()
-                            }
-                        },
                         onCompleteFollowUp = viewModel::completeFollowUpOnboarding,
                     )
 
@@ -963,7 +926,10 @@ private fun AetherAppContent(
                     availableMcpServers = emptyList(),
                     selectedSkillIds = selectedSkillIds,
                     selectedMcpServerIds = emptyList(),
-                    agentModeAvailable = agentModeReady,
+                    // Keep Phone Use discoverable when Accessibility still needs to be
+                    // granted; selecting it is the explicit action that requests access.
+                    agentModeAvailable = uiState.settings.agentModeAuthorizationEnabled &&
+                        localRuntimeReadyForAgentMode,
                     agentModeSelected = agentModeSelected,
                     agentModeDisplayState = uiState.agentModeDisplayState,
                     chromeAvailable = chromeAvailable,
@@ -972,7 +938,7 @@ private fun AetherAppContent(
                     allowRootImageRead = uiState.rootSetupState.isReady ||
                         (
                             uiState.settings.agentModeAuthorizationEnabled &&
-                                uiState.settings.agentModeAuthorizationMethod == AgentModeAuthorizationMethod.Root &&
+                                uiState.settings.phoneUseVirtualDisplayEnabled && uiState.settings.agentModeAuthorizationMethod == AgentModeAuthorizationMethod.Root &&
                                 uiState.agentModeAuthorizationState.isReady
                             ),
                     isEditing = uiState.editingMessageId != null,
@@ -987,6 +953,7 @@ private fun AetherAppContent(
                     onSetSkillSelected = viewModel::setComposerSkillSelected,
                     onSetMcpServerSelected = { _, _ -> },
                     onSetAgentModeSelected = viewModel::setComposerAgentModeSelected,
+                    onToggleAgentModeSelected = viewModel::toggleComposerAgentModeSelected,
                     onSetChromeSelected = viewModel::setComposerChromeSelected,
                     onCancelEdit = viewModel::cancelMessageEdit,
                     onSend = viewModel::sendCurrentMessage,
@@ -1075,18 +1042,20 @@ private fun AetherAppContent(
                     oldCommandHistoryRetentionHours =
                         uiState.settings.oldCommandHistoryRetentionHours,
                     termuxEnvironmentVariables = uiState.settings.termuxEnvironmentVariables,
-                    agentModeAuthorizationEnabled = uiState.settings.agentModeAuthorizationEnabled,
-                    agentModeAuthorizationMethod = uiState.settings.agentModeAuthorizationMethod,
-                    agentModeAuthorizationState = uiState.agentModeAuthorizationState,
-                    rootSetupState = uiState.rootSetupState,
-                    rootSetupProgressReturnPage = uiState.rootSetupProgressReturnPage,
+                    phoneUseSettings = uiState.settings,
+                    virtualDisplayAuthorizationState = uiState.virtualDisplayAuthorizationState,
+                    isAuthorizingVirtualDisplay = uiState.isAuthorizingVirtualDisplay,
+                    onSavePhoneUseOptions = viewModel::savePhoneUseOptions,
+                    onSaveAgentModeDisplayOrientation = viewModel::saveAgentModeDisplayOrientation,
+                    onDisableVirtualDisplay = viewModel::disableVirtualDisplay,
+                    onAuthorizeVirtualDisplay = viewModel::authorizeVirtualDisplay,
+                    onCancelVirtualDisplayAuthorization = viewModel::cancelVirtualDisplayAuthorization,
                     language = language,
                     themeMode = uiState.settings.themeMode,
                     defaultChatModelKey = uiState.settings.defaultChatModelKey,
                     defaultTitleModelKey = uiState.settings.defaultTitleModelKey,
                     defaultNamingModelKey = uiState.settings.defaultNamingModelKey,
                     defaultCompactingModelKey = uiState.settings.defaultCompactingModelKey,
-                    agentModeDisplayState = uiState.agentModeDisplayState,
                     providerConfigs = uiState.providerConfigs,
                     usageStatisticsSnapshots = uiState.usageStatisticsSnapshots,
                     scheduledTasks = uiState.scheduledTasks,
@@ -1194,23 +1163,11 @@ private fun AetherAppContent(
                     onStartAlpineChrome = viewModel::startAlpineChrome,
                     onShouldShowAlpineChromeKeyboard = viewModel::shouldShowAlpineChromeKeyboard,
                     onSetDefaultRuntime = viewModel::setDefaultRuntime,
-                    onRefreshRootSetup = viewModel::refreshRootSetup,
-                    onStartRootSetupFromSettings = { returnPage ->
-                        runRootSetupAfterTermuxPermission(
-                            source = "settings_root_setup_termux_permission",
-                            action = { viewModel.startRootSetupFromSettings(returnPage) },
-                        )
-                    },
-                    onDismissRootSetupProgress = viewModel::dismissRootSetupProgress,
-                    onRequestShizukuPermission = viewModel::requestShizukuPermission,
-                    onRefreshAgentModeAuthorization = viewModel::refreshAgentModeAuthorization,
                     onOpenShizuku = { openShizuku(context) },
                     onInstallShizuku = { openShizukuInstallPage(context) },
                     onReplayOnboarding = viewModel::openOnboardingFromSettings,
                     onReplayFollowUpOnboarding = viewModel::openFollowUpOnboardingFromSettings,
                     onReplayAlpineSetupPreview = viewModel::openDeveloperAlpineSetupPreview,
-                    onStopAgentModeDisplay = viewModel::stopAgentModeDisplay,
-                    onRefreshAgentModeDisplays = viewModel::refreshAgentModeDisplays,
                     onOpenWebsite = { openExternalUrl(context, AetherWebsiteUrl) },
                     onOpenGitHub = { openExternalUrl(context, AetherGitHubUrl) },
                     onOpenPrivacyPolicy = { openExternalUrl(context, AetherPrivacyPolicyUrl) },
@@ -1230,6 +1187,25 @@ private fun AetherAppContent(
                 onOpenPolicy = { openPrivacyPolicy(context) },
                 onAccept = viewModel::acceptPrivacyPolicy,
                 onDecline = { context.findActivity()?.finishAffinity() },
+            )
+        }
+        if (uiState.isStartupRouteResolved && uiState.settings.privacyPolicyAccepted &&
+            uiState.showPhoneUsePermissionDialog && !com.zhousl.aether.BuildConfig.SHOWCASE_MODE) {
+            AlertDialog(
+                onDismissRequest = viewModel::dismissPhoneUsePermissionDialog,
+                title = { Text(stringResource(R.string.phone_use_permission_title)) },
+                text = { Text(stringResource(R.string.phone_use_permission_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.dismissPhoneUsePermissionDialog()
+                        com.zhousl.aether.phoneuse.PhoneUseAccessibilityService.openSettings(context)
+                    }) { Text(stringResource(R.string.settings_grant_access)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::dismissPhoneUsePermissionDialog) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                },
             )
         }
         val availableUpdate = uiState.appUpdate.availableRelease
@@ -1490,14 +1466,6 @@ internal fun shouldAutoRequestTermuxPermission(
     privacyPolicyAccepted &&
     setupIssue == TermuxSetupIssue.PermissionMissing &&
     !didAutoRequest
-
-internal fun shouldRequestTermuxPermissionBeforeRootSetup(
-    setupIssue: TermuxSetupIssue,
-): Boolean = setupIssue == TermuxSetupIssue.PermissionMissing
-
-internal fun shouldResumeRootSetupAfterTermuxPermission(
-    rootSetupIssue: com.zhousl.aether.data.RootSetupIssue,
-): Boolean = rootSetupIssue == com.zhousl.aether.data.RootSetupIssue.TermuxNotInstalled
 
 private fun normalizeAssistantLink(rawLink: String): String {
     val trimmed = rawLink.trim().removeSurrounding("<", ">")

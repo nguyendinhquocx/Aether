@@ -44,7 +44,7 @@ class AetherToolExecutor(
             } else {
                 JSONObject()
                     .put("ok", false)
-                    .put("errmsg", "Agent Mode is not enabled for this chat.")
+                    .put("errmsg", "Phone Use is not enabled for this chat.")
                     .toString()
             }
 
@@ -223,10 +223,12 @@ private fun agentModeToolDefinition(): JSONObject = JSONObject().apply {
     put("name", "agent_display")
     put(
         "description",
-        "Operate Aether Agent Mode on an isolated Android virtual display. Use this only when Agent Mode is selected in the chat composer. " +
-            "tap/swipe coordinates are normalized 0..1000 on each axis, independent of resolution; values above 1000 are rejected. " +
-            "Results report width/height (display pixels), image_width/image_height (screenshot pixels), " +
-            "cursor_norm_x/cursor_norm_y (last touch point, normalized) and cursor_x/cursor_y (the same point in display pixels).",
+        "Operate Phone Use through Android Accessibility on the foreground screen, or a Virtual Display when configured. " +
+            "Default observations and action results are element trees. Prefer node_id for tap/click, long_click, text, and scroll. " +
+            "observe/start and action results follow the configured input strategy. Use tree/screenshot or input_strategy to request an alternative only when strategy switching is allowed. Unrelated content events do not expire IDs: the target is refreshed and checked at execution. Target errors include a fresh observation when permitted. Use visible, enabled, actionable elements; never guess a replacement by index. " +
+            "Coordinate tap/swipe is available as a fallback, normalized 0..1000 on each axis. " +
+            "When finished, stop with return_to_aether=true can bring the user back to Aether (foreground mode only). Omit it to leave the result visible in the controlled app. " +
+            "Use only when Phone Use is selected in the composer; foreground actions change the screen visible to the user.",
     )
     put(
         "parameters",
@@ -235,11 +237,21 @@ private fun agentModeToolDefinition(): JSONObject = JSONObject().apply {
             put(
                 "properties",
                 JSONObject().apply {
-                    put("action", stringProperty("One of: list_apps, start, status, launch, tap, swipe, key, text, screenshot, stop."))
+                    put("action", stringProperty("One of: list_apps, start, observe, tree, status, launch, tap, click, long_click, scroll, swipe, key, text, screenshot, stop."))
+                    put("return_to_aether", booleanProperty("For stop, foreground mode only: optionally return the user to Aether after finishing. Defaults to false; omit to leave the controlled app visible."))
+                    put("input_strategy", stringProperty("Optional observation override for this action: element_tree_first or screenshot_first. Requires alternative strategy switching to be allowed."))
+                    put("output_strategy", stringProperty("Optional output strategy for this action: element_first or gesture_first. node_id selects elements; coordinates select gestures. Requires switching permission for alternatives."))
+                    put("node_id", stringProperty("Element ID from the latest tree. Required for scroll; preferred for tap, click, long_click, and text."))
+                    put("direction", stringProperty("For scroll: forward/backward, down/up, or right/left."))
                     put("query", stringProperty("For list_apps: optional app label, package, or activity filter."))
                     put("include_system", booleanProperty("For list_apps: whether to include system apps."))
                     put("max_results", integerProperty("For list_apps: maximum number of apps to return."))
                     put("target", stringProperty("For launch: package name or exact app label."))
+                    put("orientation", stringProperty(
+                        "For start/launch in Virtual Display mode only: device, portrait, or landscape. " +
+                            "Uses the saved preference when omitted. Overrides last until stop; changing orientation recreates " +
+                            "the display, so start must be followed by launch. Foreground mode rejects this parameter."
+                    ).put("enum", JSONArray().put("device").put("portrait").put("landscape")))
                     listOf("x", "y", "x1", "y1", "x2", "y2").forEach { key ->
                         val axis = if (key.startsWith("x")) "width" else "height"
                         put(
@@ -252,12 +264,12 @@ private fun agentModeToolDefinition(): JSONObject = JSONObject().apply {
                         )
                     }
                     put("duration_ms", integerProperty("For swipe: gesture duration in milliseconds (50..10000)."))
-                    put("key", stringProperty("For key: Android key code name or number."))
+                    put("key", stringProperty("For key: BACK, HOME, RECENTS, NOTIFICATIONS, QUICK_SETTINGS (foreground only), or ENTER."))
                     put(
                         "text",
                         stringProperty(
-                            "For text: text to insert into the focused field; any Unicode (Chinese, emoji, ...) is supported. " +
-                                "Tap the field first and confirm it is focused. Fails if no window on the display has input focus.",
+                            "For text: replace the contents of an editable node_id (preferred), or the focused field. Unicode is supported. " +
+                                "Empty text clears the field. Without node_id, a focused editable field is required.",
                         ),
                     )
                 },

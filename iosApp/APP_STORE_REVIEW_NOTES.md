@@ -16,7 +16,7 @@ runtime and can reach iOS services only through the fixed, reviewed Aether host
 bridge. Kotlin/DEX native mods are disabled on iOS.
 
 iOS Chrome support is intentionally not exposed in this release. Termux,
-runtime selection, Agent Mode, Root/Shizuku, scheduled tasks, persistent
+runtime selection, Phone Use, Root/Shizuku, scheduled tasks, persistent
 background execution, and native mods are also unavailable on iOS.
 
 ## Network use

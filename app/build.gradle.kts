@@ -42,7 +42,7 @@ val appVersionName = providers.gradleProperty("aether.versionName")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "2.1.6"
+    ?: "2.1.7"
 val piBridgeProjectDir = rootProject.layout.projectDirectory.dir("pi-bridge")
 val piBridgeGeneratedAssetsDir = layout.buildDirectory.dir("generated/assets/piBridge")
 val preinstalledExtensionsDir = rootProject.layout.projectDirectory.dir("extensions")
@@ -220,6 +220,10 @@ android {
         disable += "ExpiredTargetSdkVersion"
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     sourceSets {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
@@ -275,6 +279,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.squareup.okhttp.mockwebserver)
     testImplementation(libs.json)
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation(libs.junit4)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.sqlite.bundled)

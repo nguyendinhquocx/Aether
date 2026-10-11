@@ -215,6 +215,221 @@ private let nativeSettingsPersianTranslations: [String: String] = [
     "Working...": "در حال انجام...",
 ]
 
+private let nativeSettingsRussianTranslations: [String: String] = [
+    "API key": "API-ключ",
+    "About": "О программе",
+    "Account authorized.": "Аккаунт авторизован.",
+    "Add": "Добавить",
+    "Add Provider": "Добавить провайдера",
+    "Add Skill": "Добавить навык",
+    "Add a provider to choose models for Aether.": "Добавьте провайдера, чтобы выбрать модели для Aether.",
+    "Add provider": "Добавить провайдера",
+    "Advanced settings": "Расширенные настройки",
+    "Agent Skills": "Навыки агента",
+    "Allowed tools": "Разрешенные инструменты",
+    "Any": "Любой",
+    "App data": "Данные приложения",
+    "Authenticate": "Аутентификация",
+    "Authentication": "Аутентификация",
+    "Author": "Автор",
+    "Automatic": "Автоматически",
+    "Automatically clean old history": "Автоматически очищать старую историю",
+    "Available Models": "Доступные модели",
+    "Average latency": "Средняя задержка",
+    "Average speed": "Средняя скорость",
+    "Average turn": "Средний шаг",
+    "Back": "Назад",
+    "Back up or restore settings, providers, skills, and conversations.": "Резервное копирование и восстановление настроек, провайдеров, навыков и диалогов.",
+    "Base URL": "Базовый URL",
+    "Browser login": "Вход через браузер",
+    "Cache tokens": "Кэшировать токены",
+    "Cached read": "Чтение из кэша",
+    "Cached write": "Запись в кэш",
+    "Cancel": "Отмена",
+    "Check your connection and try again.": "Проверьте подключение и повторите попытку.",
+    "Choose Folder": "Выбрать папку",
+    "Choose Zip": "Выбрать Zip",
+    "Choose a login method and finish authorization.": "Выберите метод входа и завершите авторизацию.",
+    "Choose a provider": "Выберите провайдера",
+    "Choose backup": "Выберите резервную копию",
+    "Choose models": "Выберите модели",
+    "Choose the language used throughout Aether.": "Выберите язык, используемый в Aether.",
+    "Command history": "История команд",
+    "Compatibility": "Совместимость",
+    "Compatibility mode": "Режим совместимости",
+    "Compatibility warning": "Предупреждение о совместимости",
+    "Configure credentials": "Настроить учетные данные",
+    "Configure credentials provided by the runtime environment.": "Настройте учетные данные, предоставляемые средой выполнения.",
+    "Connect your provider": "Подключите провайдера",
+    "Connect your subscription account to continue.": "Подключите ваш аккаунт по подписке для продолжения.",
+    "Connection": "Подключение",
+    "Continue": "Продолжить",
+    "Continue authentication": "Продолжить аутентификацию",
+    "Copy": "Копировать",
+    "Credentials are read from the provider environment.": "Учетные данные считываются из среды провайдера.",
+    "Credentials configured": "Учетные данные настроены",
+    "Custom headers": "Пользовательские заголовки",
+    "Custom instructions": "Пользовательские инструкции",
+    "Dark": "Темная",
+    "Data and diagnostics": "Данные и диагностика",
+    "Day": "День",
+    "Default Models": "Модели по умолчанию",
+    "Delete": "Удалить",
+    "Dependencies": "Зависимости",
+    "Developer": "Разработчик",
+    "Developer message fallbacks": "Резервные сообщения разработчика",
+    "Device code login": "Вход по коду устройства",
+    "Diagnostics": "Диагностика",
+    "Disconnect": "Отключить",
+    "Discover": "Обзор",
+    "Done": "Готово",
+    "Downloads": "Загрузки",
+    "Edit": "Изменить",
+    "Edit Provider": "Редактировать провайдера",
+    "Enabled": "Включено",
+    "Enter an API key or use the provider's credential flow.": "Введите API-ключ или используйте авторизацию провайдера.",
+    "Environment": "Среда",
+    "Environment Presets": "Пресеты среды",
+    "Environment variables": "Переменные среды",
+    "Existing local data will be replaced by the selected backup.": "Существующие локальные данные будут заменены выбранной резервной копией.",
+    "Export": "Экспорт",
+    "Export app data": "Экспорт данных приложения",
+    "Export app data?": "Экспортировать данные приложения?",
+    "Export logs": "Экспорт журналов",
+    "Failed": "Ошибка",
+    "Fetch models": "Получить модели",
+    "Files": "Файлы",
+    "General Settings": "Основные настройки",
+    "Git & Search Tools": "Инструменты Git и поиска",
+    "History": "История",
+    "How do you want to authenticate?": "Как вы хотите авторизоваться?",
+    "Idle timeout": "Тайм-аут бездействия",
+    "Import Extension": "Импорт расширения",
+    "Import app data": "Импорт данных приложения",
+    "Import app data?": "Импортировать данные приложения?",
+    "Initialize": "Инициализировать",
+    "Input": "Ввод",
+    "Install": "Установить",
+    "Install common development tools into the Alpine environment.": "Установить общие инструменты разработки в среду Alpine.",
+    "Install from URL": "Установить по URL",
+    "Installed": "Установлено",
+    "Installing...": "Установка...",
+    "Keep tasks running in background": "Оставлять задачи в фоновом режиме",
+    "Language": "Язык",
+    "Largest turn": "Самый большой шаг",
+    "License": "Лицензия",
+    "Light": "Светлая",
+    "Loading extensions...": "Загрузка расширений...",
+    "Loading package...": "Загрузка пакета...",
+    "Local": "Локально",
+    "Manual model IDs, one per line": "Идентификаторы моделей вручную, по одному на строку",
+    "Method": "Метод",
+    "Model Providers": "Провайдеры моделей",
+    "Models": "Модели",
+    "Multitasking": "Многозадачность",
+    "Name": "Имя",
+    "No Pi extensions installed": "Расширения Pi не установлены",
+    "No extensions found": "Расширения не найдены",
+    "No models were returned. Add a model ID above or try again.": "Модели не найдены. Добавьте ID модели выше или повторите попытку.",
+    "No providers": "Нет провайдеров",
+    "No providers found": "Провайдеры не найдены",
+    "No skills installed": "Навыки не установлены",
+    "Node Environment": "Среда Node",
+    "Not installed": "Не установлено",
+    "Notify when tasks finish": "Уведомлять о завершении задач",
+    "Open": "Открыть",
+    "Open authorization page": "Открыть страницу авторизации",
+    "Open verification page": "Открыть страницу проверки",
+    "Output": "Вывод",
+    "Overview": "Обзор",
+    "Package Information": "Информация о пакете",
+    "Package details unavailable": "Сведения о пакете недоступны",
+    "Path": "Путь",
+    "Peak day": "Пиковый день",
+    "Personalization": "Персонализация",
+    "Pi Extensions": "Расширения Pi",
+    "Privacy Policy": "Политика конфиденциальности",
+    "Prompt extensions may not work in this environment.": "Расширения промптов могут не работать в этой среде.",
+    "Provider": "Провайдер",
+    "Provider ID": "ID провайдера",
+    "Provider ID is required.": "Требуется ID провайдера.",
+    "Published": "Опубликовано",
+    "Python Environment": "Среда Python",
+    "Ready": "Готово",
+    "Reasoning": "Рассуждение",
+    "Recent 7 days": "Последние 7 дней",
+    "Recent speed": "Текущая скорость",
+    "Reconnect": "Переподключиться",
+    "Recorded turns": "Записанные шаги",
+    "Refresh": "Обновить",
+    "Reinstall": "Переустановить",
+    "Release": "Релиз",
+    "Reliability": "Надежность",
+    "Remote": "Удаленно",
+    "Remove": "Удалить",
+    "Remove Skill": "Удалить навык",
+    "Replay Alpine setup preview": "Повторить предпросмотр настройки Alpine",
+    "Replay follow-up onboarding": "Повторить последующее обучение",
+    "Repository": "Репозиторий",
+    "Reset": "Сброс",
+    "Reset Alpine Data": "Сбросить данные Alpine",
+    "Reset Alpine data?": "Сбросить данные Alpine?",
+    "Retention": "Хранение",
+    "Retry": "Повторить",
+    "SSH Tools": "Инструменты SSH",
+    "Sample": "Образец",
+    "Save": "Сохранить",
+    "Search providers": "Поиск провайдеров",
+    "Sessions": "Сессии",
+    "Settings": "Настройки",
+    "Setup previews": "Предпросмотр настройки",
+    "Setup required": "Требуется настройка",
+    "Sign in with an account or subscription.": "Войдите с помощью аккаунта или подписки.",
+    "Sign in with browser": "Войти через браузер",
+    "Sign in with device code": "Войти по коду устройства",
+    "Size": "Размер",
+    "Source": "Источник",
+    "Status": "Статус",
+    "Step": "Шаг",
+    "Submit": "Отправить",
+    "Subscription": "Подписка",
+    "System": "Как в системе",
+    "Terminal": "Терминал",
+    "The Alpine environment stays inside Aether's private app storage.": "Среда Alpine хранится в частном хранилище приложения Aether.",
+    "The backup may contain conversation content and API credentials. Store it securely.": "Резервная копия может содержать содержимое диалогов и учетные данные API. Храните ее в безопасности.",
+    "The export redacts stored credentials and includes runtime diagnostics.": "Экспорт скрывает сохраненные учетные данные и включает диагностику среды выполнения.",
+    "Theme": "Тема",
+    "Theme extensions are not supported here.": "Расширения тем здесь не поддерживаются.",
+    "These instructions are included when Aether starts an agent turn.": "Эти инструкции включаются, когда Aether начинает шаг агента.",
+    "These providers rejected the developer message role, so Aether uses system messages for them. Turn a provider off to try developer messages again.": "Эти провайдеры отклонили роль сообщения разработчика, поэтому Aether использует для них системные сообщения. Отключите провайдера, чтобы снова попробовать сообщения разработчика.",
+    "This extension may not be compatible with the current platform.": "Это расширение может быть несовместимо с текущей платформой.",
+    "This extension requires interactive terminal UI features.": "Этому расширению требуются функции интерактивного интерфейса терминала.",
+    "This provider ID is already in use.": "Этот ID провайдера уже используется.",
+    "This removes the runtime and all files stored inside it.": "Это удалит среду выполнения и все сохраненные в ней файлы.",
+    "Token and session activity": "Активность токенов и сессий",
+    "Token history": "История токенов",
+    "Token mix": "Состав токенов",
+    "Total tokens": "Всего токенов",
+    "Type": "Тип",
+    "Types": "Типы",
+    "Unavailable": "Недоступно",
+    "Update": "Обновить",
+    "Updating skills...": "Обновление навыков...",
+    "Usage Statistics": "Статистика использования",
+    "Use a provider-issued API key.": "Используйте API-ключ, выданный провайдером.",
+    "Use as Default Runtime": "Использовать как среду выполнения по умолчанию",
+    "Use credentials already available in the runtime.": "Используйте учетные данные, уже доступные в среде выполнения.",
+    "Use lowercase letters, numbers, and underscores only.": "Используйте только строчные буквы, цифры и символы подчеркивания.",
+    "Use the system appearance or choose a fixed theme.": "Используйте системное оформление или выберите фиксированную тему.",
+    "User agent": "User Agent",
+    "Value": "Значение",
+    "Version": "Версия",
+    "Version ": "Версия ",
+    "View": "Просмотр",
+    "Website": "Веб-сайт",
+    "Working...": "Обработка...",
+]
+
 @MainActor
 final class NativeSettingsModel: NSObject, ObservableObject, @preconcurrency IosNativeSettingsListener {
     @Published var snapshot: [String: Any] = [:]
@@ -256,10 +471,11 @@ final class NativeSettingsModel: NSObject, ObservableObject, @preconcurrency Ios
     var language: String { string(settings, "language", fallback: "en") }
     var themeMode: String { string(settings, "themeMode", fallback: "system") }
 
-    func text(_ english: String, _ chinese: String, _ persian: String? = nil) -> String {
+    func text(_ english: String, _ chinese: String, _ persian: String? = nil, _ russian: String? = nil) -> String {
         switch language {
         case "zh-CN": chinese
         case "fa": persian ?? nativeSettingsPersianTranslations[english] ?? english
+        case "ru": russian ?? nativeSettingsRussianTranslations[english] ?? english
         default: english
         }
     }
@@ -443,6 +659,7 @@ struct NativeSettingsView: View {
         switch value {
         case "zh-CN": "简体中文"
         case "fa": "فارسی"
+        case "ru": "Русский"
         default: "English"
         }
     }
@@ -466,6 +683,7 @@ private struct NativeGeneralSettingsView: View {
                     Text("English").tag("en")
                     Text("简体中文").tag("zh-CN")
                     Text("فارسی").tag("fa")
+                    Text("Русский").tag("ru")
                 }
                 .accessibilityLabel("\(languageLabel), Language")
             } header: {
@@ -499,7 +717,7 @@ private struct NativeGeneralSettingsView: View {
     }
 
     private var languageLabel: String {
-        switch model.language { case "zh-CN": "简体中文"; case "fa": "فارسی"; default: "English" }
+        switch model.language { case "zh-CN": "简体中文"; case "fa": "فارسی"; case "ru": "Русский"; default: "English" }
     }
 
     private var themeLabel: String {
@@ -2529,7 +2747,7 @@ private struct NativeAboutSettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.top, 24)
                 Text("Aether").font(.largeTitle.bold())
-                Text(model.text("Release \(version)", "正式版 \(version)", "نسخه \(version)"))
+                Text(model.text("Release \(version)", "正式版 \(version)", "نسخه \(version)", "Версия \(version)"))
                     .font(.subheadline).foregroundStyle(.secondary)
                 VStack(spacing: 0) {
                     aboutRow(model.text("Author", "作者"), "Zhou-Shilin")

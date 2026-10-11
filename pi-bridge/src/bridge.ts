@@ -3046,6 +3046,32 @@ async function runNativeAgentTurn(id: string, payload: JsonObject): Promise<Json
   const messages = normalizeMessages(payload.messages);
   const prompt = promptFromLastUserMessage(messages);
   const { state, reused } = await prepareNativeAgentSession(payload, prompt.history);
+  // Navigation must happen AFTER preparation: a model/tool/skill change can
+  // recreate AgentSession and reopen the JSONL's last appended (old) leaf.
+  // Keeping the fork in run_turn also survives bridge restarts between turns.
+  if (payload.session_branch !== undefined) {
+    const branch = payload.session_branch;
+    if (!branch || typeof branch !== "object" || Array.isArray(branch)) {
+      throw new Error("session_branch must be an object.");
+    }
+    const entryId = asString(asObject(branch).entry_id).trim();
+    const navigation = await navigateNativeAgentSession(id, {
+      session_id: state.sessionId,
+      entry_id: entryId,
+      reset: !entryId,
+      summarize: false,
+    });
+    if (asBoolean(asObject(navigation.navigation).cancelled, false) ||
+        state.session.sessionManager.getLeafId() !== (entryId || null)) {
+      throw new Error("Pi session branch navigation was cancelled or did not reach the requested entry.");
+    }
+    if (!entryId) {
+      // Imported/legacy conversations may lack Pi entry refs. Rebuild only the
+      // caller's already-truncated prefix; preserve old entries in the tree.
+      prompt.history.forEach((message) => state.session.sessionManager.appendMessage(message as never));
+    }
+    state.session.agent.state.messages = state.session.sessionManager.buildSessionProjection().messages;
+  }
   const requestedThinkingLevel = thinkingLevelFor(payload) ?? "off";
   state.session.setThinkingLevel(requestedThinkingLevel);
   bridgeDiagnostic("agent_turn_thinking_level", {

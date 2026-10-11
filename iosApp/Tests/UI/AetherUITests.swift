@@ -201,7 +201,7 @@ final class AetherUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["About"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Termux"].exists)
         XCTAssertFalse(app.staticTexts["Runtime defaults"].exists)
-        XCTAssertFalse(app.staticTexts["Agent Mode"].exists)
+        XCTAssertFalse(app.staticTexts["Phone Use"].exists)
         XCTAssertFalse(app.staticTexts["Scheduled Tasks"].exists)
 
         XCUIDevice.shared.orientation = .landscapeLeft

@@ -2043,28 +2043,6 @@ fun IosComposeApp(
                 val isReasoningModel = modelKey in reasoningModels
                 val reasoningEffort = sharedAppSettings.reasoningEffort
                 val reasoningEnabled = isReasoningModel
-                if (mappedPiEntryId != null || shouldResetPiBranch) {
-                    runSharedAppCatching {
-                        bridgeClient.navigateSession(
-                            sessionId = target.id,
-                            entryId = mappedPiEntryId.orEmpty(),
-                            reset = mappedPiEntryId == null && shouldResetPiBranch,
-                            modelConfig = config.toSharedPiModelConfig(
-                                timeoutMillis = sharedAppSettings.llmInactivityReconnectTimeoutSeconds
-                                    .coerceIn(30, 3_600) * 1_000,
-                                reasoningEnabled = reasoningEnabled,
-                                thinkingLevelMap = thinkingLevelMap,
-                                modelsDevThinkingLevels = thinkingLevelsByProviderModel[modelKey],
-                                modelsDevLimits = modelLimitsByProviderModel[modelKey],
-                            ),
-                            workspaceDirectory = runtime.workspaceRoot,
-                            systemPrompt = sharedAppSettings.systemPrompt,
-                            runtime = "alpine",
-                            platform = "ios",
-                            workspaceTrusted = true,
-                        )
-                    }
-                }
                 val estimatedUsage = estimateSharedRequestTokenUsage(requestMessages)
                 val turnMessages = requestMessages.map { message ->
                     message.toPiChatMessage(
@@ -2112,6 +2090,11 @@ fun IosComposeApp(
                         isReasoningModel = isReasoningModel,
                         modelsDevThinkingLevels = thinkingLevelsByProviderModel[modelKey],
                         modelsDevLimits = modelLimitsByProviderModel[modelKey],
+                        sessionBranch = if (shouldResetPiBranch) {
+                            com.zhousl.aether.data.pi.PiSessionBranch(mappedPiEntryId)
+                        } else {
+                            null
+                        },
                         onAssistantTextDelta = { delta ->
                             backgroundLeases[target.id]?.update("Writing response")
                             reasoningTracker.finishDirectSummaryChunk()

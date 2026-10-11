@@ -169,8 +169,6 @@ private const val SharedToolInvocationCollapseThreshold = 3
 private const val SharedToolTransitionDurationMillis = 360
 private const val SharedToolGroupCollapseStageDelayMillis = 180L
 private const val SharedToolInvocationAutoExpandDelayMillis = 1_000L
-private const val SharedStreamingChunkFadeDurationMillis = 400
-private const val SharedStreamingInitialChunkFadeDurationMillis = 600
 private const val SharedMinimumWallClockMillis = 946_684_800_000L
 private val SharedToolGroupIndent = 14.dp
 private val SharedTimelineGlyphWidth = 22.dp
@@ -1463,20 +1461,12 @@ private fun SharedAssistantTextContent(
         Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
     } else {
         SelectionContainer {
-            if (isStreaming) {
-                SharedStreamingMarkdownContent(
-                    content = text,
-                    runtime = runtime,
-                    onOpenLink = onOpenLink,
-                )
-            } else {
-                SharedMarkdownContent(
-                    content = text,
-                    runtime = runtime,
-                    onOpenLink = onOpenLink,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            SharedStreamingMarkdownContent(
+                content = text,
+                runtime = runtime,
+                onOpenLink = onOpenLink,
+                isStreaming = isStreaming,
+            )
         }
     }
 }
@@ -1486,71 +1476,16 @@ private fun SharedStreamingMarkdownContent(
     content: String,
     runtime: MultiplatformLocalRuntime?,
     onOpenLink: (String) -> Unit,
+    isStreaming: Boolean = true,
 ) {
-    var trackedSource by remember { mutableStateOf("") }
-    var activeFadeRange by remember { mutableStateOf<IntRange?>(null) }
-    var activeFadeDurationMillis by remember {
-        mutableStateOf(SharedStreamingChunkFadeDurationMillis)
-    }
-    val fadeProgress = remember { Animatable(1f) }
-
-    LaunchedEffect(content) {
-        if (content.isBlank()) {
-            trackedSource = ""
-            activeFadeRange = null
-            fadeProgress.snapTo(1f)
-            return@LaunchedEffect
-        }
-        if (!content.startsWith(trackedSource)) {
-            trackedSource = ""
-            activeFadeRange = null
-            fadeProgress.snapTo(1f)
-        }
-        val deltaStart = trackedSource.length
-        val delta = content.removePrefix(trackedSource)
-        trackedSource = content
-        if (delta.isEmpty()) return@LaunchedEffect
-        activeFadeRange = deltaStart until content.length
-        activeFadeDurationMillis = if (deltaStart == 0) {
-            SharedStreamingInitialChunkFadeDurationMillis
-        } else {
-            SharedStreamingChunkFadeDurationMillis
-        }
-    }
-
-    LaunchedEffect(activeFadeRange, activeFadeDurationMillis) {
-        val range = activeFadeRange ?: return@LaunchedEffect
-        if (range.isEmpty()) {
-            fadeProgress.snapTo(1f)
-            return@LaunchedEffect
-        }
-        fadeProgress.snapTo(0f)
-        fadeProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = activeFadeDurationMillis,
-                easing = LinearEasing,
-            ),
+    StreamingRevealContent(source = content, isStreaming = isStreaming) { visibleMarkdown ->
+        SharedMarkdownContent(
+            content = visibleMarkdown,
+            runtime = runtime,
+            onOpenLink = onOpenLink,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
-
-    val fadeSpan = remember(content, activeFadeRange, fadeProgress.value) {
-        activeFadeRange?.let { range ->
-            val start = range.first.coerceIn(0, content.length)
-            val end = (range.last + 1).coerceIn(start, content.length)
-            if (end <= start) null else SharedMarkdownFadeSpan(
-                sourceRange = start until end,
-                alpha = fadeProgress.value.coerceIn(0f, 1f),
-            )
-        }
-    }
-    SharedMarkdownContent(
-        content = content,
-        runtime = runtime,
-        onOpenLink = onOpenLink,
-        modifier = Modifier.fillMaxWidth(),
-        fadeSpan = fadeSpan,
-    )
 }
 
 @Composable

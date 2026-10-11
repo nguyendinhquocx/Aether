@@ -5,6 +5,43 @@ import kotlin.test.assertEquals
 
 class AppSettingsSerializationTest {
     @Test
+    fun phoneUseDefaultsToAccessibilityAndPreservesExplicitVirtualDisplayChoices() {
+        assertEquals(AgentModeAuthorizationMethod.Accessibility, AppSettings().agentModeAuthorizationMethod)
+        assertEquals(AgentModeAuthorizationMethod.Accessibility, parseAppSettings("{}").agentModeAuthorizationMethod)
+        assertEquals(AgentModeAuthorizationMethod.Accessibility, AgentModeAuthorizationMethod.fromStorage("unknown"))
+        for (method in AgentModeAuthorizationMethod.entries) {
+            val settings = AppSettings(agentModeAuthorizationEnabled = true, agentModeAuthorizationMethod = method)
+            assertEquals(method, parseAppSettings(serializeAppSettings(settings)).agentModeAuthorizationMethod)
+            assertEquals(method, AgentModeAuthorizationMethod.fromStorage(method.storageValue))
+        }
+    }
+
+    @Test
+    fun phoneUseDefaultsAndExplicitPreferencesSurviveSerialization() {
+        val defaults = parseAppSettings("{}")
+        assertEquals(true, defaults.agentModeAuthorizationEnabled)
+        assertEquals(false, defaults.phoneUseVirtualDisplayEnabled)
+        assertEquals(AgentModeDisplayOrientation.Device, defaults.agentModeDisplayOrientation)
+        assertEquals(AgentModeDisplayOrientation.Device, AgentModeDisplayOrientation.fromStorage("unknown"))
+        assertEquals(true, defaults.phoneUseAllowStrategySwitch)
+        assertEquals(PhoneUseInputStrategy.ElementTreeFirst, defaults.phoneUseInputStrategy)
+        assertEquals(PhoneUseOutputStrategy.ElementFirst, defaults.phoneUseOutputStrategy)
+        val settings = defaults.copy(
+            agentModeAuthorizationEnabled = false,
+            agentModeAuthorizationMethod = AgentModeAuthorizationMethod.Shizuku,
+            phoneUseInputStrategy = PhoneUseInputStrategy.ScreenshotFirst,
+            phoneUseOutputStrategy = PhoneUseOutputStrategy.GestureFirst,
+            phoneUseAllowStrategySwitch = false,
+            phoneUseVirtualDisplayEnabled = true,
+            agentModeDisplayOrientation = AgentModeDisplayOrientation.Landscape,
+        )
+        assertEquals(settings, parseAppSettings(serializeAppSettings(settings)))
+        assertEquals(AgentModeAuthorizationMethod.Shizuku, settings.phoneUseAuthorizationMethod)
+        assertEquals(AgentModeAuthorizationMethod.Accessibility,
+            settings.copy(phoneUseVirtualDisplayEnabled = false).phoneUseAuthorizationMethod)
+    }
+
+    @Test
     fun completeSettingsRoundTrip() {
         val settings = AppSettings(
             piProviderId = "anthropic",
@@ -76,5 +113,17 @@ class AppSettingsSerializationTest {
         )
 
         assertEquals("", cache.source)
+    }
+
+    @Test
+    fun russianLanguageSerializationAndTagResolution() {
+        assertEquals(AppLanguage.Russian, appLanguageForTag("ru"))
+        assertEquals(AppLanguage.Russian, appLanguageForTag("ru-RU"))
+        assertEquals(AppLanguage.Russian, AppLanguage.fromStorage("ru"))
+
+        val settings = AppSettings(language = AppLanguage.Russian)
+        val serialized = serializeAppSettings(settings)
+        val parsed = parseAppSettings(serialized)
+        assertEquals(AppLanguage.Russian, parsed.language)
     }
 }

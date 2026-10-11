@@ -27,7 +27,7 @@ class AetherSelfManagementTool(
     fun toolDefinitions(): List<JSONObject> = listOf(
         buildAetherToolDefinition(
             name = "aether_config_get",
-            description = "Read Aether app configuration for general preferences, reliability, Skills, Termux, Agent Mode, scheduled tasks, and developer diagnostics. Provider and model configuration is intentionally omitted.",
+            description = "Read Aether app configuration for general preferences, reliability, Skills, Termux, Phone Use, scheduled tasks, and developer diagnostics. Provider and model configuration is intentionally omitted.",
             properties = JSONObject().apply {
                 put(
                     "categories",
@@ -100,13 +100,13 @@ class AetherSelfManagementTool(
         ),
         buildAetherToolDefinition(
             name = "aether_termux_manage",
-            description = "Inspect or repair Aether's Termux integration without using the bash tool. Root setup may trigger a system su request.",
+            description = "Inspect Aether's Termux integration without using the bash tool.",
             properties = JSONObject().apply {
                 put(
                     "action",
                     JSONObject().apply {
                         put("type", "string")
-                        put("enum", JSONArray(listOf("inspect_setup", "inspect_root_setup", "configure_root_access")))
+                        put("enum", JSONArray(listOf("inspect_setup")))
                     },
                 )
             },
@@ -135,7 +135,7 @@ class AetherSelfManagementTool(
         ),
         buildAetherToolDefinition(
             name = "aether_agent_mode_manage",
-            description = "Read or change Agent Mode authorization settings, refresh status, request Shizuku permission, and manage the current virtual display. Does not operate the display UI; use agent_display for that when Agent Mode is enabled for the chat.",
+            description = "Read or change Phone Use settings. Foreground control is the default; Virtual Display is a separate user-enabled preference requiring Root/Shizuku authorization in Settings. All modes require the user-enabled Accessibility service. Refresh status, request Shizuku permission, and manage the current virtual display. Does not operate the display UI; use agent_display for that when Phone Use is enabled for the chat.",
             properties = JSONObject().apply {
                 put(
                     "action",
@@ -161,7 +161,7 @@ class AetherSelfManagementTool(
                     "method",
                     JSONObject().apply {
                         put("type", "string")
-                        put("enum", JSONArray(listOf("root", "shizuku")))
+                        put("enum", JSONArray(listOf("accessibility", "root", "shizuku")))
                     },
                 )
             },
@@ -382,6 +382,10 @@ class AetherSelfManagementTool(
             )
 
             "agent_mode" -> current.copy(
+                agentModeDisplayOrientation = if (patch.has("display_orientation")) {
+                    AgentModeDisplayOrientation.entries.firstOrNull { it.storageValue == patch.optString("display_orientation") }
+                        ?: return failure("display_orientation must be device, portrait, or landscape.")
+                } else current.agentModeDisplayOrientation,
                 agentModeAuthorizationEnabled = if (
                     patch.hasAny("agent_mode_authorization_enabled", "authorization_enabled", "enabled")
                 ) {
@@ -412,6 +416,13 @@ class AetherSelfManagementTool(
             else -> return failure("Unsupported or read-only category '$category'.")
         }
         if (category == "agent_mode") {
+            if (current.phoneUseVirtualDisplayEnabled && updated.agentModeAuthorizationMethod != current.agentModeAuthorizationMethod) {
+                return failure("Change the Virtual Display authorization method in Settings > Phone Use.")
+            }
+            if (updated.agentModeDisplayOrientation != current.agentModeDisplayOrientation) {
+                if (current.phoneUseVirtualDisplayEnabled) agentModeController.stopDisplay()
+                settingsRepository.updateAgentModeDisplayOrientation(updated.agentModeDisplayOrientation)
+            }
             settingsRepository.updateAgentModeAuthorization(
                 updated.agentModeAuthorizationEnabled,
                 updated.agentModeAuthorizationMethod,
@@ -481,21 +492,6 @@ class AetherSelfManagementTool(
         val arguments = parseArguments(argumentsJson) ?: return invalidJson()
         return when (val action = arguments.optString("action").trim().lowercase(Locale.US)) {
             "inspect_setup" -> success(JSONObject().put("termux", termuxSetupStateJson(bashTool.inspectSetup())))
-            "inspect_root_setup" -> success(JSONObject().put("root_setup", rootSetupStateJson(rootSetupController.inspect())))
-            "configure_root_access" -> {
-                val rootState = rootSetupController.configureLocalAccess()
-                success(JSONObject().put("root_setup", rootSetupStateJson(rootState))) {
-                    put(
-                        "stdout",
-                        if (rootState.isReady) {
-                            "Root setup completed."
-                        } else {
-                            "Root setup did not complete: ${rootState.detail.ifBlank { rootState.issue.name }}"
-                        },
-                    )
-                }
-            }
-
             else -> failure("Unsupported Termux action '$action'.")
         }
     }
@@ -520,20 +516,23 @@ class AetherSelfManagementTool(
                         }
                         ?: current.agentModeAuthorizationMethod,
                 )
+                if (current.phoneUseVirtualDisplayEnabled && updated.agentModeAuthorizationMethod != current.agentModeAuthorizationMethod) {
+                    return failure("Change the Virtual Display authorization method in Settings > Phone Use.")
+                }
                 settingsRepository.updateAgentModeAuthorization(
                     updated.agentModeAuthorizationEnabled,
                     updated.agentModeAuthorizationMethod,
                 )
                 agentModeController.refreshAuthorization(updated)
                 success(JSONObject().put("agent_mode", agentModeSettingsJson(updated))) {
-                    put("stdout", "Updated Agent Mode authorization settings.")
+                    put("stdout", "Updated Phone Use authorization settings.")
                 }
             }
 
             "refresh_authorization" -> {
                 agentModeController.refreshAuthorization(current)
                 success(JSONObject().put("agent_mode", agentModeSettingsJson(current))) {
-                    put("stdout", "Refreshed Agent Mode authorization.")
+                    put("stdout", "Refreshed Phone Use authorization.")
                 }
             }
 
@@ -547,18 +546,18 @@ class AetherSelfManagementTool(
             "stop_display" -> {
                 agentModeController.stopDisplay()
                 success(JSONObject().put("display", agentModeDisplayStateJson(agentModeController.displayState.value))) {
-                    put("stdout", "Stopped Agent Mode display if one was active.")
+                    put("stdout", "Stopped Phone Use display if one was active.")
                 }
             }
 
             "refresh_displays" -> {
                 agentModeController.refreshDisplays(current)
                 success(JSONObject().put("display", agentModeDisplayStateJson(agentModeController.displayState.value))) {
-                    put("stdout", "Refreshed Agent Mode display list.")
+                    put("stdout", "Refreshed Phone Use display list.")
                 }
             }
 
-            else -> failure("Unsupported Agent Mode action '$action'.")
+            else -> failure("Unsupported Phone Use action '$action'.")
         }
     }
 
@@ -795,6 +794,12 @@ class AetherSelfManagementTool(
 
     private fun agentModeSettingsJson(settings: AppSettings): JSONObject =
         JSONObject()
+            .put("enabled", settings.agentModeAuthorizationEnabled)
+            .put("input_strategy", settings.phoneUseInputStrategy.storageValue)
+            .put("output_strategy", settings.phoneUseOutputStrategy.storageValue)
+            .put("allow_strategy_switch", settings.phoneUseAllowStrategySwitch)
+            .put("virtual_display_enabled", settings.phoneUseVirtualDisplayEnabled)
+            .put("display_orientation", settings.agentModeDisplayOrientation.storageValue)
             .put("authorization_enabled", settings.agentModeAuthorizationEnabled)
             .put("authorization_method", settings.agentModeAuthorizationMethod.storageValue)
             .put("authorization", agentModeAuthorizationStateJson(agentModeController.authorizationState.value))

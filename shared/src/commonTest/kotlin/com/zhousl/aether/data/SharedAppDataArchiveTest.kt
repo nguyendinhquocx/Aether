@@ -23,6 +23,22 @@ import kotlinx.serialization.json.jsonPrimitive
 
 class SharedAppDataArchiveTest {
     @Test
+    fun phoneUsePreferencesSurviveCrossPlatformArchive() {
+        val archive = decodeSharedAppDataArchive(archiveJson(currentSessionId = "draft", includeSession = false))
+        val settings = archive.settings.copy(
+            agentModeAuthorizationEnabled = false,
+            agentModeAuthorizationMethod = AgentModeAuthorizationMethod.Root,
+            phoneUseInputStrategy = PhoneUseInputStrategy.ScreenshotFirst,
+            phoneUseOutputStrategy = PhoneUseOutputStrategy.GestureFirst,
+            phoneUseAllowStrategySwitch = false,
+            phoneUseVirtualDisplayEnabled = true,
+            agentModeDisplayOrientation = AgentModeDisplayOrientation.Landscape,
+        )
+        val decoded = decodeSharedAppDataArchive(encodeSharedAppDataArchive(archive.copy(settings = settings)))
+        assertEquals(settings, decoded.settings)
+    }
+
+    @Test
     fun androidDraftCurrentSessionIsPreservedWithHistoricalSessions() {
         val decoded = decodeSharedAppDataArchive(
             archiveJson(currentSessionId = "draft", includeSession = true),
