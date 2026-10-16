@@ -1,0 +1,20 @@
+<resources>
+    <string name="workspace_scheduled_tasks">Scheduled Tasks</string>
+    <string name="workspace_skills">Skills</string>
+    <string name="workspace_files">Files</string>
+    <string name="workspace_terminal">Terminal</string>
+    <string name="workspace_agent_computer">Agent’s computer</string>
+    <string name="workspace_read_only">Read only</string>
+    <string name="workspace_auto_switch">Automatically follow Agent activity</string>
+    <string name="workspace_context">Context usage</string>
+    <string name="workspace_unknown">Unknown</string>
+    <string name="workspace_exit_code">Exit code %1$d</string>
+    <string name="workspace_execution_interrupted">Execution interrupted</string>
+    <string name="workspace_runtime_not_ready">Alpine is not ready. Initialize it in Settings.</string>
+    <string name="workspace_latest_output">Latest output</string>
+    <string name="workspace_scrollback_limit">Earlier output was trimmed to the scrollback limit.</string>
+    <string name="workspace_show_computer">Show Agent’s computer</string>
+    <string name="workspace_hide_computer">Hide Agent’s computer</string>
+    <string name="workspace_browser">Browser</string>
+    <string name="workspace_browser_waiting">Waiting for the Agent to use the browser.</string>
+</resources>

@@ -45,17 +45,34 @@ struct AlpineFileEntry: Identifiable, Hashable {
 
 struct AlpineFileManagerView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedFile: AlpineFileEntry?
+    @State private var preferredColumn = NavigationSplitViewColumn.sidebar
+    @State private var fileModels: [String: AlpineFileModel] = [:]
     let host: AetherRuntimeHost
 
+    private func open(_ entry: AlpineFileEntry) {
+        if fileModels[entry.path] == nil { fileModels[entry.path] = AlpineFileModel(host: host, entry: entry) }
+        selectedFile = entry
+        preferredColumn = .detail
+    }
+
     var body: some View {
-        NavigationStack {
-            AlpineDirectoryView(host: host, path: "/")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
+        NavigationSplitView(preferredCompactColumn: $preferredColumn) {
+            NavigationStack {
+                AlpineDirectoryView(host: host, path: "/", onOpenFile: open)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            }
+            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+        } detail: {
+            NavigationStack {
+                if let entry = selectedFile, let model = fileModels[entry.path] {
+                    AlpineFileView(model: model).id(entry.path)
+                } else {
+                    ContentUnavailableView("Select a file", systemImage: "doc.text")
                 }
+            }
         }
+        .navigationSplitViewStyle(.balanced)
     }
 }
 
@@ -192,6 +209,7 @@ private struct AlpineDirectoryView: View {
     private enum NewItemKind { case file, folder }
     private enum ImportKind { case files, folder }
 
+    private let onOpenFile: ((AlpineFileEntry) -> Void)?
     @StateObject private var model: AlpineDirectoryModel
     @State private var query = ""
     @State private var newItemKind: NewItemKind?
@@ -200,7 +218,8 @@ private struct AlpineDirectoryView: View {
     @State private var pendingDeletion: AlpineFileEntry?
     @State private var importKind: ImportKind?
 
-    init(host: AetherRuntimeHost, path: String) {
+    init(host: AetherRuntimeHost, path: String, onOpenFile: ((AlpineFileEntry) -> Void)? = nil) {
+        self.onOpenFile = onOpenFile
         _model = StateObject(wrappedValue: AlpineDirectoryModel(host: host, path: path))
     }
 
@@ -216,24 +235,26 @@ private struct AlpineDirectoryView: View {
                 )
             } else {
                 List(model.visibleEntries(matching: query)) { entry in
-                    NavigationLink {
-                        if entry.isDirectory {
-                            AlpineDirectoryView(host: model.host, path: entry.path)
+                    Group {
+                        if !entry.isDirectory, let onOpenFile {
+                            Button { onOpenFile(entry) } label: { AlpineFileRow(entry: entry) }.buttonStyle(.plain)
                         } else {
-                            AlpineFileView(host: model.host, entry: entry)
+                            NavigationLink {
+                                if entry.isDirectory {
+                                    AlpineDirectoryView(host: model.host, path: entry.path, onOpenFile: onOpenFile)
+                                } else { AlpineFileView(host: model.host, entry: entry) }
+                            } label: { AlpineFileRow(entry: entry) }
                         }
-                    } label: {
-                        AlpineFileRow(entry: entry)
                     }
                     .contextMenu {
-                        NavigationLink {
-                            if entry.isDirectory {
-                                AlpineDirectoryView(host: model.host, path: entry.path)
-                            } else {
-                                AlpineFileView(host: model.host, entry: entry)
-                            }
-                        } label: {
-                            Label("Open", systemImage: entry.isDirectory ? "folder" : "doc")
+                        if !entry.isDirectory, let onOpenFile {
+                            Button { onOpenFile(entry) } label: { Label("Open", systemImage: "doc") }
+                        } else {
+                            NavigationLink {
+                                if entry.isDirectory {
+                                    AlpineDirectoryView(host: model.host, path: entry.path, onOpenFile: onOpenFile)
+                                } else { AlpineFileView(host: model.host, entry: entry) }
+                            } label: { Label("Open", systemImage: entry.isDirectory ? "folder" : "doc") }
                         }
                         if !entry.isDirectory {
                             Button {
@@ -437,6 +458,8 @@ private func shouldPreviewAlpineFile(name: String, data: Data) -> Bool {
 
 @MainActor
 private final class AlpineFileModel: ObservableObject {
+    @Published var draftText: String?
+    @Published var wrapsLines = false
     @Published var data: Data?
     @Published var previewURL: URL?
     @Published var isLoading = false
@@ -533,6 +556,10 @@ private final class AlpineFileModel: ObservableObject {
 private struct AlpineFileView: View {
     @StateObject private var model: AlpineFileModel
 
+    init(model: AlpineFileModel) {
+        _model = StateObject(wrappedValue: model)
+    }
+
     init(host: AetherRuntimeHost, entry: AlpineFileEntry) {
         _model = StateObject(wrappedValue: AlpineFileModel(host: host, entry: entry))
     }
@@ -615,29 +642,29 @@ private struct AlpineQuickLookPreview: UIViewControllerRepresentable {
 
 private struct RunestoneEditorScreen: View {
     @ObservedObject var model: AlpineFileModel
-    @State private var text: String
-    @State private var savedText: String
-    @State private var wrapsLines = false
+    private var text: String { model.draftText ?? String(data: model.data ?? Data(), encoding: .utf8) ?? "" }
+    private var textBinding: Binding<String> { Binding(get: { text }, set: { model.draftText = $0 }) }
+    private var savedText: String { String(data: model.data ?? Data(), encoding: .utf8) ?? "" }
 
     init(model: AlpineFileModel, initialText: String) {
         self.model = model
-        _text = State(initialValue: initialText)
-        _savedText = State(initialValue: initialText)
+
     }
 
     var body: some View {
-        RunestoneEditor(text: $text, wrapsLines: wrapsLines)
+        RunestoneEditor(text: textBinding, wrapsLines: model.wrapsLines)
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button { wrapsLines.toggle() } label: {
-                        Image(systemName: wrapsLines ? "text.word.spacing" : "arrow.left.and.right.text.vertical")
+                    Button { model.wrapsLines.toggle() } label: {
+                        Image(systemName: model.wrapsLines ? "text.word.spacing" : "arrow.left.and.right.text.vertical")
                     }
-                    .accessibilityLabel(wrapsLines ? "Disable line wrapping" : "Enable line wrapping")
+                    .accessibilityLabel(model.wrapsLines ? "Disable line wrapping" : "Enable line wrapping")
 
                     Button {
-                        model.save(text: text) { saved in
-                            if saved { savedText = text }
+                        let snapshot = text
+                        model.save(text: snapshot) { saved in
+                            if saved, model.draftText == snapshot { model.draftText = nil }
                         }
                     } label: {
                         if model.isSaving {

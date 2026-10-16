@@ -555,7 +555,7 @@ struct NativeSettingsView: View {
                     }
                 }
                 Section {
-                    settingsLink("puzzlepiece", model.text("Agent Skills", "Agent Skills"), "\(model.skills.count)") {
+                    settingsLink("aether-blocks", model.text("Agent Skills", "Agent Skills"), "\(model.skills.count)") {
                         NativeSkillsSettingsView(model: model)
                     }
                     settingsLink("shippingbox", model.text("Pi Extensions", "Pi Extensions"), extensionSummary) {
@@ -648,7 +648,8 @@ struct NativeSettingsView: View {
                     }
                 }
             } icon: {
-                Image(systemName: icon).foregroundStyle(.tint).frame(width: 24)
+                if icon == "aether-blocks" { WorkspaceOutlineIcon(kind: .blocks).foregroundStyle(.tint) }
+                else { Image(systemName: icon).foregroundStyle(.tint).frame(width: 24) }
             }
         }
         .accessibilityElement(children: .combine)
@@ -1728,7 +1729,7 @@ private struct NativeProviderAuthPromptView: View {
     }
 }
 
-private struct NativeSkillsSettingsView: View {
+struct NativeSkillsSettingsView: View {
     @ObservedObject var model: NativeSettingsModel
 
     var body: some View {
@@ -2560,6 +2561,10 @@ private final class NativeAlpineTerminalModel: NSObject, ObservableObject, Nativ
         DispatchQueue.main.async { [weak self] in self?.terminal.focus() }
     }
 
+    deinit {
+        if processID > 0 { AetherRuntimeHost.shared.signal(processId: processID, signal: 15) }
+    }
+
     func stop() {
         if processID > 0 { AetherRuntimeHost.shared.signal(processId: processID, signal: 15) }
         processID = 0
@@ -2579,7 +2584,7 @@ private final class NativeAlpineTerminalModel: NSObject, ObservableObject, Nativ
     }
 }
 
-private struct NativeAlpineTerminalScreen: View {
+struct NativeAlpineTerminalScreen: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var terminal = NativeAlpineTerminalModel()
 
@@ -2594,11 +2599,10 @@ private struct NativeAlpineTerminalScreen: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .navigationTitle(terminal.title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { terminal.stop(); dismiss() } } }
         }
         .preferredColorScheme(.dark)
         .onAppear { terminal.start() }
-        .onDisappear { terminal.stop() }
     }
 }
 

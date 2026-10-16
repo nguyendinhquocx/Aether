@@ -49,6 +49,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 data class SharedBrowserDisplayState(
+    val sessionId: String = "",
     val isActive: Boolean = false,
     val width: Int = 390,
     val height: Int = 844,
@@ -97,6 +98,7 @@ class SharedChromeManager(
             },
         )
         check(!setup.isError) { setup.outputJson }
+        runtime.fileSystem.write("/usr/share/novnc/aether-observer.html", AgentBrowserObserverHtml.encodeToByteArray())
         val client = ChromeCdpClient(runtime)
         try {
             client.start()
@@ -157,6 +159,8 @@ class SharedChromeManager(
         if (name != BrowserToolName && name != LegacyChromeToolName) {
             return SharedHostToolResult("{\"error\":\"Unknown browser tool\"}", true)
         }
+        val owner = arguments.string("__aether_session_id")
+        if (owner.isNotBlank()) _displayState.value = if (_displayState.value.sessionId == owner) _displayState.value else SharedBrowserDisplayState(sessionId = owner)
         return runCatching {
             val response = platformBackend?.let { executePlatformAction(it, arguments) }
                 ?: if (arguments.string("action").equals("stop", ignoreCase = true)) {

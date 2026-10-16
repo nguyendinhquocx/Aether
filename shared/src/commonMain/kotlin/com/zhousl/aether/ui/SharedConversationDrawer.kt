@@ -113,6 +113,8 @@ fun AetherConversationDrawer(
     onDeleteSession: (String) -> Unit,
     onSettingsSelected: () -> Unit,
     permanent: Boolean = false,
+    showSettings: Boolean = true,
+    contextUsage: @Composable () -> Unit = {},
     extraContent: @Composable ((dismissSearch: () -> Unit) -> Unit) = {},
     headerContent: @Composable () -> Unit = {},
     footerContent: @Composable () -> Unit = {},
@@ -240,7 +242,7 @@ fun AetherConversationDrawer(
                                 containerColor = Color.Transparent,
                                 showHalo = false,
                             )
-                            HeaderCircleButton(
+                            if (showSettings) HeaderCircleButton(
                                 icon = LucideIcons.Settings,
                                 contentDescription = stringResource(Res.string.settings_title),
                                 onClick = {
@@ -288,6 +290,9 @@ fun AetherConversationDrawer(
                 footerContent()
             }
 
+            Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 22.dp, bottom = 28.dp).width(160.dp)) {
+                contextUsage()
+            }
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

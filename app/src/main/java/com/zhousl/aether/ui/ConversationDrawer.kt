@@ -188,6 +188,8 @@ fun ConversationDrawer(
     onExportSession: (ChatSession) -> Unit,
     onDeleteSession: (String) -> Unit,
     onSettingsSelected: () -> Unit,
+    permanent: Boolean = false,
+    contextUsage: @Composable () -> Unit = {},
 ) {
     AetherConversationDrawer(
         sessions = sessions.map { session ->
@@ -204,6 +206,9 @@ fun ConversationDrawer(
             )
         },
         selectedSessionId = selectedSessionId,
+        permanent = permanent,
+        showSettings = false,
+        contextUsage = contextUsage,
         onNewChat = onNewChat,
         onSessionSelected = onSessionSelected,
         onRenameSession = onRenameSession,

@@ -58,6 +58,9 @@ fun AetherConversationTopBarFrame(
     onNewChat: () -> Unit,
     showMenu: Boolean = true,
     modifier: Modifier = Modifier,
+    trailingIcon: ImageVector = LucideIcons.SquarePen,
+    trailingDescription: String = newChatDescription,
+    menuIcon: ImageVector = Icons.Rounded.Menu,
     centerContent: @Composable BoxScope.() -> Unit,
 ) {
     val reduceMotion = LocalReduceMotion.current
@@ -69,7 +72,7 @@ fun AetherConversationTopBarFrame(
     ) {
         if (showMenu) {
             HeaderCircleButton(
-                icon = Icons.Rounded.Menu,
+                icon = menuIcon,
                 contentDescription = menuDescription,
                 onClick = onMenu,
                 size = 38.dp,
@@ -88,8 +91,8 @@ fun AetherConversationTopBarFrame(
         )
         LocalShowcaseControls.current?.let { ShowcasePlaybackButton(it) }
         HeaderCircleButton(
-            icon = LucideIcons.SquarePen,
-            contentDescription = newChatDescription,
+            icon = trailingIcon,
+            contentDescription = trailingDescription,
             onClick = onNewChat,
             size = 38.dp,
             iconSize = 19.dp,

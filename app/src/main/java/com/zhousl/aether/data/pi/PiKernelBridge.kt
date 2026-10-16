@@ -533,7 +533,11 @@ class PiKernelBridge(
                 for (frame in eventChannel) {
                     if (frame.type == "event") {
                         try {
-                            onEvent(frame.event, frame.payload)
+                            if ((frame.event.startsWith("process_") || frame.event == "context_usage")) {
+                                com.zhousl.aether.data.AgentComputerStore.acceptJson(
+                                    frame.event, frame.payload.toString(),
+                                )
+                            } else onEvent(frame.event, frame.payload)
                         } catch (throwable: Throwable) {
                             if (throwable is CancellationException) throw throwable
                             diagnosticLogger.exception(

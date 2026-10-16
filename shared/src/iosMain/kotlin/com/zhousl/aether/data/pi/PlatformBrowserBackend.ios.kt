@@ -46,7 +46,7 @@ import platform.WebKit.WKWebViewConfiguration
 
 internal actual fun createPlatformBrowserBackend(
     runtime: MultiplatformLocalRuntime,
-): SharedBrowserBackend? = IosBrowserBackend()
+): SharedBrowserBackend? = null // Alpine Chromium/CDP on both platforms; WKWebView only renders the RFB observer.
 
 internal class IosBrowserBackend : SharedBrowserBackend {
     private val operationMutex = Mutex()

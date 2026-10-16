@@ -723,6 +723,12 @@ class SharedPiBridgeClient(
     }
 
     private suspend fun dispatchFrame(frame: JsonObject) {
+        if (frame.string("type") == "event" && (frame.string("event").startsWith("process_") || frame.string("event") == "context_usage")) {
+            com.zhousl.aether.data.AgentComputerStore.accept(
+                frame.string("event"), frame["payload"] as? JsonObject ?: JsonObject(emptyMap()),
+            )
+            return
+        }
         val id = frame.string("id")
         val request = stateMutex.withLock { pending[id] } ?: return
         when (frame.string("type")) {

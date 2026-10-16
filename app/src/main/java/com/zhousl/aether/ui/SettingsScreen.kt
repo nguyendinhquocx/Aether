@@ -398,6 +398,7 @@ private fun settingsTopOverlayTailGradient(): Brush = Brush.verticalGradient(
 
 @Composable
 fun SettingsScreen(
+    initialPage: String = "Hub",
     systemPrompt: String,
     llmInactivityReconnectTimeoutSeconds: Int,
     keepTasksRunningInBackground: Boolean,
@@ -609,7 +610,9 @@ fun SettingsScreen(
     }
 
     // Local page navigation
-    var currentPage by rememberSaveable { mutableStateOf(SettingsPage.Hub.name) }
+    var currentPage by rememberSaveable(initialPage) {
+        mutableStateOf(SettingsPage.entries.firstOrNull { it.name == initialPage }?.name ?: SettingsPage.Hub.name)
+    }
     val page = SettingsPage.valueOf(currentPage)
     var selectedPiPackageSourceValue by rememberSaveable { mutableStateOf("") }
     var selectedExtensionSettingsId by rememberSaveable { mutableStateOf("") }
@@ -1363,7 +1366,7 @@ private fun SettingsHub(
             // Extensions card
             SettingsCardGroup {
                 SettingsNavRow(
-                    icon = Icons.Rounded.Extension,
+                    icon = LucideIcons.Blocks,
                     title = stringResource(R.string.settings_agent_skills),
                     subtitle = stringResource(R.string.settings_skills_count_configured, skillCount),
                     onClick = { onNavigate(SettingsPage.Skills) },

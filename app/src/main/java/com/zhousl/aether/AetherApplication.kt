@@ -56,6 +56,7 @@ class AetherApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.zhousl.aether.data.AgentComputerStore.configure(filesDir.resolve("agent-computer").absolutePath)
         runtime.initialize()
     }
 

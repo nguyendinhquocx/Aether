@@ -1,0 +1,20 @@
+<resources>
+    <string name="workspace_scheduled_tasks">定时任务</string>
+    <string name="workspace_skills">技能</string>
+    <string name="workspace_files">文件</string>
+    <string name="workspace_terminal">终端</string>
+    <string name="workspace_agent_computer">Agent 的电脑</string>
+    <string name="workspace_read_only">只读</string>
+    <string name="workspace_auto_switch">自动跟随 Agent 活动</string>
+    <string name="workspace_context">上下文用量</string>
+    <string name="workspace_unknown">未知</string>
+    <string name="workspace_exit_code">退出码 %1$d</string>
+    <string name="workspace_execution_interrupted">执行中断</string>
+    <string name="workspace_runtime_not_ready">Alpine 尚未就绪，请在设置中初始化。</string>
+    <string name="workspace_latest_output">最新输出</string>
+    <string name="workspace_scrollback_limit">较早输出已按历史保留上限截断。</string>
+    <string name="workspace_show_computer">显示 Agent 的电脑</string>
+    <string name="workspace_hide_computer">收起 Agent 的电脑</string>
+    <string name="workspace_browser">浏览器</string>
+    <string name="workspace_browser_waiting">等待 Agent 使用浏览器。</string>
+</resources>

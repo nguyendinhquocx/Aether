@@ -27,6 +27,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material.icons.rounded.DesktopWindows
+import com.zhousl.aether.shared.resources.workspace_browser
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -417,6 +421,7 @@ private fun PiExtensionUiDialog(
     )
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun AetherAppContent(
     viewModel: AetherViewModel,
@@ -774,11 +779,50 @@ private fun AetherAppContent(
         }
     }
 
-    ModalNavigationDrawer(
+    val contextUsage by com.zhousl.aether.data.AgentComputerStore.contexts.collectAsState()
+    var computerRequested by rememberSaveable { mutableStateOf(false) }
+    var settingsEntryPage by rememberSaveable { mutableStateOf("Hub") }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val expanded = maxWidth >= 740.dp && uiState.currentScreen == AppScreen.Chat
+    val computerVisible = expanded && computerRequested
+    val renderComputer: @Composable () -> Unit = {
+        AgentComputerPanel(
+            sessionId = uiState.currentSessionId,
+            workspaceDirectory = currentRuntimeWorkspaceDirectory,
+            runtimeReady = uiState.alpineSetupState.isReady,
+            browserAvailable = uiState.chromeDisplayState.isActive && uiState.chromeDisplayState.sessionId == uiState.currentSessionId && uiState.chromeDisplayState.lastUpdatedMillis > 0,
+            browserActivity = uiState.chromeDisplayState.lastUpdatedMillis,
+            browserTitle = "Chrome",
+            onClose = { computerRequested = false },
+        ) { ReadOnlyChromeObserver() }
+    }
+    if (computerRequested && !expanded && uiState.currentScreen == AppScreen.Chat) {
+        ModalBottomSheet(onDismissRequest = { computerRequested = false }) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(0.9f)) { renderComputer() }
+        }
+    }
+    ConversationWorkspace(
+        expanded = expanded,
+        computerVisible = computerVisible,
         drawerState = drawerState,
-        gesturesEnabled = uiState.currentScreen == AppScreen.Chat,
-        scrimColor = AetherScrim,
-        drawerContent = {
+        navigationEnabled = uiState.currentScreen == AppScreen.Chat,
+        computer = renderComputer,
+        rail = {
+            if (uiState.currentScreen == AppScreen.Chat) WorkspaceActionRail { action ->
+                if (action == WorkspaceAction.NewChat) viewModel.startNewChat()
+                else {
+                    settingsEntryPage = when (action) {
+                        WorkspaceAction.ScheduledTasks -> "ScheduledTasks"
+                        WorkspaceAction.Skills -> "Skills"
+                        WorkspaceAction.Files -> "AlpineFiles"
+                        WorkspaceAction.Terminal -> "AlpineTerminal"
+                        else -> "Hub"
+                    }
+                    viewModel.openSettings()
+                }
+            }
+        },
+        drawer = {
             ConversationDrawer(
                 sessions = uiState.sessions,
                 selectedSessionId = uiState.currentSessionId,
@@ -801,8 +845,18 @@ private fun AetherAppContent(
                 onSettingsSelected = {
                     scope.launch {
                         drawerState.close()
+                        settingsEntryPage = "Hub"
                         viewModel.openSettings()
                     }
+                },
+                permanent = expanded && !computerVisible,
+                contextUsage = {
+                    WorkspaceContextUsage(
+                        contextUsage[uiState.currentSessionId]?.used,
+                        conversationModelOptions.firstOrNull { it.key == selectedConversationModelKey }?.let {
+                            uiState.modelLimitsByProviderModel[com.zhousl.aether.data.modelsDevCatalogKey(it.piProviderId, it.modelId)]?.contextWindow
+                        },
+                    )
                 },
             )
         },
@@ -960,7 +1014,7 @@ private fun AetherAppContent(
                     onQueueFollowUp = viewModel::queueCurrentMessage,
                     onSteerFollowUp = viewModel::steerCurrentMessage,
                     onMenu = { scope.launch { drawerState.open() } },
-                    onNewChat = viewModel::startNewChat,
+                    onNewChat = { computerRequested = !computerRequested },
                     onPickImages = {
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -1032,6 +1086,7 @@ private fun AetherAppContent(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         SettingsScreen(
+                    initialPage = settingsEntryPage,
                     systemPrompt = uiState.settings.systemPrompt,
                     llmInactivityReconnectTimeoutSeconds = uiState.settings.llmInactivityReconnectTimeoutSeconds,
                     keepTasksRunningInBackground = uiState.settings.keepTasksRunningInBackground,
@@ -1249,6 +1304,7 @@ private fun AetherAppContent(
                 },
             )
         }
+    }
     }
 }
 

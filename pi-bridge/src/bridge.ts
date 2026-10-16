@@ -2270,11 +2270,58 @@ function dynamicBashOperations(state: AgentSessionState): BashOperations {
   };
 }
 
+// Capture ownership per invocation; concurrent bash calls never share an output sink.
+function observedBashDefinition(state: AgentSessionState): ReturnType<typeof createBashToolDefinition> {
+  const base = createBashToolDefinition(state.workspaceDirectory);
+  return {
+    ...base,
+    execute: (toolCallId, args, signal, onUpdate, context) => {
+      const requestId = state.currentRequestId;
+      const executionId = `${requestId}:${toolCallId}`;
+      let sequence = 0;
+      const emit = (event: string, payload: JsonObject) => {
+        if (requestId) writeEvent(requestId, event, {
+          session_id: state.sessionId, request_id: requestId,
+          tool_call_id: toolCallId, execution_id: executionId, ...payload,
+        });
+      };
+      const operations = dynamicBashOperations(state);
+      const observed: BashOperations = {
+        exec: async (command, cwd, options) => {
+          emit("process_start", { command, cwd, started_at: Date.now() });
+          try {
+            const result = await operations.exec(command, cwd, {
+              ...options,
+              onData: (chunk) => {
+                options.onData(chunk);
+                const bytes = Buffer.from(chunk);
+                for (let offset = 0; offset < bytes.length; offset += RUNTIME_OPERATION_CHUNK_BYTES) {
+                  emit("process_chunk", {
+                    sequence: sequence++, stream: "merged",
+                    bytes_base64: bytes.subarray(offset, offset + RUNTIME_OPERATION_CHUNK_BYTES).toString("base64"),
+                  });
+                }
+              },
+            });
+            emit("process_end", { exit_code: result.exitCode, completed_at: Date.now() });
+            return result;
+          } catch (error) {
+            emit("process_end", { error: signal?.aborted ? "cancelled" : String(error), completed_at: Date.now() });
+            throw error;
+          }
+        },
+      };
+      return createBashToolDefinition(state.workspaceDirectory, { operations: observed })
+        .execute(toolCallId, args, signal, onUpdate, context);
+    },
+  };
+}
+
 function nativeToolDefinitions(state: AgentSessionState): ToolDefinition<any, any, any>[] {
   const cwd = state.workspaceDirectory;
   return [
     createReadToolDefinition(cwd, { operations: dynamicReadOperations(state) }),
-    createBashToolDefinition(cwd, { operations: dynamicBashOperations(state) }),
+    observedBashDefinition(state),
     createEditToolDefinition(cwd, { operations: dynamicEditOperations(state) }),
     createWriteToolDefinition(cwd, { operations: dynamicWriteOperations(state) }),
     createGrepToolDefinition(cwd),
@@ -2539,6 +2586,14 @@ function emitAgentSessionEvent(state: AgentSessionState, event: AgentSessionEven
       });
     }
     return;
+  }
+  if (event.type === "message_end" || event.type === "compaction_end" || event.type === "agent_settled") {
+    const usage = state.session.getContextUsage();
+    writeEvent(requestId, "context_usage", {
+      session_id: state.sessionId,
+      used: usage?.tokens ?? null,
+      full: usage?.contextWindow ?? null,
+    });
   }
   switch (event.type) {
     case "message_update":

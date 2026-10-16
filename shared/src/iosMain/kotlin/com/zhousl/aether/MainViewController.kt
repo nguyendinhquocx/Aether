@@ -12,6 +12,7 @@ import com.zhousl.aether.platform.IosPlatformServices
 import com.zhousl.aether.platform.IosNativeSettingsHost
 
 fun MainViewController(runtimeHost: NativeRuntimeHost): platform.UIKit.UIViewController {
+    com.zhousl.aether.data.AgentComputerStore.configure(platform.Foundation.NSHomeDirectory() + "/Library/Application Support/agent-computer")
     val runtime = IosAlpineRuntime(runtimeHost)
     val settingsStore = createIosAetherSettingsStore()
     val chatHistoryDatabase = createIosAetherChatHistoryDatabase()

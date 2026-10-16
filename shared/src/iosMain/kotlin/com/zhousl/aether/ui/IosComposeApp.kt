@@ -120,6 +120,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.rounded.DesktopWindows
+import com.zhousl.aether.platform.IosWorkspaceHost
+import com.zhousl.aether.platform.PlatformBrowserView
+import com.zhousl.aether.shared.resources.workspace_show_computer
+import com.zhousl.aether.shared.resources.workspace_browser
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -2465,6 +2470,16 @@ fun IosComposeApp(
             ensureBackgroundExecution(target)
         }
 
+        LaunchedEffect(startupResolved) {
+            if (startupResolved) IosWorkspaceHost.scheduledPrompts.collect { prompt ->
+                val target = SharedSessionUiState(
+                    id = "scheduled-${platformRandomUuid()}", isDraft = true,
+                    selectedModelKey = sharedAppSettings.defaultChatModelKey,
+                )
+                startChatTurn(prompt, target = target, submissionType = "scheduled")
+            }
+        }
+
         fun createNewSession(useDefaultSkills: Boolean = true): SharedSessionUiState {
             IosAnalytics.capture("conversation started")
             currentSession.clearComposerDraft()
@@ -3527,7 +3542,8 @@ fun IosComposeApp(
             modifier = Modifier.fillMaxSize(),
         ) {
         BoxWithConstraints {
-        val useTabletLayout = shouldUseSharedTabletLayout(
+        val regularWidth by IosWorkspaceHost.regularWidth.collectAsState()
+        val useTabletLayout = regularWidth && shouldUseSharedTabletLayout(
             supportsTabletLayout = capabilities.supportsTabletLayout,
             availableWidthDp = maxWidth.value,
         )
@@ -3978,6 +3994,7 @@ fun IosComposeApp(
                             val unreferencedPaths = historyStore
                                 ?.getUnreferencedWorkspaceFilePathsForDeletedSession(selectedId)
                                 .orEmpty()
+                            com.zhousl.aether.data.AgentComputerStore.remove(selectedId)
                             historyStore?.delete(selectedId)
                             IosAnalytics.capture("conversation deleted")
                             removeSharedUnreferencedWorkspaceFiles(runtime, unreferencedPaths)
@@ -3997,6 +4014,10 @@ fun IosComposeApp(
                     },
                     drawerOpenedEventRegistered = "drawer.opened" in extensionSnapshot.eventNames,
                     useTabletLayout = useTabletLayout,
+                    contextWindow = modelOptions.findModelOption(currentSession.selectedModelKey)?.let {
+                        modelLimitsByProviderModel[sharedThinkingCatalogKey(it.piProviderId, it.modelId)]?.contextWindow
+                    },
+                    runtimeReady = sharedAppSettings.alpineSetupCompleted,
                 )
                 }
                 }
@@ -5500,6 +5521,7 @@ internal fun shouldAutoCompactSharedContext(
     return usage.totalTokens + trailingEstimate > contextWindow - reserveTokens
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SharedChatScreen(
     sessions: List<SharedConversationSummary>,
@@ -5555,7 +5577,22 @@ private fun SharedChatScreen(
     onDrawerOpened: () -> Unit,
     drawerOpenedEventRegistered: Boolean,
     useTabletLayout: Boolean,
+    contextWindow: Int?,
+    runtimeReady: Boolean,
 ) {
+    var computerRequested by rememberSaveable { mutableStateOf(false) }
+    val contextUsage by com.zhousl.aether.data.AgentComputerStore.contexts.collectAsState()
+    val computerVisible = computerRequested && useTabletLayout
+    SideEffect { IosWorkspaceHost.showChat(true) }
+    DisposableEffect(Unit) { onDispose { IosWorkspaceHost.showChat(false) } }
+    LaunchedEffect(Unit) {
+        IosWorkspaceHost.actions.collect { action ->
+            when (action) {
+                "newChat" -> onNewChat()
+                "computer" -> computerRequested = !computerRequested
+            }
+        }
+    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val latestOnDrawerOpened by rememberUpdatedState(onDrawerOpened)
     val latestDrawerOpenedEventRegistered by rememberUpdatedState(drawerOpenedEventRegistered)
@@ -5571,6 +5608,17 @@ private fun SharedChatScreen(
     }
     val reduceMotion = LocalReduceMotion.current
     val browserDisplayState by chromeManager.displayState.collectAsState()
+    if (computerRequested && !useTabletLayout) {
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { computerRequested = false }) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
+                AgentComputerPanel(selectedSessionId, runtime.workspaceRoot, runtimeReady,
+                    browserDisplayState.isActive && browserDisplayState.sessionId == selectedSessionId && browserDisplayState.screenshotBase64.isNotBlank(), browserDisplayState.lastUpdatedMillis,
+                    stringResource(Res.string.workspace_browser), { computerRequested = false }) {
+                    PlatformBrowserView(chromeManager, Modifier.fillMaxSize(), readOnly = true)
+                }
+            }
+        }
+    }
     val visibleMessages = messages.filter {
         it.displayKind != SharedMessageDisplayKind.HiddenContext
     }
@@ -5830,10 +5878,21 @@ private fun SharedChatScreen(
             if (!listState.isScrollInProgress) scrollToBottom()
         }
     }
-    SharedAdaptiveConversationLayout(
-        useTabletLayout = useTabletLayout,
+    ConversationWorkspace(
+        expanded = useTabletLayout,
+        computerVisible = computerVisible,
         drawerState = drawerState,
-        drawerContent = {
+        computer = {
+            AgentComputerPanel(
+                sessionId = selectedSessionId, workspaceDirectory = runtime.workspaceRoot,
+                runtimeReady = runtimeReady,
+                browserAvailable = browserDisplayState.isActive && browserDisplayState.sessionId == selectedSessionId && browserDisplayState.screenshotBase64.isNotBlank(),
+                browserActivity = browserDisplayState.lastUpdatedMillis,
+                browserTitle = stringResource(Res.string.workspace_browser),
+                onClose = { computerRequested = false },
+            ) { PlatformBrowserView(chromeManager, Modifier.fillMaxSize(), readOnly = true) }
+        },
+        drawer = {
             AetherConversationDrawer(
                 sessions = sessions,
                 selectedSessionId = selectedSessionId,
@@ -5860,7 +5919,14 @@ private fun SharedChatScreen(
                 footerContent = {
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawerFooter)
                 },
-                permanent = useTabletLayout,
+                permanent = useTabletLayout && !computerVisible,
+                showSettings = false,
+                contextUsage = {
+                    WorkspaceContextUsage(
+                        contextUsage[selectedSessionId]?.used,
+                        contextUsage[selectedSessionId]?.full ?: contextWindow,
+                    )
+                },
                 extraContent = { dismissSearch ->
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawer)
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawerListEnd)
@@ -6084,8 +6150,8 @@ private fun SharedChatScreen(
                     modifier = Modifier.align(Alignment.TopCenter),
                     onHeightChanged = { topBarBodyHeightPx = it },
                     onMenu = { scope.launch { drawerState.open() } },
-                    showMenu = !useTabletLayout,
-                    onNewChat = onNewChat,
+                    showMenu = !useTabletLayout || computerVisible,
+                    onNewChat = { computerRequested = !computerRequested },
                     selectedModelKey = selectedModelKey,
                     modelOptions = modelOptions,
                     modelCatalogInfo = modelCatalogInfo,
@@ -6295,6 +6361,9 @@ private fun ConversationTopBar(
                     onMenu = onMenu,
                     onNewChat = onNewChat,
                     showMenu = showMenu,
+                    menuIcon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    trailingIcon = Icons.Rounded.DesktopWindows,
+                    trailingDescription = stringResource(Res.string.workspace_show_computer),
                 ) {
                     SharedConversationModelSelector(
                         options = modelOptions,
