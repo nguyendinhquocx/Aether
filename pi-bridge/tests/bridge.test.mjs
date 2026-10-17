@@ -2966,3 +2966,65 @@ test("rejects non-OpenAI custom Pi APIs", async () => {
     );
   }
 });
+
+
+test("streams real bash bytes once with per-command ownership and retained ordering", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-observer-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  const run = client.request("observer-turn", "run_turn", {
+    ...turnPayload("observer-session", [userMessage("run both commands")], fauxConfig({
+      faux_response: "finished",
+      faux_tool_calls: [
+        { id: "first-command", name: "bash", arguments: { command: "printf 'first你好'; sleep 0.1; printf 'end'" } },
+        { id: "second-command", name: "bash", arguments: { command: "printf 'second'; exit 7" } },
+      ],
+    })),
+    workspace_directory: home,
+    platform: "ios",
+    observe_computer: true,
+  });
+  const firstChunk = await client.waitForEvent(frame => frame.id === "observer-turn" && frame.event === "process_chunk");
+  assert.equal(firstChunk.payload.session_id, "observer-session");
+  await run;
+  const events = client.events.filter(frame => frame.id === "observer-turn" && frame.event.startsWith("process_"));
+  assert.equal(events.filter(frame => frame.event === "process_start").length, 2);
+  for (const [id, expected, code] of [["first-command", "first你好end", 0], ["second-command", "second", 7]]) {
+    const owned = events.filter(frame => frame.payload.tool_call_id === id);
+    assert.equal(owned[0].event, "process_start");
+    assert.equal(owned.at(-1).event, "process_end");
+    assert.equal(owned.at(-1).payload.exit_code, code);
+    const chunks = owned.filter(frame => frame.event === "process_chunk");
+    assert.deepEqual(chunks.map(frame => frame.payload.sequence), chunks.map((_, i) => i));
+    assert.equal(Buffer.concat(chunks.map(frame => Buffer.from(frame.payload.bytes_base64, "base64"))).toString(), expected);
+    assert.ok(owned.every(frame => frame.payload.execution_id === `observer-turn:${id}`));
+  }
+  assert.ok(client.events.some(frame => frame.id === "observer-turn" && frame.event === "context_usage"));
+  // Reusing the same persisted session without opt-in must restore the original tool path.
+  await client.request("observer-disabled", "run_turn", {
+    ...turnPayload("observer-session", [userMessage("run without observation")], fauxConfig({
+      faux_response: "finished",
+      faux_tool_calls: [{ id: "disabled-command", name: "bash", arguments: { command: "printf disabled" } }],
+    })),
+    platform: "ios", workspace_directory: home,
+  });
+  assert.ok(!client.events.some(frame => frame.id === "observer-disabled" &&
+    (frame.event.startsWith("process_") || frame.event === "context_usage")));
+});
+
+
+test("ordinary sessions never emit computer or context observer events", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "aether-no-observer-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const client = new BridgeClient({ HOME: home, USERPROFILE: home });
+  for (const [index, options] of [{ platform: "ios" }, { platform: "android" }, { platform: "android", observe_computer: true }].entries()) {
+    await client.request(`ordinary-${index}`, "run_turn", {
+      ...turnPayload(`ordinary-${index}`, [userMessage("run a command")], fauxConfig({
+        faux_response: "finished",
+        faux_tool_calls: [{ id: "ordinary-command", name: "bash", arguments: { command: "printf original" } }],
+      })),
+      ...options, workspace_directory: home,
+    });
+  }
+  assert.ok(!client.events.some(frame => frame.event.startsWith("process_") || frame.event === "context_usage"));
+});

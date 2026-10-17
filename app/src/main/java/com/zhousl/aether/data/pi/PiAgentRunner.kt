@@ -623,7 +623,7 @@ class PiAgentRunner(
         val args = payload.optJSONObject("args") ?: JSONObject()
         val arguments = args.optJSONObject("arguments") ?: JSONObject()
         val result = runCatching {
-            alpineChromeController?.execute(arguments.put("__aether_session_id", sessionId).toString())
+            alpineChromeController?.execute(arguments.toString())
                 ?: error("Chrome is unavailable on this platform.")
         }
         result.fold(

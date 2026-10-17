@@ -55,7 +55,6 @@ private val ShizukuManagerPackages = listOf(
 )
 
 data class AgentModeDisplayState(
-    val sessionId: String = "",
     val isActive: Boolean = false,
     val isVirtualDisplay: Boolean = false,
     val displayId: Int? = null,

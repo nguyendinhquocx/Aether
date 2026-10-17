@@ -61,6 +61,7 @@ fun AetherConversationTopBarFrame(
     trailingIcon: ImageVector = LucideIcons.SquarePen,
     trailingDescription: String = newChatDescription,
     menuIcon: ImageVector = Icons.Rounded.Menu,
+    showTrailingAction: Boolean = true,
     centerContent: @Composable BoxScope.() -> Unit,
 ) {
     val reduceMotion = LocalReduceMotion.current
@@ -90,14 +91,16 @@ fun AetherConversationTopBarFrame(
             content = centerContent,
         )
         LocalShowcaseControls.current?.let { ShowcasePlaybackButton(it) }
-        HeaderCircleButton(
-            icon = trailingIcon,
-            contentDescription = trailingDescription,
-            onClick = onNewChat,
-            size = 38.dp,
-            iconSize = 19.dp,
-            containerColor = AetherSurface.copy(alpha = 0.96f),
-        )
+        if (showTrailingAction) {
+            HeaderCircleButton(
+                icon = trailingIcon,
+                contentDescription = trailingDescription,
+                onClick = onNewChat,
+                size = 38.dp,
+                iconSize = 19.dp,
+                containerColor = AetherSurface.copy(alpha = 0.96f),
+            )
+        }
     }
 }
 

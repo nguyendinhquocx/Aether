@@ -5,6 +5,22 @@ final class AetherUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testOrdinaryDeviceKeepsOriginalChatUI() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        if app.buttons["Agree"].waitForExistence(timeout: 5) { app.buttons["Agree"].tap() }
+        waitForChatStartup(app)
+        XCTAssertTrue(app.buttons["New Chat"].firstMatch.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["Show Agent’s computer"].exists)
+        XCTAssertFalse(app.staticTexts["Agent’s computer"].exists)
+        XCTAssertFalse(app.buttons["Scheduled Tasks"].exists)
+        XCTAssertFalse(app.buttons["Terminal"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testMessageSubmissionDoesNotTerminateApp() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

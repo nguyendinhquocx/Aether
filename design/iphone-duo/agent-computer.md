@@ -2,9 +2,13 @@
 
 2026-10-14。对应 Pencil 03A、03B、03C；03D 为未来 Artifact。本文是设计，没有实现或验证应用运行代码。
 
+## 适用范围
+
+仅 iPhone Duo 启用。普通 iPhone、iPad 与 Android 保留原版 UI、浏览器后端和工具事件路径；观察协议默认关闭，由确认 Duo 能力后的 iOS 主 bridge 显式设置 `observe_computer=true`。宽度变化不构成功能启用条件。
+
 ## 产品契约
 
-会话与观察面板 1:1。初始为空终端与提示符，不启动等待用户输入的 shell。每条命令和输出追加，后续命令不覆盖前面的记录。用户可查看历史、切换标签，不能输入、Ctrl-C 或操作网页；控制仍由 Agent 和会话原有停止按钮完成。06 保留用户可操作的原版终端，与观察视图分开。
+会话与观察面板 1:1。初始为空终端与提示符，不启动等待用户输入的 shell。每条命令和输出追加，后续命令不覆盖前面的记录。仅半折叠态以 SwiftUI 自动展示，不提供打开、关闭、标签或自动跟随切换按钮。用户可查看历史，不能输入、Ctrl-C 或操作网页；控制仍由 Agent 和会话原有停止按钮完成。06 保留用户可操作的原版终端，与观察视图分开。
 
 ## 接入实际执行路径
 
@@ -22,7 +26,7 @@ partialResult 不保证是未截断的原始增量。不能把每次累积 outpu
 | process_chunk | executionId、sequence、stream、bytesBase64 | 顺序追加字节，增量解码；stream 标记 stdout/stderr/merged。 |
 | process_end | executionId、exitCode、signal、completedAt | 记录结束、取消或非零退出，不删除历史。 |
 
-Alpine local bash 在 Pi Node 进程内执行，不能把承载 bridge 的 Node stdout 当成 shell 输出；应在 bash operations 的 onData tee。Termux 在对应 runtime operation chunk 路径处理。保留原工具响应、超时、取消与退出语义，两平台使用同一事件模型。
+Alpine local bash 在 Pi Node 进程内执行，不能把承载 bridge 的 Node stdout 当成 shell 输出；应在 bash operations 的 onData tee。Termux 在对应 runtime operation chunk 路径处理。保留原工具响应、超时、取消与退出语义；仅 Duo 会话发送新增观察事件。
 
 观察事件经独立 bridge 协议送到共享会话状态，携带会话与执行归属。绘制可以合并到 30-60Hz，字节按顺序保存。绘制卡顿不阻塞执行；用有界内存和磁盘追加日志，超限按保留策略归档并提供文字提示。
 
@@ -61,13 +65,12 @@ PTY 会改变 isatty、缓冲、颜色及 stdout/stderr 行为，不能为观察
 | Agent browser 操作，获得首帧 | 终端向左滑出，Chrome 从右滑入。 |
 | Chrome 前台，后台 stdout 到达 | 只保存日志，不抢画面。 |
 | 下一条前台 bash | Chrome 向右滑出，终端从左滑入并定位新命令。 |
-| 用户手动切标签 | 暂停自动切换；新活动只更新标签状态。 |
 | Agent 完成 / 等待用户 | 保留最近画面和历史。 |
 | 显式打开未来 Artifact | 进入预览；关闭恢复电脑状态。当前尚无此功能。 |
 
-动画约 240ms，面板内容裁切；标题、折线、安全区与主会话稳定。Reduce Motion 改为短淡入。快速连续操作合并到最新目标，不排队播放多次动画。Chrome 首帧未到时保留终端，标签显示连接中，不能切到整块空白。
+动画约 240ms，面板内容裁切；标题、折线、安全区与主会话稳定。Reduce Motion 改为短淡入。快速连续操作合并到最新目标，不排队播放多次动画。Chrome 首帧未到时保留终端，活动状态显示连接中，不能切到整块空白。
 
-按 sessionId、requestId 和 toolCallId 维护活动归属。并发后台工具不触发切换。会话切换解绑旧订阅、恢复目标日志；隐藏、关闭观察面板或折叠只解绑 renderer，不停止 Agent、PTY、Chrome 或 Alpine。
+按 sessionId、requestId 和 toolCallId 维护活动归属。并发后台工具不触发切换。会话切换解绑旧订阅、恢复目标日志；离开半折叠态只解绑 renderer，不停止 Agent、PTY、Chrome 或 Alpine。
 
 断线保留最后一帧/历史并提示连接中断，重试仅恢复观察连接；执行本身失败用真实退出状态，原工具错误行保持。浏览器画面刷新不覆盖终端历史。
 
@@ -75,4 +78,4 @@ PTY 会改变 isatty、缓冲、颜色及 stdout/stderr 行为，不能为观察
 
 已有 Pi 数据回调、工具更新、Alpine noVNC 和 native PTY 基础；仍需 per-call 输出事件、会话日志、只读 controller、平台后端接入和布局状态管理。不能只改 Compose 就宣称完成。
 
-验证多命令历史、partialResult 不重复追加、ANSI clear 局限当前命令、Unicode、取消和失败、观察慢于执行不阻塞、后台不抢前台、断线不重复执行、无 Artifact 空态、Chrome 持续帧和观察端拒绝输入。iOS / Android 分别核对实际入口与相同行为。
+验证多命令历史、partialResult 不重复追加、ANSI clear 局限当前命令、Unicode、取消和失败、观察慢于执行不阻塞、后台不抢前台、断线不重复执行、无 Artifact 空态、Chrome 持续帧和观察端拒绝输入。Duo 验证新交互；普通 iPhone、iPad 和 Android 分别核对实际入口与原版行为一致。

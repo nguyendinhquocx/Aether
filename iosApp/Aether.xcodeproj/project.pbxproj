@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D001CAFE001CAFE001CAFE001 /* DuoAgentComputerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D001CAFE001CAFE001CAFE002 /* DuoAgentComputerView.swift */; };
 		08CF4E928C8BE1C146193EAC /* LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6FB4FBD38ACC21BB9B40C297 /* LICENSE.md */; };
 		0B54DD41A9AC30FF012B8ABC /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3727F800A2CD973EBC5B5911 /* libiconv.tbd */; };
 		1A78A90847EC640B3208317F /* photon_rs_bg.wasm in Resources */ = {isa = PBXBuildFile; fileRef = EFCC03EC1321002A21933610 /* photon_rs_bg.wasm */; };
@@ -107,6 +108,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D001CAFE001CAFE001CAFE002 /* DuoAgentComputerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuoAgentComputerView.swift; sourceTree = "<group>"; };
 		0908A05CCEDE326A36B151FC /* TerminalInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalInputView.swift; sourceTree = "<group>"; };
 		093ABAAD7B72B9ED74843F83 /* libarchive */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libarchive; path = "../third_party/ish-arm64/deps/libarchive.xcodeproj"; sourceTree = "<group>"; };
 		1106FBE367ED336302C5A936 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
@@ -351,6 +353,7 @@
 				136A8126D80F2471CFB1013B /* Aether-Bridging-Header.h */,
 				291E7BE178D9B5D3B4C60E04 /* AetherAnalytics.swift */,
 				E6FA4FCFE0F0081C692280C9 /* AetherApp.swift */,
+				D001CAFE001CAFE001CAFE002 /* DuoAgentComputerView.swift */,
 				2A7004BB95C901F53D40B60B /* AetherRuntimeHost.swift */,
 			);
 			path = App;
@@ -698,6 +701,7 @@
 				BA0AD04141FA1FC28B02B5EA /* ANSIParser.swift in Sources */,
 				C480F0D164C3E764CB6162B0 /* AetherAnalytics.swift in Sources */,
 				2A8EED7E02AB8DCCD1890366 /* AetherApp.swift in Sources */,
+				D001CAFE001CAFE001CAFE001 /* DuoAgentComputerView.swift in Sources */,
 				CB425A7A27C9C1222CC06CCA /* AetherISHRuntime.m in Sources */,
 				24743FC96595F01836CE4170 /* AetherRuntimeHost.swift in Sources */,
 				A7589EC588F10F987B71198E /* AetherTerminalView.swift in Sources */,

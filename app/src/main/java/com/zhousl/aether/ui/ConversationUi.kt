@@ -76,9 +76,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.DesktopWindows
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
@@ -946,9 +944,6 @@ private fun ConversationTopBar(
         newChatDescription = stringResource(R.string.common_new_chat),
         onMenu = onMenu,
         onNewChat = onNewChat,
-        menuIcon = Icons.AutoMirrored.Rounded.ArrowBack,
-        trailingIcon = Icons.Rounded.DesktopWindows,
-        trailingDescription = stringResource(R.string.workspace_show_computer),
     ) {
         ConversationModelSelector(
             options = modelOptions,

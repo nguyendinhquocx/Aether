@@ -1,3 +1,4 @@
+import AetherShared
 import Runestone
 import SwiftUI
 import UIKit
@@ -44,6 +45,22 @@ struct AlpineFileEntry: Identifiable, Hashable {
 }
 
 struct AlpineFileManagerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let host: AetherRuntimeHost
+
+    var body: some View {
+        NavigationStack {
+            AlpineDirectoryView(host: host, path: "/")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
+struct DuoAlpineFileManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedFile: AlpineFileEntry?
     @State private var preferredColumn = NavigationSplitViewColumn.sidebar
@@ -580,7 +597,11 @@ private struct AlpineFileView: View {
                 .background(Color(uiColor: .systemBackground))
             } else if let data = model.data, !data.contains(0),
                       model.allowsTextEditing, let text = String(data: data, encoding: .utf8) {
-                RunestoneEditorScreen(model: model, initialText: text)
+                if IosWorkspaceHost.shared.duoEnabled {
+                    DuoRunestoneEditorScreen(model: model, initialText: text)
+                } else {
+                    RunestoneEditorScreen(model: model, initialText: text)
+                }
             } else {
                 ContentUnavailableView(
                     "Preview Unavailable",
@@ -641,6 +662,46 @@ private struct AlpineQuickLookPreview: UIViewControllerRepresentable {
 }
 
 private struct RunestoneEditorScreen: View {
+    @ObservedObject var model: AlpineFileModel
+    @State private var text: String
+    @State private var savedText: String
+    @State private var wrapsLines = false
+
+    init(model: AlpineFileModel, initialText: String) {
+        self.model = model
+        _text = State(initialValue: initialText)
+        _savedText = State(initialValue: initialText)
+    }
+
+    var body: some View {
+        RunestoneEditor(text: $text, wrapsLines: wrapsLines)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { wrapsLines.toggle() } label: {
+                        Image(systemName: wrapsLines ? "text.word.spacing" : "arrow.left.and.right.text.vertical")
+                    }
+                    .accessibilityLabel(wrapsLines ? "Disable line wrapping" : "Enable line wrapping")
+
+                    Button {
+                        model.save(text: text) { saved in
+                            if saved { savedText = text }
+                        }
+                    } label: {
+                        if model.isSaving {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                    }
+                    .disabled(model.isSaving || text == savedText)
+                    .accessibilityLabel("Save")
+                }
+            }
+    }
+}
+
+private struct DuoRunestoneEditorScreen: View {
     @ObservedObject var model: AlpineFileModel
     private var text: String { model.draftText ?? String(data: model.data ?? Data(), encoding: .utf8) ?? "" }
     private var textBinding: Binding<String> { Binding(get: { text }, set: { model.draftText = $0 }) }

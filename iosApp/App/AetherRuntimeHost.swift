@@ -1,4 +1,5 @@
 import Foundation
+import CoreTelephony
 import CryptoKit
 import UIKit
 import PhotosUI
@@ -12,6 +13,74 @@ import AetherShared
 private let alpineNetworkTraceURL = URL(string: "https://www.cloudflare.com/cdn-cgi/trace")!
 private let alpineOfficialRepository = "https://dl-cdn.alpinelinux.org/alpine"
 private let alpineChinaRepository = "https://mirrors.tuna.tsinghua.edu.cn/alpine"
+
+/// A native request triggers iOS's first-use wireless-data prompt. Wait for the
+/// decision/connectivity before starting guest networking; never cache a denial.
+final class AetherAlpineNetworkAccess {
+    private let configuration: () -> URLSessionConfiguration
+    private let cellularData = CTCellularData()
+
+    init(configuration: @escaping () -> URLSessionConfiguration = { .ephemeral }) {
+        self.configuration = configuration
+    }
+
+    static func configuration(_ configuration: URLSessionConfiguration) -> URLSessionConfiguration {
+        configuration.waitsForConnectivity = true
+        configuration.allowsCellularAccess = true
+        configuration.allowsExpensiveNetworkAccess = true
+        configuration.allowsConstrainedNetworkAccess = true
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 60
+        configuration.urlCache = nil
+        return configuration
+    }
+
+    func check(completion: @escaping (Result<Void, Error>) -> Void) {
+        let session = URLSession(configuration: Self.configuration(configuration()))
+        let results = DispatchQueue(label: "com.baimoqilin.aether.alpine-network-check")
+        // Either repository is sufficient, including where the official CDN is unreachable.
+        let urls = [alpineOfficialRepository, alpineChinaRepository].map { URL(string: $0 + "/")! }
+        var remaining = urls.count
+        var finished = false
+        var denied = false
+        for url in urls {
+            session.dataTask(with: makeInternetPermissionRequest(url: url)) { _, response, error in
+                results.async {
+                    guard !finished else { return }
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    if error == nil && (200..<400).contains(status) {
+                        finished = true
+                        session.invalidateAndCancel()
+                        completion(.success(()))
+                        return
+                    }
+                    if let error = error as? URLError {
+                        denied = denied || error.code == .dataNotAllowed || error.networkUnavailableReason == .cellular
+                    }
+                    remaining -= 1
+                    guard remaining == 0 else { return }
+                    finished = true
+                    session.invalidateAndCancel()
+                    let restricted = denied || self.cellularData.restrictedState == .restricted
+                    let message = restricted
+                        ? "Network access is disabled for Aether. In iOS Settings > Apps > Aether, allow Wireless Data / Cellular Data, then retry Alpine initialization."
+                        : "Cannot connect to the Alpine repositories. Connect to the internet and allow network access for Aether if iOS asks, then retry. If access was previously denied, enable Wireless Data / Cellular Data in iOS Settings > Apps > Aether."
+                    completion(.failure(NSError(
+                        domain: "AetherAlpineNetworkAccess", code: restricted ? 1 : 2,
+                        userInfo: [NSLocalizedDescriptionKey: message]
+                    )))
+                }
+            }.resume()
+        }
+    }
+}
+
+func makeInternetPermissionRequest(url: URL = URL(string: alpineOfficialRepository + "/")!) -> URLRequest {
+    var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+    request.httpMethod = "HEAD"
+    request.allowsCellularAccess = true
+    return request
+}
 
 private enum AlpineNetworkEnvironment {
     case china
@@ -58,8 +127,10 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
 
     private let runtime = AetherISHRuntime.shared()
     private let operations = DispatchQueue(label: "com.baimoqilin.aether.runtime-host")
+    private let networkAccess = AetherAlpineNetworkAccess()
     private var initialized = false
     private var initializationInProgress = false
+    private var initializationNetworkChecked = false
     private var initializationListeners: [NativeRuntimeInitializationListener] = []
     private var filePickerListener: NativePickedFileListener?
     private var filesPickerListener: NativePickedFilesListener?
@@ -108,18 +179,20 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         }.resume()
     }
 
+    /// A rootfs is created before package setup finishes. Only the completion
+    /// marker, written after Node/npm verification, survives a successful setup.
+    static func hasCompletedSetup(at root: URL) -> Bool {
+        ["data", "meta.db", ".aether-setup-complete"].allSatisfy {
+            FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
+        }
+    }
+
     func isRuntimeReady(listener: NativeBooleanResultListener) {
         operations.async { [self] in
             do {
                 try purgePendingAlpineReset()
                 let root = try alpineRuntimeRootURL()
-                let hasData = FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent("data", isDirectory: true).path
-                )
-                let hasDatabase = FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent("meta.db", isDirectory: false).path
-                )
-                guard hasData && hasDatabase else {
+                guard Self.hasCompletedSetup(at: root) else {
                     onMain { listener.onSuccess(value: false) }
                     return
                 }
@@ -166,6 +239,7 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
             initializationListeners.append(listener)
             guard !initializationInProgress else { return }
             initializationInProgress = true
+            initializationNetworkChecked = false
 
             do {
                 try purgePendingAlpineReset()
@@ -173,32 +247,62 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
                 finishInitialization(error: error.localizedDescription)
                 return
             }
-            reportInitializationProgress(
-                phase: "rootfs",
-                detail: "Preparing Alpine",
-                fraction: 0.02
-            )
-            runtime.initialize(
-                progress: { phase, detail, fraction in
-                    self.operations.async {
-                        self.reportInitializationProgress(
-                            phase: phase,
-                            detail: detail,
-                            fraction: fraction
-                        )
-                    }
-                },
-                completion: { error in
-                    self.operations.async {
-                        if let error {
-                            self.finishInitialization(error: error.localizedDescription)
-                        } else {
-                            self.prepareInitializedRuntime()
-                        }
+            do {
+                let root = try alpineRuntimeRootURL()
+                let hasRoot = FileManager.default.fileExists(atPath: root.appendingPathComponent("data").path)
+                    && FileManager.default.fileExists(atPath: root.appendingPathComponent("meta.db").path)
+                if hasRoot {
+                    // Restoring an installed runtime must keep working offline.
+                    startRuntimeInitialization()
+                } else {
+                    withInitializationNetworkAccess { self.startRuntimeInitialization() }
+                }
+            } catch {
+                finishInitialization(error: error.localizedDescription)
+            }
+        }
+    }
+
+    private func withInitializationNetworkAccess(
+        phase: String = "rootfs", fraction: Double = 0.01, _ action: @escaping () -> Void
+    ) {
+        if initializationNetworkChecked {
+            action()
+            return
+        }
+        reportInitializationProgress(
+            phase: phase, detail: "Checking internet access — allow network access if iOS asks", fraction: fraction
+        )
+        networkAccess.check { result in
+            self.operations.async {
+                switch result {
+                case .success:
+                    self.initializationNetworkChecked = true
+                    action()
+                case .failure(let error): self.finishInitialization(error: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func startRuntimeInitialization() {
+        reportInitializationProgress(phase: "rootfs", detail: "Preparing Alpine", fraction: 0.02)
+        runtime.initialize(
+            progress: { phase, detail, fraction in
+                self.operations.async {
+                    self.reportInitializationProgress(phase: phase, detail: detail, fraction: fraction)
+                }
+            },
+            completion: { error in
+                self.operations.async {
+                    if let error {
+                        self.finishInitialization(error: error.localizedDescription)
+                    } else {
+                        self.prepareInitializedRuntime()
                     }
                 }
-            )
-        }
+            }
+        )
     }
 
     func resetRuntime(listener: NativeUnitResultListener) {
@@ -304,6 +408,11 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     private func installNode() {
+        // A restored/partial rootfs may still need packages, even when local boot succeeded.
+        withInitializationNetworkAccess(phase: "checking_node", fraction: 0.83) { self.installNodeWithNetworkAccess() }
+    }
+
+    private func installNodeWithNetworkAccess() {
         reportInitializationProgress(
             phase: "installing_node",
             detail: "Installing Node 22",
@@ -419,6 +528,12 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     }
 
     private func finishInitialization(error: String?) {
+        if error != nil {
+            initialized = false
+            if let marker = try? alpineSetupCompleteMarkerURL() {
+                try? FileManager.default.removeItem(at: marker)
+            }
+        }
         let listeners = initializationListeners
         initializationListeners.removeAll()
         initializationInProgress = false

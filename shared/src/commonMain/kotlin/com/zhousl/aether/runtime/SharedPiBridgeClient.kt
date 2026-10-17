@@ -48,6 +48,7 @@ enum class PiBridgeSetupPhase {
 class SharedPiBridgeClient(
     private val transport: PiBridgeTransport,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val observeComputer: () -> Boolean = { false },
     private val extensionLoadOptionsProvider: suspend () -> SharedExtensionLoadOptions = {
         SharedExtensionLoadOptions()
     },
@@ -426,7 +427,10 @@ class SharedPiBridgeClient(
             val frame = buildJsonObject {
                 put("id", requestId)
                 put("type", type)
-                put("payload", payload)
+                put("payload", if (observeComputer()) buildJsonObject {
+                    payload.forEach { (key, value) -> put(key, value) }
+                    put("observe_computer", true)
+                } else payload)
             }
             writeFrameWithRecovery(
                 initialProcess = activeProcess,
@@ -723,7 +727,7 @@ class SharedPiBridgeClient(
     }
 
     private suspend fun dispatchFrame(frame: JsonObject) {
-        if (frame.string("type") == "event" && (frame.string("event").startsWith("process_") || frame.string("event") == "context_usage")) {
+        if (observeComputer() && frame.string("type") == "event" && (frame.string("event").startsWith("process_") || frame.string("event") == "context_usage")) {
             com.zhousl.aether.data.AgentComputerStore.accept(
                 frame.string("event"), frame["payload"] as? JsonObject ?: JsonObject(emptyMap()),
             )

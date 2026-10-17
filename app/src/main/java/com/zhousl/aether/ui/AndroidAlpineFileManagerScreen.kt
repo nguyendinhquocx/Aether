@@ -11,14 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.runtime.key
-import androidx.compose.runtime.movableContentOf
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.mutableStateMapOf
-import io.github.rosemoe.sora.event.ContentChangeEvent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -107,9 +99,6 @@ internal fun AndroidAlpineFileManagerScreen(
     runtime: AndroidAlpineFileManagerRuntime,
     onBack: () -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-    val expanded = maxWidth >= 740.dp
-    val drafts = remember { mutableStateMapOf<String, String>() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var path by remember { mutableStateOf("/") }
@@ -212,7 +201,7 @@ internal fun AndroidAlpineFileManagerScreen(
                     runCatching { bytes.decodeToString(throwOnInvalidSequence = true) }.getOrNull()
                 } else null
                 if (text != null) {
-                    editorContent = drafts[entry.path] ?: text
+                    editorContent = text
                     editorFile = entry
                 } else {
                     require(entry.size <= 128L * 1024 * 1024) { "File is too large to preview (maximum 128 MB)." }
@@ -254,29 +243,25 @@ internal fun AndroidAlpineFileManagerScreen(
     BackHandler { if (!navigateBack()) onBack() }
     LaunchedEffect(path) { refresh() }
 
-    val currentEditor by rememberUpdatedState<@Composable () -> Unit> {
-        editorFile?.let { entry ->
-            key(entry.path) {
-                SoraEditorScreen(
-                    entry = entry, initialContent = editorContent,
-                    onSave = { content -> scope.launch {
-                        runCatching { runtime.fileSystem.write(entry.path, content.encodeToByteArray()) }
-                            .onSuccess { if (drafts[entry.path] == content) drafts.remove(entry.path) }
-                            .onFailure { error = it.message ?: "Unable to save file." }
-                    } },
-                    onContentChanged = { content -> editorContent = content; drafts[entry.path] = content },
-                    onBack = { editorFile = null },
-                )
-            }
-        }
-    }
-    val editor = remember { movableContentOf { currentEditor() } }
     filePreview?.let { preview ->
         AlpineFilePreviewScreen(preview, onBack = { filePreview = null })
-        return@BoxWithConstraints
+        return
     }
-    if (editorFile != null && !expanded) {
-        editor()
+
+    if (editorFile != null) {
+        SoraEditorScreen(
+            entry = editorFile!!,
+            initialContent = editorContent,
+            onSave = { content ->
+                val target = editorFile ?: return@SoraEditorScreen
+                scope.launch {
+                    runCatching { runtime.fileSystem.write(target.path, content.encodeToByteArray()) }
+                        .onFailure { error = it.message ?: "Unable to save file." }
+                }
+            },
+            onBack = { editorFile = null },
+        )
+        return
     }
 
     val visibleEntries = entries
@@ -291,9 +276,7 @@ internal fun AndroidAlpineFileManagerScreen(
         })
         .toList()
 
-    Row(Modifier.fillMaxSize()) {
-    if (expanded || editorFile == null) Scaffold(
-        modifier = if (expanded) Modifier.weight(0.38f).fillMaxHeight() else Modifier.fillMaxSize(),
+    Scaffold(
         containerColor = AetherSettingsBackground,
         topBar = {
             Column(
@@ -409,15 +392,6 @@ internal fun AndroidAlpineFileManagerScreen(
                 }
             }
         }
-    }
-
-    if (expanded) {
-        VerticalDivider()
-        Box(Modifier.weight(0.62f).fillMaxHeight()) {
-            if (editorFile != null) editor()
-            else Text("Select a file", modifier = Modifier.align(Alignment.Center), color = AetherOnSurfaceVariant)
-        }
-    }
     }
 
     selected?.let { entry ->
@@ -550,7 +524,6 @@ internal fun AndroidAlpineFileManagerScreen(
             confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } },
         )
     }
-    }
 }
 
 @Composable
@@ -589,11 +562,9 @@ private fun SoraEditorScreen(
     entry: AndroidAlpineFileEntry,
     initialContent: String,
     onSave: (String) -> Unit,
-    onContentChanged: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val latestOnContentChanged by rememberUpdatedState(onContentChanged)
     var editor by remember(entry.path) { mutableStateOf<CodeEditor?>(null) }
     var wrapsLines by remember(entry.path) { mutableStateOf(false) }
 
@@ -623,7 +594,6 @@ private fun SoraEditorScreen(
             factory = {
                 CodeEditor(context).apply {
                     setText(initialContent)
-                    subscribeEvent(ContentChangeEvent::class.java) { _, _ -> latestOnContentChanged(text.toString()) }
                     setLineNumberEnabled(true)
                     setWordwrap(wrapsLines)
                     editor = this

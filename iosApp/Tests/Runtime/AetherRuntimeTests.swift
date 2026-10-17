@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import AetherShared
 @testable import Aether
 
@@ -57,13 +58,224 @@ final class AetherRuntimeTests: XCTestCase {
         XCTAssertEqual(model.text("Language", "语言"), "Язык")
     }
 
+    func testDuoComputerLayoutRequiresActiveHalfFoldAndDuoCapability() {
+        let bounds = CGRect(x: 0, y: 0, width: 900, height: 680)
+        let division = CGRect(x: 430, y: 0, width: 40, height: 680)
+        let half = DuoComputerLayout.resolve(bounds: bounds, activeDivision: division, isDuo: true, chatVisible: true)
+        XCTAssertEqual(half?.chat, CGRect(x: 0, y: 0, width: 430, height: 680))
+        XCTAssertEqual(half?.computer, CGRect(x: 470, y: 0, width: 430, height: 680))
+        XCTAssertNil(DuoComputerLayout.resolve(bounds: bounds, activeDivision: nil, isDuo: true, chatVisible: true))
+        XCTAssertNil(DuoComputerLayout.resolve(bounds: bounds, activeDivision: division, isDuo: false, chatVisible: true))
+        XCTAssertNil(DuoComputerLayout.resolve(bounds: bounds, activeDivision: division, isDuo: true, chatVisible: false))
+        XCTAssertNil(DuoComputerLayout.resolve(bounds: bounds, activeDivision: CGRect(x: 0, y: 0, width: 900, height: 20), isDuo: true, chatVisible: true))
+    }
+
+    @MainActor
+    func testDuoComputerClosesOnEveryOtherFoldMode() {
+        let model = DuoAgentComputerModel()
+        model.updatePresentation(isDuo: true, halfFolded: true, chatVisible: true)
+        XCTAssertTrue(model.isVisible)
+        model.updatePresentation(isDuo: true, halfFolded: false, chatVisible: true)
+        XCTAssertFalse(model.isVisible)
+        model.updatePresentation(isDuo: false, halfFolded: true, chatVisible: true)
+        XCTAssertFalse(model.isVisible)
+        model.updatePresentation(isDuo: true, halfFolded: true, chatVisible: false)
+        XCTAssertFalse(model.isVisible)
+    }
+
+    @available(iOS 18.0, *)
+    @MainActor
+    func testDuoTerminalWrapsLongOutputWhenViewportNarrows() throws {
+        let model = DuoAgentComputerModel()
+        let output = String(repeating: "abcdefghijklmnopqrstuvwxyz界🙂", count: 80)
+        let data = try JSONSerialization.data(withJSONObject: [
+            "sessionId": "wrapping", "directory": "/workspace", "runtimeReady": true,
+            "executions": [["id": "one", "command": "echo long-output", "cwd": "/workspace",
+                            "startedAt": 1, "output": output]],
+            "browserSessionId": "", "browserActive": false, "browserReady": false,
+            "browserUpdatedAt": 0, "browserURL": "",
+        ])
+        model.receive(try XCTUnwrap(String(data: data, encoding: .utf8)))
+        let controller = UIHostingController(rootView: DuoAgentComputerView(model: model, settings: NativeSettingsModel()))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 500, height: 500))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+
+        func scrollView(in view: UIView) -> UIScrollView? {
+            if let scroll = view as? UIScrollView { return scroll }
+            return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+        }
+        let rendered = expectation(description: "terminal content is laid out")
+        DispatchQueue.main.async { rendered.fulfill() }
+        wait(for: [rendered], timeout: 3)
+        controller.view.layoutIfNeeded()
+        let scroll = try XCTUnwrap(scrollView(in: controller.view))
+        XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height)
+        XCTAssertLessThanOrEqual(scroll.contentSize.width, scroll.bounds.width + 1)
+        let wideHeight = scroll.contentSize.height
+
+        window.frame.size.width = 260
+        controller.view.frame = window.bounds
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        let reflowed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            scroll.bounds.width <= 260 && scroll.contentSize.height > wideHeight
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [reflowed], timeout: 3), .completed)
+        XCTAssertLessThanOrEqual(scroll.contentSize.width, scroll.bounds.width + 1)
+        XCTAssertEqual(model.snapshot.executions.first?.output, output)
+    }
+
+    @MainActor
+    func testNativeComputerKeepsTerminalHistoryAndAutomaticallyFollowsAgent() throws {
+        let model = DuoAgentComputerModel()
+        func snapshot(browserAt: Int, owner: String = "one", firstFrame: Bool = true) -> String {
+            """
+            {"sessionId":"one","directory":"/workspace","runtimeReady":true,
+             "executions":[{"id":"a","command":"echo first","cwd":"/workspace","startedAt":10,"output":"first\\n","completedAt":11,"exitCode":0},
+                           {"id":"b","command":"echo second","cwd":"/workspace","startedAt":20,"output":"second"}],
+             "browserSessionId":"\(owner)","browserActive":true,"browserReady":\(firstFrame),"browserUpdatedAt":\(browserAt),"browserURL":"https://example.com"}
+            """
+        }
+        model.receive(snapshot(browserAt: 30))
+        XCTAssertTrue(model.snapshot.showsBrowser)
+        XCTAssertEqual(model.snapshot.executions.map(\.id), ["a", "b"])
+        XCTAssertEqual(model.snapshot.executions[0].output, "first\n")
+        XCTAssertNil(model.snapshot.executions[1].completedAt)
+        // A later command brings the terminal back; stdout changes cannot steal focus.
+        model.receive(snapshot(browserAt: 15))
+        XCTAssertFalse(model.snapshot.showsBrowser)
+        model.receive(snapshot(browserAt: 30, owner: "another-session"))
+        XCTAssertFalse(model.snapshot.showsBrowser)
+        model.receive(snapshot(browserAt: 30, firstFrame: false))
+        XCTAssertFalse(model.snapshot.showsBrowser)
+        model.receive("invalid")
+        XCTAssertEqual(model.snapshot.sessionId, "one")
+    }
+
+    func testPartialAlpineRootIsNotInitializedAfterRelaunch() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("data"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data().write(to: root.appendingPathComponent("meta.db"))
+
+        // Extracting rootfs and creating meta.db do not mean Node setup completed.
+        XCTAssertFalse(AetherRuntimeHost.hasCompletedSetup(at: root))
+        try Data().write(to: root.appendingPathComponent(".aether-setup-complete"))
+        XCTAssertTrue(AetherRuntimeHost.hasCompletedSetup(at: root))
+        // A stale completion marker without a complete rootfs is also insufficient.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("meta.db"))
+        XCTAssertFalse(AetherRuntimeHost.hasCompletedSetup(at: root))
+    }
+
     func testInternetPermissionProbeUsesFiniteHeadRequest() throws {
         let request = makeInternetPermissionRequest()
 
-        XCTAssertEqual(request.url?.absoluteString, "https://models.dev/catalog.json")
+        XCTAssertEqual(request.url?.absoluteString, "https://dl-cdn.alpinelinux.org/alpine/")
         XCTAssertEqual(request.httpMethod, "HEAD")
         XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
-        XCTAssertEqual(request.timeoutInterval, 5)
+        XCTAssertEqual(request.timeoutInterval, 15)
+        XCTAssertTrue(request.allowsCellularAccess)
+    }
+
+    func testAlpineNetworkCheckWaitsForPermissionAndAllowsCellular() {
+        let config = AetherAlpineNetworkAccess.configuration(.ephemeral)
+        XCTAssertTrue(config.waitsForConnectivity)
+        XCTAssertTrue(config.allowsCellularAccess)
+        XCTAssertTrue(config.allowsExpensiveNetworkAccess)
+        XCTAssertTrue(config.allowsConstrainedNetworkAccess)
+        XCTAssertEqual(config.timeoutIntervalForResource, 60)
+        XCTAssertNil(config.urlCache)
+    }
+
+    func testAlpineNetworkCheckCanRetryAfterOfflineFailure() {
+        let access = mockAlpineNetworkAccess { probe in
+            probe.fail(URLError(.notConnectedToInternet))
+        }
+        let offline = expectation(description: "offline check fails before setup")
+        access.check { result in
+            if case .success = result { XCTFail("Offline access must not start setup") }
+            offline.fulfill()
+        }
+        wait(for: [offline], timeout: 3)
+
+        AlpineNetworkURLProtocol.handler = { $0.respond(status: 200) }
+        let online = expectation(description: "same checker retries without a cached denial")
+        access.check { result in
+            if case .failure(let error) = result { XCTFail(error.localizedDescription) }
+            online.fulfill()
+        }
+        wait(for: [online], timeout: 3)
+    }
+
+    func testAlpineNetworkCheckAcceptsReachableMirror() {
+        let access = mockAlpineNetworkAccess { probe in
+            probe.respond(status: probe.request.url?.host == "mirrors.tuna.tsinghua.edu.cn" ? 200 : 503)
+        }
+        let reachable = expectation(description: "reachable mirror permits setup")
+        access.check { result in
+            if case .failure(let error) = result { XCTFail(error.localizedDescription) }
+            reachable.fulfill()
+        }
+        wait(for: [reachable], timeout: 3)
+    }
+
+    func testAlpineNetworkCheckExplainsDeniedPermission() {
+        let access = mockAlpineNetworkAccess { $0.fail(URLError(.dataNotAllowed)) }
+        let denied = expectation(description: "denied access explains settings recovery")
+        access.check { result in
+            switch result {
+            case .success: XCTFail("Denied network must not start setup")
+            case .failure(let error):
+                XCTAssertEqual((error as NSError).code, 1)
+                XCTAssertTrue(error.localizedDescription.contains("iOS Settings > Apps > Aether"))
+            }
+            denied.fulfill()
+        }
+        wait(for: [denied], timeout: 3)
+    }
+
+    func testAlpineNetworkCheckDoesNotProceedUntilRequestCompletes() {
+        let started = expectation(description: "native requests started")
+        started.expectedFulfillmentCount = 2
+        let lock = NSLock()
+        var probes: [AlpineNetworkURLProtocol] = []
+        let access = mockAlpineNetworkAccess { probe in
+            lock.lock()
+            probes.append(probe)
+            lock.unlock()
+            started.fulfill()
+        }
+        let completed = expectation(description: "access granted")
+        var proceeded = false
+        access.check { result in
+            if case .failure(let error) = result { XCTFail(error.localizedDescription) }
+            lock.lock()
+            proceeded = true
+            lock.unlock()
+            completed.fulfill()
+        }
+        wait(for: [started], timeout: 3)
+        lock.lock()
+        XCTAssertFalse(proceeded)
+        let probe = probes[0]
+        lock.unlock()
+        probe.respond(status: 200)
+        wait(for: [completed], timeout: 3)
+    }
+
+    private func mockAlpineNetworkAccess(
+        _ handler: @escaping (AlpineNetworkURLProtocol) -> Void
+    ) -> AetherAlpineNetworkAccess {
+        AlpineNetworkURLProtocol.handler = handler
+        addTeardownBlock { AlpineNetworkURLProtocol.handler = nil }
+        return AetherAlpineNetworkAccess(configuration: {
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [AlpineNetworkURLProtocol.self]
+            return config
+        })
     }
 
     func testTerminalEmulatorTracksCursorAndWideCharacters() {
@@ -1025,4 +1237,21 @@ final class ANSIParserOSCTests: XCTestCase {
             ["osc:0:ok"]
         )
     }
+}
+
+private final class AlpineNetworkURLProtocol: URLProtocol {
+    static var handler: ((AlpineNetworkURLProtocol) -> Void)?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Self.handler?(self) }
+    override func stopLoading() {}
+
+    func respond(status: Int) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    func fail(_ error: Error) { client?.urlProtocol(self, didFailWithError: error) }
 }

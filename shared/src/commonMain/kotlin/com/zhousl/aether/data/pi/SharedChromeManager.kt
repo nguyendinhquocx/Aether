@@ -67,9 +67,15 @@ data class SharedBrowserDisplayState(
 
 class SharedChromeManager(
     private val runtime: MultiplatformLocalRuntime,
+    private val observeComputer: () -> Boolean,
 ) : SharedHostToolExecutor {
+    constructor(runtime: MultiplatformLocalRuntime) : this(runtime, { false })
+
     var enabled: Boolean = false
-    internal val platformBackend: SharedBrowserBackend? = createPlatformBrowserBackend(runtime)
+    private val originalPlatformBackend: SharedBrowserBackend? = createPlatformBrowserBackend(runtime)
+    internal val platformBackend: SharedBrowserBackend?
+        get() = if (observeComputer()) null else originalPlatformBackend
+    private val toolMutex = Mutex()
     private var started = false
     private var chromeClient: ChromeCdpClient? = null
     private val _displayState = MutableStateFlow(SharedBrowserDisplayState())
@@ -98,7 +104,7 @@ class SharedChromeManager(
             },
         )
         check(!setup.isError) { setup.outputJson }
-        runtime.fileSystem.write("/usr/share/novnc/aether-observer.html", AgentBrowserObserverHtml.encodeToByteArray())
+        if (observeComputer()) runtime.fileSystem.write("/usr/share/novnc/aether-observer.html", AgentBrowserObserverHtml.encodeToByteArray())
         val client = ChromeCdpClient(runtime)
         try {
             client.start()
@@ -142,7 +148,10 @@ class SharedChromeManager(
     }
 
     @Throws(Exception::class)
-    suspend fun executeJson(requestJson: String): String {
+    suspend fun executeJson(requestJson: String): String =
+        if (observeComputer()) toolMutex.withLock { executeJsonLocked(requestJson) } else executeJsonLocked(requestJson)
+
+    private suspend fun executeJsonLocked(requestJson: String): String {
         val request = Json.parseToJsonElement(requestJson).jsonObject
         platformBackend?.let { backend ->
             return executePlatformAction(backend, request).toString()
@@ -155,12 +164,15 @@ class SharedChromeManager(
         return executeCdpAction(request).toString()
     }
 
-    override suspend fun execute(name: String, arguments: JsonObject): SharedHostToolResult {
+    override suspend fun execute(name: String, arguments: JsonObject): SharedHostToolResult =
+        if (observeComputer()) toolMutex.withLock { executeToolLocked(name, arguments) } else executeToolLocked(name, arguments)
+
+    private suspend fun executeToolLocked(name: String, arguments: JsonObject): SharedHostToolResult {
         if (name != BrowserToolName && name != LegacyChromeToolName) {
             return SharedHostToolResult("{\"error\":\"Unknown browser tool\"}", true)
         }
         val owner = arguments.string("__aether_session_id")
-        if (owner.isNotBlank()) _displayState.value = if (_displayState.value.sessionId == owner) _displayState.value else SharedBrowserDisplayState(sessionId = owner)
+        if (observeComputer() && owner.isNotBlank()) _displayState.value = if (_displayState.value.sessionId == owner) _displayState.value else SharedBrowserDisplayState(sessionId = owner)
         return runCatching {
             val response = platformBackend?.let { executePlatformAction(it, arguments) }
                 ?: if (arguments.string("action").equals("stop", ignoreCase = true)) {

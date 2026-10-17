@@ -114,7 +114,7 @@ fun AetherConversationDrawer(
     onSettingsSelected: () -> Unit,
     permanent: Boolean = false,
     showSettings: Boolean = true,
-    contextUsage: @Composable () -> Unit = {},
+    contextUsage: (@Composable () -> Unit)? = null,
     extraContent: @Composable ((dismissSearch: () -> Unit) -> Unit) = {},
     headerContent: @Composable () -> Unit = {},
     footerContent: @Composable () -> Unit = {},
@@ -290,7 +290,7 @@ fun AetherConversationDrawer(
                 footerContent()
             }
 
-            Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 22.dp, bottom = 28.dp).width(160.dp)) {
+            if (contextUsage != null) Box(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 22.dp, bottom = 28.dp).width(160.dp)) {
                 contextUsage()
             }
             Row(

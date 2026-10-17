@@ -1854,7 +1854,6 @@ class AetherViewModel(
         }
         if (didUpdate) {
             viewModelScope.launch {
-                com.zhousl.aether.data.AgentComputerStore.remove(sessionId)
                 chatStateStore.flush()
                 val sharedWorkspaceFilePaths = withContext(Dispatchers.IO) {
                     runCatching {

@@ -9,8 +9,6 @@ extension Notification.Name {
 }
 
 private final class AetherAppDelegate: NSObject, UIApplicationDelegate {
-    private let internetPermissionRequester = AetherInternetPermissionRequester()
-
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -31,45 +29,8 @@ private final class AetherAppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         AetherRuntimeHost.shared.refreshApkRepositoriesForCurrentNetwork()
-        internetPermissionRequester.requestAccess()
         return true
     }
-}
-
-/// iOS does not expose an explicit API for the Wireless LAN & Cellular Data prompt.
-/// Starting a real internet request on first launch lets the system present it before
-/// onboarding needs provider access. The system remembers the choice per installation.
-final class AetherInternetPermissionRequester {
-    private static let requestRecordedKey = "internetPermissionRequestRecorded"
-    private var session: URLSession?
-
-    func requestAccess() {
-        guard
-            session == nil,
-            !UserDefaults.standard.bool(forKey: Self.requestRecordedKey)
-        else { return }
-        UserDefaults.standard.set(true, forKey: Self.requestRecordedKey)
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 5
-        configuration.timeoutIntervalForResource = 5
-        let session = URLSession(configuration: configuration)
-        self.session = session
-        session.dataTask(with: makeInternetPermissionRequest()) { [weak self] _, _, _ in
-            session.finishTasksAndInvalidate()
-            self?.session = nil
-        }.resume()
-    }
-}
-
-func makeInternetPermissionRequest() -> URLRequest {
-    var request = URLRequest(
-        url: URL(string: "https://models.dev/catalog.json")!,
-        cachePolicy: .reloadIgnoringLocalCacheData,
-        timeoutInterval: 5
-    )
-    request.httpMethod = "HEAD"
-    return request
 }
 
 @main
@@ -85,65 +46,80 @@ struct AetherIOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                ComposeRootView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
-                    .toolbar(.hidden, for: .navigationBar)
-                    .toolbar {
-                        if workspace.chatVisible {
-                            ToolbarItemGroup(placement: .bottomBar) {
-                                Button { IosWorkspaceHost.shared.perform(action: "newChat") } label: {
-                                    Label(nativeSettings.text("New Chat", "新会话"), systemImage: "square.and.pencil")
-                                }
-                                Button { presentsScheduledTasks = true } label: {
-                                    Label { Text(nativeSettings.text("Scheduled Tasks", "定时任务")) } icon: { Image(uiImage: WorkspaceOutlineIcon.clock8Image) }
-                                }
-                                Button { presentsSkills = true } label: {
-                                    Label { Text(nativeSettings.text("Skills", "技能")) } icon: { Image(uiImage: WorkspaceOutlineIcon.blocksImage) }
-                                }
-                                Button { presentsAlpineFileManager = true } label: {
-                                    Label(nativeSettings.text("Files", "文件"), systemImage: "folder")
-                                }
-                                Button { presentsTerminal = true } label: {
-                                    Label(nativeSettings.text("Terminal", "终端"), systemImage: "terminal")
-                                }
-                                Spacer()
-                                Button { nativeSettings.isPresented = true } label: {
-                                    Label(nativeSettings.text("Settings", "设置"), systemImage: "gearshape")
+            if workspace.isDuo {
+                NavigationStack {
+                    ComposeRootView(workspace: workspace, settings: nativeSettings)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea(.container, edges: .vertical)
+                        .toolbar(.hidden, for: .navigationBar)
+                        .toolbar {
+                            if workspace.chatVisible {
+                                ToolbarItemGroup(placement: .bottomBar) {
+                                    Button { IosWorkspaceHost.shared.perform(action: "newChat") } label: {
+                                        Label(nativeSettings.text("New Chat", "新会话"), systemImage: "square.and.pencil")
+                                    }
+                                    Button { presentsScheduledTasks = true } label: {
+                                        Label { Text(nativeSettings.text("Scheduled Tasks", "定时任务")) } icon: { Image(uiImage: WorkspaceOutlineIcon.clock8Image) }
+                                    }
+                                    Button { presentsSkills = true } label: {
+                                        Label { Text(nativeSettings.text("Skills", "技能")) } icon: { Image(uiImage: WorkspaceOutlineIcon.blocksImage) }
+                                    }
+                                    Button { presentsAlpineFileManager = true } label: {
+                                        Label(nativeSettings.text("Files", "文件"), systemImage: "folder")
+                                    }
+                                    Button { presentsTerminal = true } label: {
+                                        Label(nativeSettings.text("Terminal", "终端"), systemImage: "terminal")
+                                    }
+                                    Spacer()
+                                    Button { nativeSettings.isPresented = true } label: {
+                                        Label(nativeSettings.text("Settings", "设置"), systemImage: "gearshape")
+                                    }
                                 }
                             }
                         }
+                }
+                    .ignoresSafeArea(.keyboard)
+                    .task(id: scenePhase) {
+                        while !Task.isCancelled {
+                            if scenePhase == .active, workspace.chatVisible { NativeScheduledTaskStore.shared.checkDue() }
+                            try? await Task.sleep(for: .seconds(15))
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .openAlpineFileManager)) { _ in
+                        presentsAlpineFileManager = true
+                    }
+                    .sheet(isPresented: $presentsAlpineFileManager) {
+                        DuoAlpineFileManagerView(host: AetherRuntimeHost.shared)
+                    }
+                    .fullScreenCover(isPresented: $presentsTerminal) { NativeAlpineTerminalScreen() }
+                    .sheet(isPresented: $presentsSkills) {
+                        NavigationStack {
+                            NativeSkillsSettingsView(model: nativeSettings)
+                                .toolbar { ToolbarItem(placement: .confirmationAction) {
+                                    Button(nativeSettings.text("Done", "完成")) { presentsSkills = false }
+                                } }
+                        }
+                    }
+                    .sheet(isPresented: $presentsScheduledTasks) {
+                        NativeScheduledTasksView(model: nativeSettings)
+                    }
+                    .fullScreenCover(isPresented: $nativeSettings.isPresented) {
+                        NativeSettingsView(model: nativeSettings, usesDuoLayout: true)
+                    }
+            } else {
+                ComposeRootView(workspace: workspace, settings: nativeSettings)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
+                    .onReceive(NotificationCenter.default.publisher(for: .openAlpineFileManager)) { _ in
+                        presentsAlpineFileManager = true
+                    }
+                    .sheet(isPresented: $presentsAlpineFileManager) {
+                        AlpineFileManagerView(host: AetherRuntimeHost.shared)
+                    }
+                    .sheet(isPresented: $nativeSettings.isPresented) {
+                        NativeSettingsView(model: nativeSettings)
                     }
             }
-                .ignoresSafeArea(.keyboard)
-                .task {
-                    while !Task.isCancelled {
-                        if scenePhase == .active, workspace.chatVisible { NativeScheduledTaskStore.shared.checkDue() }
-                        try? await Task.sleep(for: .seconds(15))
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .openAlpineFileManager)) { _ in
-                    presentsAlpineFileManager = true
-                }
-                .sheet(isPresented: $presentsAlpineFileManager) {
-                    AlpineFileManagerView(host: AetherRuntimeHost.shared)
-                }
-                .fullScreenCover(isPresented: $presentsTerminal) { NativeAlpineTerminalScreen() }
-                .sheet(isPresented: $presentsSkills) {
-                    NavigationStack {
-                        NativeSkillsSettingsView(model: nativeSettings)
-                            .toolbar { ToolbarItem(placement: .confirmationAction) {
-                                Button(nativeSettings.text("Done", "完成")) { presentsSkills = false }
-                            } }
-                    }
-                }
-                .sheet(isPresented: $presentsScheduledTasks) {
-                    NativeScheduledTasksView(model: nativeSettings)
-                }
-                .sheet(isPresented: $nativeSettings.isPresented) {
-                    NativeSettingsView(model: nativeSettings)
-                }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -160,10 +136,28 @@ struct AetherIOSApp: App {
 
 @MainActor
 private final class NativeWorkspaceModel: NSObject, ObservableObject, @preconcurrency IosWorkspaceListener {
+    private weak var currentController: UIViewController?
+    private var duoController: UIViewController?
+    func makeComposeContent() -> UIViewController {
+        if IosWorkspaceHost.shared.duoEnabled, let duoController { return duoController }
+        let controller = MainViewControllerKt.MainViewController(runtimeHost: AetherRuntimeHost.shared)
+        currentController = controller
+        if IosWorkspaceHost.shared.duoEnabled { duoController = controller }
+        return controller
+    }
+    let computer = DuoAgentComputerModel()
+    @Published var isDuo = false
     @Published var chatVisible = false
     override init() {
         super.init()
         IosWorkspaceHost.shared.setListener(listener: self)
+    }
+    func onDuoCapabilityChanged(enabled: Bool) {
+        if enabled { duoController = currentController }
+        DispatchQueue.main.async { [weak self] in self?.isDuo = enabled }
+    }
+    func onComputerSnapshotChanged(snapshotJson: String) {
+        DispatchQueue.main.async { [weak self] in self?.computer.receive(snapshotJson) }
     }
     func onChatVisibilityChanged(visible: Bool) {
         DispatchQueue.main.async { [weak self] in self?.chatVisible = visible }
@@ -171,20 +165,34 @@ private final class NativeWorkspaceModel: NSObject, ObservableObject, @preconcur
 }
 
 private struct ComposeRootView: UIViewControllerRepresentable {
+    @ObservedObject var workspace: NativeWorkspaceModel
+    let settings: NativeSettingsModel
     func makeUIViewController(context: Context) -> UIViewController {
         FullscreenComposeViewController(
-            content: MainViewControllerKt.MainViewController(runtimeHost: AetherRuntimeHost.shared)
+            content: workspace.makeComposeContent(), workspace: workspace, settings: settings
         )
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        if workspace.isDuo { uiViewController.view.setNeedsLayout() }
+    }
 }
 
 private final class FullscreenComposeViewController: UIViewController {
     private let content: UIViewController
+    private let workspace: NativeWorkspaceModel
+    private let settings: NativeSettingsModel
+    private var contentEdges: [NSLayoutConstraint] = []
+    private var computerController: UIViewController?
+    private let divisionView = UIView()
+    private var lastChatFrame: CGRect?
+    private var lastComputerFrame: CGRect?
+    private var lastComputerVisible = false
 
-    init(content: UIViewController) {
+    init(content: UIViewController, workspace: NativeWorkspaceModel, settings: NativeSettingsModel) {
         self.content = content
+        self.workspace = workspace
+        self.settings = settings
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -197,21 +205,113 @@ private final class FullscreenComposeViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .clear
 
+        if content.parent != nil {
+            content.willMove(toParent: nil)
+            content.view.removeFromSuperview()
+            content.removeFromParent()
+        }
         addChild(content)
         content.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(content.view)
-        NSLayoutConstraint.activate([
+        contentEdges = [
             content.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             content.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             content.view.topAnchor.constraint(equalTo: view.topAnchor),
             content.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(contentEdges)
         content.didMove(toParent: self)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        IosWorkspaceHost.shared.updateScene(regularWidth: traitCollection.horizontalSizeClass == .regular)
+        #if AETHER_DUO_SDK
+        if #available(iOS 27.1, *), UIDevice.current.userInterfaceIdiom == .phone {
+            // An inactive division still identifies the folding display when fully open.
+            // A wide window, landscape iPhone or iPad must never enable the workspace.
+            let regions = view.reservedRegions(kind: .division, options: .includeInactive)
+            if !regions.isEmpty { IosWorkspaceHost.shared.confirmDuoCapability() }
+            guard IosWorkspaceHost.shared.duoEnabled else { return }
+            IosWorkspaceHost.shared.updateScene(regularWidth: traitCollection.horizontalSizeClass == .regular)
+            let fold = regions.first { $0.isActive }
+            IosWorkspaceHost.shared.updateFold(active: fold != nil, x: Float(fold?.frame.minX ?? 0), width: Float(fold?.frame.width ?? 0))
+            layoutDuoComputer(activeDivision: fold?.frame)
+        }
+        #endif
+    }
+
+    @available(iOS 18.0, *)
+    private func layoutDuoComputer(activeDivision: CGRect?) {
+        if computerController == nil {
+            // Keep the existing Compose controller: folding never recreates the conversation.
+            NSLayoutConstraint.deactivate(contentEdges)
+            content.view.translatesAutoresizingMaskIntoConstraints = true
+            let controller = UIHostingController(rootView: DuoAgentComputerView(model: workspace.computer, settings: settings))
+            controller.safeAreaRegions = .container
+            addChild(controller)
+            view.addSubview(controller.view)
+            controller.didMove(toParent: self)
+            controller.view.backgroundColor = .clear
+            controller.view.alpha = 0
+            controller.view.isHidden = true
+            computerController = controller
+            divisionView.backgroundColor = .secondarySystemBackground
+            divisionView.isUserInteractionEnabled = false
+            divisionView.accessibilityElementsHidden = true
+            view.addSubview(divisionView)
+            view.clipsToBounds = true
+        }
+        guard let computer = computerController?.view else { return }
+        let layout = DuoComputerLayout.resolve(
+            bounds: view.bounds, activeDivision: activeDivision,
+            isDuo: workspace.isDuo, chatVisible: workspace.chatVisible
+        )
+        let visible = layout != nil
+        workspace.computer.updatePresentation(isDuo: workspace.isDuo, halfFolded: visible, chatVisible: workspace.chatVisible)
+        let chatFrame = layout?.chat ?? view.bounds
+        let computerFrame = layout?.computer ?? CGRect(
+            x: view.bounds.maxX, y: view.bounds.minY,
+            width: view.bounds.width / 2, height: view.bounds.height
+        )
+        guard chatFrame != lastChatFrame || computerFrame != lastComputerFrame || visible != lastComputerVisible else { return }
+        let animate = lastChatFrame != nil && !UIAccessibility.isReduceMotionEnabled
+        let visibilityChanged = visible != lastComputerVisible
+        if visibilityChanged { view.endEditing(true) }
+        // Crossfade the old chat geometry while Compose reflows its existing content.
+        let snapshot = animate && workspace.chatVisible ? content.view.snapshotView(afterScreenUpdates: false) : nil
+        if let snapshot {
+            snapshot.frame = content.view.frame
+            snapshot.isUserInteractionEnabled = false
+            snapshot.accessibilityElementsHidden = true
+            view.insertSubview(snapshot, aboveSubview: content.view)
+        }
+        lastChatFrame = chatFrame
+        lastComputerFrame = computerFrame
+        lastComputerVisible = visible
+        if visible { computer.isHidden = false }
+        computer.accessibilityElementsHidden = !visible
+        computer.isUserInteractionEnabled = visible
+        let changes = {
+            self.content.view.frame = chatFrame
+            computer.frame = computerFrame
+            computer.alpha = visible ? 1 : 0
+            self.divisionView.frame = layout?.division ?? CGRect(x: chatFrame.maxX, y: 0, width: 0, height: chatFrame.height)
+            self.divisionView.alpha = visible ? 1 : 0
+            snapshot?.frame = chatFrame
+            snapshot?.alpha = 0
+            self.content.view.layoutIfNeeded()
+        }
+        let completion: (Bool) -> Void = { _ in
+            snapshot?.removeFromSuperview()
+            if !self.lastComputerVisible { computer.isHidden = true }
+        }
+        if animate {
+            let duration = UIView.inheritedAnimationDuration > 0 ? UIView.inheritedAnimationDuration : 0.32
+            UIView.animate(withDuration: duration, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut, .allowUserInteraction], animations: changes, completion: completion)
+        } else {
+            changes()
+            completion(true)
+        }
     }
 
     override func viewWillTransition(
@@ -309,7 +409,7 @@ private final class NativeScheduledTaskStore: ObservableObject {
         task.enabled = enabled; save(task)
     }
     func run(_ id: String) {
-        guard let index = tasks.firstIndex(where: { $0.id == id }), IosWorkspaceHost.shared.runScheduledPrompt(prompt: tasks[index].prompt) else { return }
+        guard let index = tasks.firstIndex(where: { $0.id == id }), IosWorkspaceHost.shared.runScheduledPrompt(taskId: tasks[index].id, title: tasks[index].name, prompt: tasks[index].prompt) else { return }
         tasks[index].lastRun = Date()
         tasks[index].nextRun = tasks[index].enabled ? tasks[index].following(Date()) : nil
         persist()

@@ -378,7 +378,16 @@ internal fun SharedBrowserPreviewCard(
                 animationSpec = tween(animationDuration, easing = SharedStatisticsPopupEasing),
                 label = "shared_browser_cursor_offset",
             )
-            if (previewBitmap != null) {
+            if (isLive && manager != null && !com.zhousl.aether.platform.IosWorkspaceHost.isDuo.value) {
+                PlatformBrowserView(
+                    manager = manager,
+                    modifier = Modifier.fillMaxHeight().padding(10.dp).aspectRatio(
+                        presentedState.width.coerceAtLeast(1).toFloat() /
+                            presentedState.height.coerceAtLeast(1).toFloat(),
+                        matchHeightConstraintsFirst = true,
+                    ).clip(RoundedCornerShape(14.dp)),
+                )
+            } else if (previewBitmap != null) {
                 Image(
                     bitmap = requireNotNull(previewBitmap),
                     contentDescription = "Browser preview",

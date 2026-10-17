@@ -25,6 +25,28 @@ import kotlin.test.assertFalse
 @OptIn(ExperimentalCoroutinesApi::class)
 class SharedPiBridgeClientTest {
     @Test
+    fun computerObservationIsExplicitlyOptedIn() = runTest {
+        for (enabled in listOf(false, true)) {
+            val process = ProtocolFakeProcess()
+            val client = SharedPiBridgeClient(
+                transport = FakeBridgeTransport(process),
+                dispatcher = StandardTestDispatcher(testScheduler),
+                observeComputer = { enabled },
+            )
+            val originalPayload = buildJsonObject { put("session_id", "scope-test") }
+            client.request("run_turn", payload = originalPayload)
+            val payload = process.requests.last()["payload"]!!.jsonObject
+            if (enabled) {
+                assertEquals("true", payload["observe_computer"]?.jsonPrimitive?.content)
+                assertEquals("scope-test", payload["session_id"]?.jsonPrimitive?.content)
+            } else {
+                assertEquals(originalPayload, payload)
+            }
+            client.close()
+        }
+    }
+
+    @Test
     fun dispatchesEventsBeforeCompletingResponse() = runTest {
         val process = ProtocolFakeProcess()
         val client = SharedPiBridgeClient(
@@ -306,6 +328,7 @@ private class DeferredResponseFakeProcess : RuntimeProcess {
 private class ProtocolFakeProcess(
     private val emitMalformedOutput: Boolean = false,
 ) : RuntimeProcess {
+    val requests = mutableListOf<JsonObject>()
     private val output = Channel<ByteArray>(Channel.UNLIMITED)
     override val pid: Int = 7
     override val stdout: Flow<ByteArray> = output.receiveAsFlow()
@@ -313,6 +336,7 @@ private class ProtocolFakeProcess(
 
     override suspend fun writeStdin(bytes: ByteArray) {
         val request = Json.parseToJsonElement(bytes.decodeToString().trim()).jsonObject
+        requests += request
         val id = request["id"]!!.jsonPrimitive.content
         if (emitMalformedOutput) {
             output.send("added 1 package in 7s\n".encodeToByteArray())

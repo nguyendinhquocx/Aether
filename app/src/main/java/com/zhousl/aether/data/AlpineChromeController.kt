@@ -88,8 +88,6 @@ class AlpineChromeController(
     suspend fun execute(argumentsJson: String): String = operationMutex.withLock {
         val arguments = runCatching { JSONObject(argumentsJson) }.getOrNull()
             ?: return@withLock errorResult("Arguments were not valid JSON.")
-        val owner = arguments.optString("__aether_session_id")
-        if (owner.isNotBlank()) _displayState.value = if (_displayState.value.sessionId == owner) _displayState.value else AgentModeDisplayState(sessionId = owner, width = ChromeViewportWidth, height = ChromeViewportHeight)
         val action = arguments.optString("action").trim().lowercase()
         runCatching {
             when (action) {
@@ -323,9 +321,6 @@ class AlpineChromeController(
         if (chromeProcess?.isAlive != true) {
             val command = """
                 set -eu
-                cat > /usr/share/novnc/aether-observer.html <<'AETHER_OBSERVER_HTML'
-                ${com.zhousl.aether.data.pi.AgentBrowserObserverHtml.prependIndent("                ")}
-                AETHER_OBSERVER_HTML
                 export DISPLAY=:99
                 mkdir -p /root/.aether/chrome-profile /tmp/.X11-unix
                 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99

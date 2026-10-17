@@ -520,74 +520,108 @@ final class NativeSettingsModel: NSObject, ObservableObject, @preconcurrency Ios
 
 struct NativeSettingsView: View {
     @ObservedObject var model: NativeSettingsModel
+    var usesDuoLayout = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var selection: SettingsPage? = .providers
+
+    private enum SettingsPage: Hashable {
+        case general, providers, personalization, reliability, skills, extensions
+        case alpine, statistics, developer, about
+        case extensionPage(String)
+    }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    settingsLink("sparkles", model.text("General Settings", "通用设置"), generalSummary) {
-                        NativeGeneralSettingsView(model: model)
-                    }
-                }
-                Section {
-                    settingsLink("cloud", model.text("Model Providers", "模型提供商"), providerSummary) {
-                        NativeProviderListView(model: model)
-                    }
-                    settingsLink("person", model.text("Personalization", "个性化"), personalizationSummary) {
-                        NativePersonalizationSettingsView(model: model)
-                    }
-                    settingsLink("arrow.clockwise", model.text("Reliability", "可靠性"), reliabilitySummary) {
-                        NativeReliabilitySettingsView(model: model)
-                    }
-                }
-                if !model.extensionSettings.isEmpty {
-                    Section {
-                        ForEach(model.extensionSettings, id: \.nativeID) { page in
-                            settingsLink(
-                                nativeSymbol(model.string(page, "icon"), fallback: "puzzlepiece.extension"),
-                                model.string(page, "title"),
-                                model.string(page, "subtitle", fallback: model.string(page, "extensionName"))
-                            ) {
-                                NativeExtensionSettingsPage(model: model, page: page)
-                            }
+        Group {
+            if usesDuoLayout {
+                NavigationSplitView {
+                    settingsList
+                        .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 360)
+                } detail: {
+                    NavigationStack {
+                        if let selection {
+                            settingsDestination(selection)
+                                .toolbar {
+                                    if horizontalSizeClass == .compact {
+                                        ToolbarItem(placement: .bottomBar) {
+                                            Button(model.text("Done", "完成")) { dismiss() }
+                                        }
+                                    }
+                                }
                         }
                     }
+                    .id(selection)
                 }
-                Section {
-                    settingsLink("aether-blocks", model.text("Agent Skills", "Agent Skills"), "\(model.skills.count)") {
-                        NativeSkillsSettingsView(model: model)
-                    }
-                    settingsLink("shippingbox", model.text("Pi Extensions", "Pi Extensions"), extensionSummary) {
-                        NativeExtensionsOverview(model: model)
-                    }
-                    settingsLink("terminal", "Alpine", alpineSummary) {
-                        NativeAlpineSettingsView(model: model)
-                    }
-                }
-                Section {
-                    settingsLink("chart.bar", model.text("Usage Statistics", "使用统计"), model.text("Token and session activity", "Token 与会话活动")) {
-                        NativeStatisticsView(model: model)
-                    }
-                }
-                Section {
-                    settingsLink("hammer", model.text("Developer", "开发者"), model.text("Data and diagnostics", "数据与诊断")) {
-                        NativeDeveloperSettingsView(model: model)
-                    }
-                    settingsLink("info.circle", model.text("About", "关于"), model.text("Version ", "版本 ") + model.string(model.snapshot, "appVersion")) {
-                        NativeAboutSettingsView(model: model)
-                    }
-                }
-            }
-            .navigationTitle(model.text("Settings", "设置"))
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(model.text("Done", "完成")) { dismiss() }
-                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                NavigationStack { settingsList }
             }
         }
         .preferredColorScheme(preferredColorScheme)
         .environment(\.layoutDirection, model.language == "fa" ? .rightToLeft : .leftToRight)
+    }
+
+    private var settingsList: some View {
+        List(selection: usesDuoLayout ? $selection : .constant(nil)) {
+            Section {
+                settingsLink(.general, "sparkles", model.text("General Settings", "通用设置"), generalSummary)
+            }
+            Section {
+                settingsLink(.providers, "cloud", model.text("Model Providers", "模型提供商"), providerSummary)
+                settingsLink(.personalization, "person", model.text("Personalization", "个性化"), personalizationSummary)
+                settingsLink(.reliability, "arrow.clockwise", model.text("Reliability", "可靠性"), reliabilitySummary)
+            }
+            if !model.extensionSettings.isEmpty {
+                Section {
+                    ForEach(model.extensionSettings, id: \.nativeID) { page in
+                        settingsLink(
+                            .extensionPage(page.nativeID),
+                            nativeSymbol(model.string(page, "icon"), fallback: "puzzlepiece.extension"),
+                            model.string(page, "title"),
+                            model.string(page, "subtitle", fallback: model.string(page, "extensionName"))
+                        )
+                    }
+                }
+            }
+            Section {
+                settingsLink(.skills, "puzzlepiece", model.text("Agent Skills", "Agent Skills"), "\(model.skills.count)")
+                settingsLink(.extensions, "shippingbox", model.text("Pi Extensions", "Pi Extensions"), extensionSummary)
+                settingsLink(.alpine, "terminal", "Alpine", alpineSummary)
+            }
+            Section {
+                settingsLink(.statistics, "chart.bar", model.text("Usage Statistics", "使用统计"), model.text("Token and session activity", "Token 与会话活动"))
+            }
+            Section {
+                settingsLink(.developer, "hammer", model.text("Developer", "开发者"), model.text("Data and diagnostics", "数据与诊断"))
+                settingsLink(.about, "info.circle", model.text("About", "关于"), model.text("Version ", "版本 ") + model.string(model.snapshot, "appVersion"))
+            }
+        }
+        .navigationTitle(model.text("Settings", "设置"))
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(model.text("Done", "完成")) { dismiss() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func settingsDestination(_ page: SettingsPage) -> some View {
+        switch page {
+        case .general: NativeGeneralSettingsView(model: model)
+        case .providers: NativeProviderListView(model: model)
+        case .personalization: NativePersonalizationSettingsView(model: model)
+        case .reliability: NativeReliabilitySettingsView(model: model)
+        case .skills: NativeSkillsSettingsView(model: model)
+        case .extensions: NativeExtensionsOverview(model: model)
+        case .alpine: NativeAlpineSettingsView(model: model)
+        case .statistics: NativeStatisticsView(model: model)
+        case .developer: NativeDeveloperSettingsView(model: model)
+        case .about: NativeAboutSettingsView(model: model)
+        case .extensionPage(let id):
+            if let page = model.extensionSettings.first(where: { $0.nativeID == id }) {
+                NativeExtensionSettingsPage(model: model, page: page)
+            }
+        }
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -633,27 +667,34 @@ struct NativeSettingsView: View {
     }
 
     @ViewBuilder
-    private func settingsLink<Destination: View>(
+    private func settingsLink(
+        _ page: SettingsPage,
         _ icon: String,
         _ title: String,
-        _ subtitle: String,
-        @ViewBuilder destination: () -> Destination
+        _ subtitle: String
     ) -> some View {
-        NavigationLink(destination: destination) {
-            Label {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }
-            } icon: {
-                if icon == "aether-blocks" { WorkspaceOutlineIcon(kind: .blocks).foregroundStyle(.tint) }
-                else { Image(systemName: icon).foregroundStyle(.tint).frame(width: 24) }
-            }
+        if usesDuoLayout {
+            NavigationLink(value: page) { settingsLabel(icon, title, subtitle) }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(title), \(subtitle)")
+        } else {
+            NavigationLink { settingsDestination(page) } label: { settingsLabel(icon, title, subtitle) }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(title), \(subtitle)")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(subtitle)")
+    }
+
+    private func settingsLabel(_ icon: String, _ title: String, _ subtitle: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        } icon: {
+            Image(systemName: icon).foregroundStyle(.tint).frame(width: 24)
+        }
     }
 
     private func languageName(_ value: String) -> String {
@@ -2561,10 +2602,6 @@ private final class NativeAlpineTerminalModel: NSObject, ObservableObject, Nativ
         DispatchQueue.main.async { [weak self] in self?.terminal.focus() }
     }
 
-    deinit {
-        if processID > 0 { AetherRuntimeHost.shared.signal(processId: processID, signal: 15) }
-    }
-
     func stop() {
         if processID > 0 { AetherRuntimeHost.shared.signal(processId: processID, signal: 15) }
         processID = 0
@@ -2599,10 +2636,11 @@ struct NativeAlpineTerminalScreen: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .navigationTitle(terminal.title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { terminal.stop(); dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         }
         .preferredColorScheme(.dark)
         .onAppear { terminal.start() }
+        .onDisappear { terminal.stop() }
     }
 }
 

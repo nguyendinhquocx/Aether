@@ -208,6 +208,7 @@ interface AgentSessionState {
   runtime: "alpine" | "termux";
   platform: "android" | "ios";
   chromeEnabled: boolean;
+  observeComputer: boolean;
   modelRuntime: ModelRuntime;
   model: Model<string>;
   compatibilityFallbackState: CompatibilityFallbackState;
@@ -2321,7 +2322,8 @@ function nativeToolDefinitions(state: AgentSessionState): ToolDefinition<any, an
   const cwd = state.workspaceDirectory;
   return [
     createReadToolDefinition(cwd, { operations: dynamicReadOperations(state) }),
-    observedBashDefinition(state),
+    state.observeComputer ? observedBashDefinition(state)
+      : createBashToolDefinition(cwd, { operations: dynamicBashOperations(state) }),
     createEditToolDefinition(cwd, { operations: dynamicEditOperations(state) }),
     createWriteToolDefinition(cwd, { operations: dynamicWriteOperations(state) }),
     createGrepToolDefinition(cwd),
@@ -2587,7 +2589,7 @@ function emitAgentSessionEvent(state: AgentSessionState, event: AgentSessionEven
     }
     return;
   }
-  if (event.type === "message_end" || event.type === "compaction_end" || event.type === "agent_settled") {
+  if (state.observeComputer && (event.type === "message_end" || event.type === "compaction_end" || event.type === "agent_settled")) {
     const usage = state.session.getContextUsage();
     writeEvent(requestId, "context_usage", {
       session_id: state.sessionId,
@@ -2766,6 +2768,7 @@ async function createNativeAgentSession(
     runtime,
     platform,
     chromeEnabled: platform === "android" && asBoolean(payload.chrome_enabled, false),
+    observeComputer: platform === "ios" && asBoolean(payload.observe_computer, false),
     modelRuntime: built.modelRuntime,
     model: built.model,
     compatibilityFallbackState: built.compatibilityFallbackState,
@@ -3053,6 +3056,7 @@ async function prepareNativeAgentSession(
   const skillSignature = JSON.stringify(stringArray(payload.skill_paths).sort());
   const existing = agentSessions.get(sessionId);
   const reusable = existing &&
+    existing.observeComputer === (platform === "ios" && asBoolean(payload.observe_computer, false)) &&
     existing.configSignature === modelConfigSignature(config) &&
     existing.toolSignature === signature &&
     existing.extensionSignature === extensionSignature &&

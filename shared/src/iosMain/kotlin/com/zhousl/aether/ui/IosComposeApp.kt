@@ -120,11 +120,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.material.icons.rounded.DesktopWindows
 import com.zhousl.aether.platform.IosWorkspaceHost
 import com.zhousl.aether.platform.PlatformBrowserView
-import com.zhousl.aether.shared.resources.workspace_show_computer
-import com.zhousl.aether.shared.resources.workspace_browser
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -308,6 +305,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
@@ -895,6 +897,7 @@ fun IosComposeApp(
                     runtime = runtime,
                     nodeArguments = listOf("--max-old-space-size=1024"),
                 ),
+                observeComputer = { IosWorkspaceHost.isDuo.value },
                 extensionLoadOptionsProvider = extensionStateStore::load,
             )
         }
@@ -908,7 +911,7 @@ fun IosComposeApp(
                 extensionLoadOptionsProvider = extensionStateStore::load,
             )
         }
-        val chromeManager = remember(runtime) { SharedChromeManager(runtime) }
+        val chromeManager = remember(runtime) { SharedChromeManager(runtime, observeComputer = { IosWorkspaceHost.isDuo.value }) }
         val runtimeTools = remember(runtime) { RuntimeHostToolExecutor(runtime) }
         val skillManager = remember(runtime, extensionBridgeClient) {
             SharedSkillManager(runtime, extensionBridgeClient)
@@ -2470,13 +2473,18 @@ fun IosComposeApp(
             ensureBackgroundExecution(target)
         }
 
-        LaunchedEffect(startupResolved) {
-            if (startupResolved) IosWorkspaceHost.scheduledPrompts.collect { prompt ->
-                val target = SharedSessionUiState(
-                    id = "scheduled-${platformRandomUuid()}", isDraft = true,
+        LaunchedEffect(startupResolved, IosWorkspaceHost.isDuo.collectAsState().value) {
+            if (startupResolved && IosWorkspaceHost.isDuo.value) IosWorkspaceHost.scheduledPrompts.collect { scheduled ->
+                val id = "scheduled-${scheduled.taskId}"
+                val target = sessionStates[id] ?: SharedSessionUiState(
+                    id = id, title = scheduled.title,
                     selectedModelKey = sharedAppSettings.defaultChatModelKey,
-                )
-                startChatTurn(prompt, target = target, submissionType = "scheduled")
+                ).also {
+                    it.hasCustomTitle = true
+                    sessionStates[id] = it
+                    if (sessions.none { summary -> summary.id == id }) sessions.add(0, SharedConversationSummary(id, scheduled.title))
+                }
+                startChatTurn(scheduled.prompt, target = target, submissionType = "scheduled")
             }
         }
 
@@ -3543,7 +3551,7 @@ fun IosComposeApp(
         ) {
         BoxWithConstraints {
         val regularWidth by IosWorkspaceHost.regularWidth.collectAsState()
-        val useTabletLayout = regularWidth && shouldUseSharedTabletLayout(
+        val useTabletLayout = (!IosWorkspaceHost.isDuo.value || regularWidth) && shouldUseSharedTabletLayout(
             supportsTabletLayout = capabilities.supportsTabletLayout,
             availableWidthDp = maxWidth.value,
         )
@@ -3994,7 +4002,7 @@ fun IosComposeApp(
                             val unreferencedPaths = historyStore
                                 ?.getUnreferencedWorkspaceFilePathsForDeletedSession(selectedId)
                                 .orEmpty()
-                            com.zhousl.aether.data.AgentComputerStore.remove(selectedId)
+                            if (IosWorkspaceHost.isDuo.value) com.zhousl.aether.data.AgentComputerStore.remove(selectedId)
                             historyStore?.delete(selectedId)
                             IosAnalytics.capture("conversation deleted")
                             removeSharedUnreferencedWorkspaceFiles(runtime, unreferencedPaths)
@@ -4935,8 +4943,7 @@ private fun RuntimeSetupStep(
     onTimelineStepSelected: (OnboardingTimelineStep) -> Unit = {},
 ) {
     var retryKey by rememberSaveable { mutableIntStateOf(0) }
-    var alpineReady by rememberSaveable { mutableStateOf(false) }
-    var ready by rememberSaveable { mutableStateOf(false) }
+    var ready by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf("") }
     var nodeVersion by rememberSaveable { mutableStateOf("") }
     var progress by remember { mutableStateOf(RuntimeSetupProgress("idle")) }
@@ -4963,12 +4970,10 @@ private fun RuntimeSetupStep(
             }
         }
         val installed = runSharedAppCatching { runtime.isReady() }.getOrElse { failure ->
-            alpineReady = false
             error = failure.message.orEmpty()
             running = false
             return@LaunchedEffect
         }
-        alpineReady = installed
         if (retryKey == 0 && !installed) return@LaunchedEffect
         if (installed) running = true
 
@@ -4981,7 +4986,6 @@ private fun RuntimeSetupStep(
                 runtime.initialize { update ->
                     progress = update.copy(phase = normalizeRuntimeSetupPhase(update.phase))
                 }
-                alpineReady = true
             }
             if (runtimeSetupStepIndex(progress.phase) < 2) {
                 progress = progress.copy(phase = RuntimePhaseCheckingNode, detail = "")
@@ -5042,13 +5046,13 @@ private fun RuntimeSetupStep(
             OnboardingStepLead(
                 icon = Icons.Rounded.Code,
                 accent = when {
-                    alpineReady -> AetherSecondary
+                    ready -> AetherSecondary
                     error.isNotBlank() -> AetherTertiary
                     else -> AetherPrimary
                 },
                 title = stringResource(Res.string.alpine_title),
                 body = when {
-                    alpineReady -> stringResource(Res.string.onboarding_alpine_status_ready)
+                    ready -> stringResource(Res.string.onboarding_alpine_status_ready)
                     error.isNotBlank() -> stringResource(Res.string.onboarding_alpine_status_failed)
                     else -> stringResource(Res.string.onboarding_alpine_status_not_installed)
                 },
@@ -5521,7 +5525,7 @@ internal fun shouldAutoCompactSharedContext(
     return usage.totalTokens + trailingEstimate > contextWindow - reserveTokens
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 private fun SharedChatScreen(
     sessions: List<SharedConversationSummary>,
@@ -5580,17 +5584,28 @@ private fun SharedChatScreen(
     contextWindow: Int?,
     runtimeReady: Boolean,
 ) {
-    var computerRequested by rememberSaveable { mutableStateOf(false) }
-    val contextUsage by com.zhousl.aether.data.AgentComputerStore.contexts.collectAsState()
-    val computerVisible = computerRequested && useTabletLayout
-    SideEffect { IosWorkspaceHost.showChat(true) }
-    DisposableEffect(Unit) { onDispose { IosWorkspaceHost.showChat(false) } }
-    LaunchedEffect(Unit) {
-        IosWorkspaceHost.actions.collect { action ->
-            when (action) {
-                "newChat" -> onNewChat()
-                "computer" -> computerRequested = !computerRequested
+    val isDuo by IosWorkspaceHost.isDuo.collectAsState()
+    val fold = if (isDuo) IosWorkspaceHost.fold.collectAsState().value else com.zhousl.aether.platform.IosWorkspaceFold()
+    val contextUsage = if (isDuo) com.zhousl.aether.data.AgentComputerStore.contexts.collectAsState().value else emptyMap()
+    if (isDuo) {
+        SideEffect { IosWorkspaceHost.showChat(true) }
+        DisposableEffect(Unit) { onDispose { IosWorkspaceHost.showChat(false) } }
+        LaunchedEffect(Unit) {
+            IosWorkspaceHost.actions.collect { action ->
+                if (action == "newChat") onNewChat()
             }
+        }
+        LaunchedEffect(selectedSessionId, runtimeReady) {
+            com.zhousl.aether.data.AgentComputerStore.restore(selectedSessionId)
+            combine(
+                com.zhousl.aether.data.AgentComputerStore.sessions
+                    .map { it[selectedSessionId].orEmpty() }.distinctUntilChanged().sample(50),
+                chromeManager.displayState,
+            ) { executions, browser ->
+                com.zhousl.aether.platform.iosComputerSnapshot(
+                    selectedSessionId, runtime.workspaceRoot, runtimeReady, executions, browser,
+                )
+            }.flowOn(Dispatchers.Default).conflate().collect(IosWorkspaceHost::publishComputerSnapshot)
         }
     }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -5608,17 +5623,6 @@ private fun SharedChatScreen(
     }
     val reduceMotion = LocalReduceMotion.current
     val browserDisplayState by chromeManager.displayState.collectAsState()
-    if (computerRequested && !useTabletLayout) {
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { computerRequested = false }) {
-            Box(Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
-                AgentComputerPanel(selectedSessionId, runtime.workspaceRoot, runtimeReady,
-                    browserDisplayState.isActive && browserDisplayState.sessionId == selectedSessionId && browserDisplayState.screenshotBase64.isNotBlank(), browserDisplayState.lastUpdatedMillis,
-                    stringResource(Res.string.workspace_browser), { computerRequested = false }) {
-                    PlatformBrowserView(chromeManager, Modifier.fillMaxSize(), readOnly = true)
-                }
-            }
-        }
-    }
     val visibleMessages = messages.filter {
         it.displayKind != SharedMessageDisplayKind.HiddenContext
     }
@@ -5878,20 +5882,10 @@ private fun SharedChatScreen(
             if (!listState.isScrollInProgress) scrollToBottom()
         }
     }
-    ConversationWorkspace(
-        expanded = useTabletLayout,
-        computerVisible = computerVisible,
+    IosConversationWorkspace(
+        isDuo = isDuo,
+        expanded = useTabletLayout && (!isDuo || !fold.active),
         drawerState = drawerState,
-        computer = {
-            AgentComputerPanel(
-                sessionId = selectedSessionId, workspaceDirectory = runtime.workspaceRoot,
-                runtimeReady = runtimeReady,
-                browserAvailable = browserDisplayState.isActive && browserDisplayState.sessionId == selectedSessionId && browserDisplayState.screenshotBase64.isNotBlank(),
-                browserActivity = browserDisplayState.lastUpdatedMillis,
-                browserTitle = stringResource(Res.string.workspace_browser),
-                onClose = { computerRequested = false },
-            ) { PlatformBrowserView(chromeManager, Modifier.fillMaxSize(), readOnly = true) }
-        },
         drawer = {
             AetherConversationDrawer(
                 sessions = sessions,
@@ -5919,14 +5913,14 @@ private fun SharedChatScreen(
                 footerContent = {
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawerFooter)
                 },
-                permanent = useTabletLayout && !computerVisible,
-                showSettings = false,
-                contextUsage = {
+                permanent = useTabletLayout && (!isDuo || !fold.active),
+                showSettings = !isDuo,
+                contextUsage = if (isDuo) { {
                     WorkspaceContextUsage(
                         contextUsage[selectedSessionId]?.used,
                         contextUsage[selectedSessionId]?.full ?: contextWindow,
                     )
-                },
+                } } else null,
                 extraContent = { dismissSearch ->
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawer)
                     SharedAetherExtensionSlot(SharedExtensionSlotDrawerListEnd)
@@ -6150,8 +6144,9 @@ private fun SharedChatScreen(
                     modifier = Modifier.align(Alignment.TopCenter),
                     onHeightChanged = { topBarBodyHeightPx = it },
                     onMenu = { scope.launch { drawerState.open() } },
-                    showMenu = !useTabletLayout || computerVisible,
-                    onNewChat = { computerRequested = !computerRequested },
+                    showMenu = !useTabletLayout || (isDuo && fold.active),
+                    duoWorkspace = isDuo,
+                    onNewChat = onNewChat,
                     selectedModelKey = selectedModelKey,
                     modelOptions = modelOptions,
                     modelCatalogInfo = modelCatalogInfo,
@@ -6328,6 +6323,7 @@ private fun ConversationTopBar(
     onHeightChanged: (Int) -> Unit,
     onMenu: () -> Unit,
     showMenu: Boolean,
+    duoWorkspace: Boolean = false,
     onNewChat: () -> Unit,
     selectedModelKey: String,
     modelOptions: List<ProviderModelOption>,
@@ -6361,9 +6357,8 @@ private fun ConversationTopBar(
                     onMenu = onMenu,
                     onNewChat = onNewChat,
                     showMenu = showMenu,
-                    menuIcon = Icons.AutoMirrored.Rounded.ArrowBack,
-                    trailingIcon = Icons.Rounded.DesktopWindows,
-                    trailingDescription = stringResource(Res.string.workspace_show_computer),
+                    menuIcon = if (duoWorkspace) Icons.AutoMirrored.Rounded.ArrowBack else Icons.Rounded.Menu,
+                    showTrailingAction = !duoWorkspace,
                 ) {
                     SharedConversationModelSelector(
                         options = modelOptions,
@@ -9164,3 +9159,26 @@ private fun JsonObject.nativeStringMap(name: String): Map<String, String> =
     (get(name) as? JsonObject).orEmpty().mapNotNull { (key, element) ->
         (element as? JsonPrimitive)?.contentOrNull?.let { key to it }
     }.toMap()
+
+
+/** Only Duo uses the workspace container; all other devices keep the original layout. */
+@Composable
+private fun IosConversationWorkspace(
+    isDuo: Boolean,
+    expanded: Boolean,
+    drawerState: DrawerState,
+    drawer: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (isDuo) {
+        ConversationWorkspace(
+            expanded = expanded,
+            drawerState = drawerState, drawer = drawer, content = content,
+        )
+    } else {
+        SharedAdaptiveConversationLayout(
+            useTabletLayout = expanded, drawerState = drawerState,
+            drawerContent = drawer, content = content,
+        )
+    }
+}

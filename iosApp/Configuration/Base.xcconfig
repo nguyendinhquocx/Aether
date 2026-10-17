@@ -15,3 +15,8 @@ SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/App/Aether-Bridging-Header.h
 CODE_SIGN_STYLE = Automatic
 
 #include? "Local.xcconfig"
+
+// Only a verified SDK with reserved-region APIs may compile the Duo integration.
+AETHER_DUO_SDK_FLAG =
+AETHER_DUO_SDK_FLAG[sdk=iphone*27.1*] = AETHER_DUO_SDK
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) $(AETHER_DUO_SDK_FLAG)
