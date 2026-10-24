@@ -47,7 +47,7 @@ import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import {
   type AgentMessage,
   type AgentToolResult,
-} from "@earendil-works/pi-agent-core/node";
+} from "@earendil-works/pi-agent-core";
 import {
   AgentSession,
   DefaultResourceLoader,
@@ -97,9 +97,9 @@ reserveProtocolStdout();
 registerBunOAuthFlows();
 
 const BRIDGE_VERSION = "2.0.0-alpha.0";
-const PI_AI_VERSION = "0.99.2";
-const PI_AGENT_CORE_VERSION = "0.99.2";
-const PI_CODING_AGENT_VERSION = "0.99.2";
+const PI_AI_VERSION = "1.3.0";
+const PI_AGENT_CORE_VERSION = "1.3.0";
+const PI_CODING_AGENT_VERSION = "1.3.0";
 const AETHER_LOOPBACK_OAUTH_CALLBACK_HOST = "127.0.0.1";
 const OAUTH_FETCH_MAX_ATTEMPTS = 3;
 const DEFAULT_AGENT_RETRY_MAX_RETRIES = 5;
@@ -123,6 +123,7 @@ interface ModelConfig {
   base_url: string;
   api_key?: string;
   custom_headers?: Record<string, string>;
+  service_tier?: string;
   compatibility_mode?: boolean;
   supports_developer_role?: boolean;
   reasoning?: boolean;
@@ -917,6 +918,7 @@ function normalizeModelConfig(rawValue: unknown): ModelConfig {
     base_url: baseUrl,
     api_key: asString(raw.api_key),
     custom_headers: normalizeHeaders(raw.custom_headers),
+    service_tier: asString(raw.service_tier).trim() || undefined,
     compatibility_mode: asBoolean(raw.compatibility_mode, false),
     supports_developer_role: raw.supports_developer_role === false ? false : undefined,
     reasoning: asBoolean(raw.reasoning, false),
@@ -1005,6 +1007,26 @@ function requestContainsDeveloperMessage(payload: unknown): boolean {
   return Array.isArray(messages) && messages.some((message) =>
     asString(asObject(message).role).trim().toLowerCase() === "developer"
   );
+}
+
+// Apply at the provider boundary so AgentSession turns, retries, compaction,
+// and one-shot requests all use the configured body field.
+function serviceTierProvider(provider: Provider, config: ModelConfig): Provider {
+  const serviceTier = config.service_tier;
+  if (!serviceTier) return provider;
+  const wrap = (call: ProviderStreams["streamSimple"]): ProviderStreams["streamSimple"] =>
+    (model, context, options) => call(model, context, {
+      ...options,
+      onPayload: async (payload, requestModel) => {
+        const transformed = await options?.onPayload?.(payload, requestModel);
+        return { ...asObject(transformed ?? payload), service_tier: serviceTier };
+      },
+    });
+  return {
+    ...provider,
+    stream: wrap(provider.stream.bind(provider)) as Provider["stream"],
+    streamSimple: wrap(provider.streamSimple.bind(provider)),
+  };
 }
 
 function compatibilityModeStreams(streams: ProviderStreams): ProviderStreams {
@@ -1322,7 +1344,7 @@ function buildModels(config: ModelConfig): {
       applyModelsDevMetadata(catalogModel, config.models_dev),
       config.thinking_level_map,
     );
-    const servingProvider = providerServingModel(provider, model);
+    const servingProvider = serviceTierProvider(providerServingModel(provider, model), config);
     models.setProvider(servingProvider);
     return { models, model, provider: servingProvider, credentialStore, compatibilityFallbackState };
   }
@@ -1334,7 +1356,7 @@ function buildModels(config: ModelConfig): {
   );
   bridgeDebug("build_models_path", { path: "custom", pi_api: config.pi_api });
   const headers = config.custom_headers ?? {};
-  const provider = createProvider({
+  const provider = serviceTierProvider(createProvider({
     id: config.pi_provider_id,
     name: config.pi_provider_id,
     baseUrl: config.base_url,
@@ -1359,7 +1381,7 @@ function buildModels(config: ModelConfig): {
         : apiStreamsFor(config.pi_api),
       compatibilityFallbackState,
     ),
-  });
+  }), config);
   models.setProvider(provider);
   return { models, model, provider, compatibilityFallbackState };
 }
@@ -3542,14 +3564,18 @@ function nativeExtensionLoadOptionsFromPayload(payload: JsonObject): {
   return currentExtensionLoadOptions;
 }
 
-async function installExtensionPackage(payload: JsonObject): Promise<JsonObject> {
+async function installExtensionPackage(id: string, payload: JsonObject): Promise<JsonObject> {
   const source = asString(payload.source).trim();
-  await installAetherExtensionPackage(process.cwd(), source);
+  const progress = (phase: string) => writeEvent(id, "extension_package_progress", { phase, source });
+  await installAetherExtensionPackage(process.cwd(), source, progress);
+  progress("reloading");
+  const reload = await reloadAllExtensionSessions(payload);
+  progress("refreshing");
   return {
     installed: true,
     source,
     ...(await installedExtensionPackagesPayload()),
-    reload: await reloadAllExtensionSessions(payload),
+    reload,
   };
 }
 
@@ -3563,14 +3589,18 @@ async function removeExtensionPackage(payload: JsonObject): Promise<JsonObject> 
   };
 }
 
-async function updateExtensionPackage(payload: JsonObject): Promise<JsonObject> {
+async function updateExtensionPackage(id: string, payload: JsonObject): Promise<JsonObject> {
   const source = asString(payload.source).trim();
-  await updateAetherExtensionPackage(process.cwd(), source);
+  const progress = (phase: string) => writeEvent(id, "extension_package_progress", { phase, source });
+  await updateAetherExtensionPackage(process.cwd(), source, progress);
+  progress("reloading");
+  const reload = await reloadAllExtensionSessions(payload);
+  progress("refreshing");
   return {
     updated: true,
     source,
     ...(await installedExtensionPackagesPayload()),
-    reload: await reloadAllExtensionSessions(payload),
+    reload,
   };
 }
 
@@ -3737,13 +3767,13 @@ async function handleRequest(request: BridgeRequest): Promise<void> {
       writeResponse(id, await listDiscoveredSkills(payload));
       return;
     case "install_extension_package":
-      writeResponse(id, await installExtensionPackage(payload));
+      writeResponse(id, await installExtensionPackage(id, payload));
       return;
     case "remove_extension_package":
       writeResponse(id, await removeExtensionPackage(payload));
       return;
     case "update_extension_package":
-      writeResponse(id, await updateExtensionPackage(payload));
+      writeResponse(id, await updateExtensionPackage(id, payload));
       return;
     case "reload_all_extensions":
       writeResponse(id, await reloadAllExtensionSessions(payload));

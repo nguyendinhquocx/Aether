@@ -186,11 +186,9 @@ sealed interface AssistantResponseBlock {
 }
 
 internal fun List<AssistantResponseBlock>.sanitizedForReasoningOff(): List<AssistantResponseBlock> {
-    val finalText = filterIsInstance<AssistantResponseBlock.Text>()
-        .lastOrNull { it.text.isNotBlank() }
     val workBlocks = flatMap { block ->
         when (block) {
-            is AssistantResponseBlock.Text -> emptyList()
+            is AssistantResponseBlock.Text -> listOf(block)
             is AssistantResponseBlock.Reasoning -> block.trace.toolInvocations
                 .takeIf { it.isNotEmpty() }
                 ?.let { tools ->
@@ -201,7 +199,15 @@ internal fun List<AssistantResponseBlock>.sanitizedForReasoningOff(): List<Assis
             is AssistantResponseBlock.ToolGroup -> listOf(block)
         }
     }
-    return workBlocks + listOfNotNull(finalText)
+    return workBlocks
+}
+
+internal fun List<AssistantResponseBlock>.withAssistantFinalTextFallback(
+    finalText: String,
+    newBlockId: () -> String,
+): List<AssistantResponseBlock> {
+    if (finalText.isBlank() || lastOrNull() is AssistantResponseBlock.Text) return this
+    return this + AssistantResponseBlock.Text(id = newBlockId(), text = finalText)
 }
 
 data class ChatMessage(
@@ -292,7 +298,9 @@ data class AetherUiState(
     val piExtensionCatalog: List<PiExtensionCatalogEntry> = emptyList(),
     val isLoadingPiExtensions: Boolean = false,
     val piExtensionCatalogError: String = "",
+    val piExtensionInstalledError: String = "",
     val piExtensionOperationSource: String = "",
+    val piExtensionOperationPhase: String = "",
     val selectedPiPackageDetails: PiPackageDetails? = null,
     val selectedPiPackageSource: String = "",
     val isLoadingPiPackageDetails: Boolean = false,

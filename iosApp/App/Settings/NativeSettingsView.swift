@@ -773,7 +773,9 @@ private struct NativeGeneralSettingsView: View {
 
 private struct NativePersonalizationSettingsView: View {
     @ObservedObject var model: NativeSettingsModel
+    @Environment(\.dismiss) private var dismiss
     @State private var prompt = ""
+    @State private var didSave = false
 
     var body: some View {
         Form {
@@ -788,10 +790,16 @@ private struct NativePersonalizationSettingsView: View {
         .navigationTitle(model.text("Personalization", "个性化"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { prompt = model.settingString("systemPrompt") }
+        .onChange(of: prompt) { _, _ in didSave = false }
         .onDisappear { model.patch(["systemPrompt": prompt]) }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button(model.text("Save", "保存")) { model.patch(["systemPrompt": prompt]) }
+                Button(didSave ? model.text("Saved", "已保存", "ذخیره شد", "Сохранено") : model.text("Save", "保存")) {
+                    model.patch(["systemPrompt": prompt])
+                    didSave = true
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    dismiss()
+                }
             }
         }
     }
@@ -998,6 +1006,7 @@ struct NativeProviderDraft {
     var environment: [NativeProviderPair]
     var baseURL: String
     var modelIDs: String
+    var serviceTier: String
     var userAgent: String
     var headers: [NativeProviderPair]
     var compatibilityMode: Bool
@@ -1069,6 +1078,7 @@ private struct NativeProviderEditor: View {
             environment: Self.pairs(provider?["providerEnvironmentVariables"]),
             baseURL: provider?["baseUrl"] as? String ?? model.string(defaultDefinition, "defaultBaseUrl", fallback: "https://api.openai.com/v1"),
             modelIDs: modelIDs.joined(separator: "\n"),
+            serviceTier: provider?["serviceTier"] as? String ?? "",
             userAgent: provider?["userAgent"] as? String ?? "Aether/1.0",
             headers: Self.pairs(provider?["customHeaders"]),
             compatibilityMode: provider?["compatibilityMode"] as? Bool ?? false,
@@ -1145,6 +1155,10 @@ private struct NativeProviderEditor: View {
             Section(model.text("Connection", "连接")) {
                 TextField(model.text("Base URL", "基础 URL"), text: $draft.baseURL)
                     .textInputAutocapitalization(.never).keyboardType(.URL)
+                TextField(model.text("Service tier (e.g. fast / ultrafast)", "速度档位（如 fast / ultrafast）"), text: $draft.serviceTier)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Text(model.text("Leave blank to use the provider default.", "留空使用提供商默认档位。"))
+                    .font(.caption).foregroundStyle(.secondary)
                 TextField(model.text("User agent", "User Agent"), text: $draft.userAgent)
                 pairEditor(model.text("Custom headers", "自定义请求头"), pairs: $draft.headers)
                 pairEditor(model.text("Environment variables", "环境变量"), pairs: $draft.environment)
@@ -1314,6 +1328,10 @@ private struct NativeProviderEditor: View {
                     if !providerIDError.isEmpty { Text(providerIDError).font(.caption).foregroundStyle(.red) }
                     TextField(model.text("Base URL", "基础 URL"), text: $draft.baseURL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    TextField(model.text("Service tier (e.g. fast / ultrafast)", "速度档位（如 fast / ultrafast）"), text: $draft.serviceTier)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Text(model.text("Leave blank to use the provider default.", "留空使用提供商默认档位。"))
+                        .font(.caption).foregroundStyle(.secondary)
                     TextField(model.text("User agent", "User Agent"), text: $draft.userAgent)
                     pairEditor(model.text("Environment variables", "环境变量"), pairs: $draft.environment)
                     pairEditor(model.text("Custom headers", "自定义请求头"), pairs: $draft.headers)
@@ -1405,7 +1423,11 @@ private struct NativeProviderEditor: View {
                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
             }
             .padding(.vertical, 4)
-        }.buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("provider-wizard-choice:\(title)")
     }
 
     private var definition: [String: Any] { model.providerCatalog.first { model.string($0, "id") == draft.piProviderId } ?? [:] }
@@ -1660,7 +1682,7 @@ private struct NativeProviderEditor: View {
         draft.modelIDs = ""
         draft.authMethod = model.bool(item, "supportsInteractiveApiKey") ? "api_key" : model.bool(item, "supportsOAuth") ? "oauth" : "ambient"
         draft.apiKey = ""; draft.oauthCredentialJson = ""; draft.compatibilityMode = false; draft.cachedModels = []; draft.enabledModels = Set(manualModels)
-        draft.environment = []; draft.headers = []; draft.userAgent = "Aether/1.0"
+        draft.serviceTier = ""; draft.environment = []; draft.headers = []; draft.userAgent = "Aether/1.0"
     }
 
     private func fetchModels() {
@@ -1717,6 +1739,7 @@ private struct NativeProviderEditor: View {
         return ["id": draft.id, "providerId": draft.providerId.trimmingCharacters(in: .whitespacesAndNewlines), "name": draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
          "piProviderId": draft.piProviderId, "authMethod": draft.authMethod, "apiKey": draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines), "oauthCredentialJson": draft.oauthCredentialJson,
          "providerEnvironmentVariables": draft.environment.filter { !$0.name.isEmpty }.map { ["name": $0.name, "value": $0.value] }, "baseUrl": draft.baseURL,
+         "serviceTier": draft.serviceTier.trimmingCharacters(in: .whitespacesAndNewlines),
          "modelId": primaryModel, "manualModelIds": manualModels, "userAgent": draft.userAgent,
          "customHeaders": draft.headers.filter { !$0.name.isEmpty }.map { ["name": $0.name, "value": $0.value] },
          "compatibilityMode": draft.piProviderId == "openai-compatible" && draft.compatibilityMode, "cachedModels": draft.cachedModels,
@@ -1891,7 +1914,7 @@ private struct NativeExtensionsOverview: View {
             }
             statusSection
             if tab == 0 {
-                if installed.isEmpty && operation.isEmpty {
+                if installed.isEmpty && operation.isEmpty && model.string(model.piExtensions, "installedError").isEmpty {
                     ContentUnavailableView(model.text("No Pi extensions installed", "尚未安装 Pi Extension"), systemImage: "shippingbox")
                 }
                 ForEach(installed, id: \.nativeID) { item in
@@ -1986,7 +2009,7 @@ private struct NativeExtensionsOverview: View {
         }
     }
     @ViewBuilder private var statusSection: some View {
-        if !operation.isEmpty { Section { HStack { ProgressView(); Text(model.text("Working...", "正在处理...")) } } }
+        if !operation.isEmpty { Section { NativeExtensionProgressView(model: model) } }
         if tab == 0 && !model.string(model.piExtensions, "installedError").isEmpty { Section { Text(model.string(model.piExtensions, "installedError")).foregroundStyle(.red) } }
         else if !model.string(model.piExtensions, "error").isEmpty { Section { Text(model.string(model.piExtensions, "error")).foregroundStyle(.red) } }
         else if !model.string(model.piExtensions, "message").isEmpty { Section { Text(model.string(model.piExtensions, "message")).foregroundStyle(.secondary) } }
@@ -1999,6 +2022,39 @@ private struct NativeExtensionsOverview: View {
     private func downloads(_ item: [String: Any]) -> String {
         let value = (item["monthlyDownloads"] as? NSNumber)?.int64Value ?? 0
         return model.text("\(value) monthly", "每月 \(value) 次", "ماهانه \(value)")
+    }
+}
+
+private struct NativeExtensionProgressView: View {
+    @ObservedObject var model: NativeSettingsModel
+    @State private var startedAt = Date()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                ProgressView()
+                Text(phaseLabel)
+            }
+            TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                let seconds = max(0, Int(context.date.timeIntervalSince(startedAt)))
+                Text(model.text(
+                    "Elapsed: \(seconds) s. Large packages may take several minutes.",
+                    "已用时 \(seconds) 秒。较大的软件包可能需要几分钟。",
+                    "زمان سپری‌شده: \(seconds) ثانیه. بسته‌های بزرگ ممکن است چند دقیقه طول بکشند.",
+                    "Прошло: \(seconds) с. Установка больших пакетов может занять несколько минут."
+                )).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var phaseLabel: String {
+        switch model.string(model.piExtensions, "operationPhase") {
+        case "installing": model.text("Downloading package and installing dependencies…", "正在下载软件包并安装依赖…", "دریافت بسته و نصب وابستگی‌ها…", "Загрузка пакета и установка зависимостей…")
+        case "saving": model.text("Saving installed package…", "正在保存已安装软件包…", "ذخیره بسته نصب‌شده…", "Сохранение установленного пакета…")
+        case "reloading": model.text("Reloading extensions…", "正在重新加载扩展…", "بارگذاری مجدد افزونه‌ها…", "Перезагрузка расширений…")
+        case "refreshing": model.text("Refreshing installed extensions…", "正在刷新已安装扩展…", "به‌روزرسانی فهرست افزونه‌ها…", "Обновление списка расширений…")
+        default: model.text("Preparing extension runtime…", "正在准备扩展运行环境…", "آماده‌سازی محیط افزونه…", "Подготовка среды расширений…")
+        }
     }
 }
 
@@ -2056,6 +2112,12 @@ private struct NativePiPackageDetailsView: View {
                     detail(model.text("Dependencies", "依赖"), "dependencies")
                 }
                 Section {
+                    if isInstalling { NativeExtensionProgressView(model: model) }
+                    if !model.string(model.piExtensions, "error").isEmpty {
+                        Text(model.string(model.piExtensions, "error")).foregroundStyle(.red)
+                    } else if !model.string(model.piExtensions, "message").isEmpty {
+                        Text(model.string(model.piExtensions, "message")).foregroundStyle(.secondary)
+                    }
                     Button { model.perform("pi_extension_install", ["source": model.string(entry, "source")]) } label: {
                         if isInstalling {
                             HStack { ProgressView(); Text(model.text("Installing...", "正在安装...")) }
@@ -2063,7 +2125,7 @@ private struct NativePiPackageDetailsView: View {
                             Label(installed ? model.text("Reinstall", "重新安装") : model.text("Install", "安装"), systemImage: "square.and.arrow.down")
                         }
                     }
-                    .disabled(isInstalling)
+                    .disabled(!model.string(model.piExtensions, "operation").isEmpty)
                     if let url = URL(string: model.string(details, "npmUrl")), !url.absoluteString.isEmpty { Link("npm", destination: url) }
                     if let url = URL(string: model.string(details, "repositoryUrl")), !url.absoluteString.isEmpty { Link(model.text("Repository", "代码仓库"), destination: url) }
                 }

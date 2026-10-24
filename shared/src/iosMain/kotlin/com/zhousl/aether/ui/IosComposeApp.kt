@@ -1368,11 +1368,17 @@ fun IosComposeApp(
             SharedApplicationLifecycle.backgrounded.collect { backgrounded ->
                 if (backgrounded) {
                     val backgroundedSession = currentSession
-                    appScope.launch { persistSession(backgroundedSession) }
-                    (sessionStates.values + backgroundedSession)
+                    val runningSessions = (sessionStates.values + backgroundedSession)
                         .distinctBy(SharedSessionUiState::id)
                         .filter { it.job?.isActive == true }
-                        .forEach(::ensureBackgroundExecution)
+                    runningSessions.forEach(::ensureBackgroundExecution)
+                    appScope.launch {
+                        withContext(NonCancellable) {
+                            (runningSessions + backgroundedSession)
+                                .distinctBy(SharedSessionUiState::id)
+                                .forEach { persistSession(it) }
+                        }
+                    }
                 }
             }
         }
@@ -1800,7 +1806,7 @@ fun IosComposeApp(
                         }
                     } else {
                         null
-                    } ?: fallbackSharedReasoningSummary(prepared.chunk.rawText)
+                    } ?: fallbackSharedReasoningSummary()
                     if (sessionStates[target.id] !== target) return@launch
                     target.messages.updateMessage(assistantId) { current ->
                         current.withCompletedReasoningSummary(
@@ -1991,7 +1997,6 @@ fun IosComposeApp(
             var analyticsUserCount = 0
             var responseStartedAt = 0L
             val reasoningTracker = SharedReasoningTurnTracker()
-            var providerRequestCheckpoint: SharedChatMessage? = null
             var completedPiTurnResult: SharedPiTurnResult? = null
             target.messages += SharedChatMessage(
                 id = assistantId,
@@ -2128,7 +2133,6 @@ fun IosComposeApp(
                             target.streamingStatus = ""
                         },
                         onAssistantReasoningDelta = { delta ->
-                            if (reasoningEffort == "off") return@runTurn
                             backgroundLeases[target.id]?.update("Reasoning")
                             reasoningTracker.finishDirectSummaryChunk()
                             val now = platformCurrentTimeMillis()
@@ -2147,7 +2151,6 @@ fun IosComposeApp(
                             )
                         },
                         onAssistantReasoningSummaryDelta = { delta ->
-                            if (reasoningEffort == "off") return@runTurn
                             backgroundLeases[target.id]?.update("Reasoning")
                             val now = platformCurrentTimeMillis()
                             target.messages.updateMessage(assistantId) { current ->
@@ -2161,18 +2164,18 @@ fun IosComposeApp(
                                 )
                             }
                         },
-                        onAssistantRequestStarted = {
-                            providerRequestCheckpoint = target.messages.lastOrNull { it.id == assistantId }
-                        },
                         onAssistantResponseReset = {
-                            providerRequestCheckpoint?.let { checkpoint ->
-                                target.messages.updateMessage(assistantId) {
-                                    checkpoint.copy(
-                                        isStreaming = true,
-                                        status = SharedInitialStreamingStatusText,
-                                        statusDetail = SharedInitialStreamingStatusDetail,
-                                    )
-                                }
+                            // Keep the failed attempt in the conversation and persisted response blocks.
+                            reasoningTracker.finishDirectSummaryChunk()
+                            enqueueReasoningSummary(
+                                target = target,
+                                assistantId = assistantId,
+                                tracker = reasoningTracker,
+                                forceRemaining = true,
+                                fallbackConfig = config,
+                            )
+                            target.messages.updateMessage(assistantId) { current ->
+                                current.completeAssistantReasoning(platformCurrentTimeMillis())
                             }
                         },
                         onToolEvent = { event ->
@@ -2295,7 +2298,7 @@ fun IosComposeApp(
                         val completedAt = platformCurrentTimeMillis()
                         val resolvedUsage = if (result.usageAvailable) result.usage else estimatedUsage
                         target.messages.updateMessage(assistantId) { current ->
-                            if (reasoningEffort == "off") current else current.withAssistantResultFallback(result)
+                            current.withAssistantResultFallback(result)
                         }
                         enqueueReasoningSummary(
                             target = target,
@@ -2311,7 +2314,12 @@ fun IosComposeApp(
                             } else {
                                 completed.withAssistantTextResultFallback(result)
                             }
-                            val visibleFinalized = if (reasoningEffort == "off") {
+                            val hasEmittedReasoning = finalized.reasoningText.isNotBlank() ||
+                                finalized.responseBlocks.any {
+                                    it is SharedAssistantResponseBlock.Reasoning &&
+                                        (it.trace.rawText.isNotBlank() || it.trace.chunks.isNotEmpty())
+                                }
+                            val visibleFinalized = if (reasoningEffort == "off" && !hasEmittedReasoning) {
                                 finalized.withoutSharedAssistantReasoning()
                             } else {
                                 finalized
@@ -2322,11 +2330,7 @@ fun IosComposeApp(
                                     it is SharedAssistantResponseBlock.ToolGroup
                             }
                             visibleFinalized.copy(
-                                reasoningText = if (reasoningEffort == "off") {
-                                    ""
-                                } else {
-                                    current.reasoningText.ifBlank { result.reasoningText }
-                                },
+                                reasoningText = current.reasoningText.ifBlank { result.reasoningText },
                                 isError = false,
                                 isStreaming = false,
                                 status = "",
@@ -2337,7 +2341,7 @@ fun IosComposeApp(
                                 providerId = result.provider.ifBlank { config.id },
                                 modelId = result.model.ifBlank { config.modelId },
                                 providerPayloadJson = result.providerPayloadJson,
-                                thoughtDurationMillis = if (reasoningEffort == "off") {
+                                thoughtDurationMillis = if (reasoningEffort == "off" && !hasEmittedReasoning) {
                                     0L
                                 } else if (hasAgentWork) {
                                     ((responseStartedAt.takeIf { it > 0L } ?: completedAt) - turnStartedAt)
@@ -2549,8 +2553,10 @@ fun IosComposeApp(
             val fileName = state.title.sanitizeSharedExportFileName() + ".json"
             appScope.launch {
                 runSharedAppCatching {
-                    val pi = bridgeClient.exportSessionJsonl(state.id)
-                    val piPath = pi["exported_path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    // The persisted conversation remains exportable when the agent
+                    // runtime is unavailable or its session was interrupted.
+                    val pi = runSharedAppCatching { bridgeClient.exportSessionJsonl(state.id) }.getOrNull()
+                    val piPath = pi?.get("exported_path")?.jsonPrimitive?.contentOrNull.orEmpty()
                     val piJsonl = piPath.takeIf(String::isNotBlank)
                         ?.let { path -> runCatching { runtime.fileSystem.read(path).decodeToString() }.getOrNull() }
                     val exported = Json.parseToJsonElement(json).jsonObject.toMutableMap().apply {
@@ -2958,6 +2964,7 @@ fun IosComposeApp(
                     val payload = runCatching {
                         Json.parseToJsonElement(payloadJson) as? JsonObject
                     }.getOrNull() ?: JsonObject(emptyMap())
+                    if (command.startsWith("pi_extension") && nativePiExtensionsState.operation.isNotBlank()) return
                     when (command) {
                         "update_settings" -> persistResolvedAppSettings(
                             sharedAppSettings.withNativeSettingsPatch(payload),
@@ -3287,26 +3294,36 @@ fun IosComposeApp(
                         "pi_extension_install" -> appScope.launch {
                             nativePiExtensionsState = nativePiExtensionsState.copy(
                                 operation = "install",
+                                operationPhase = "preparing",
                                 message = "",
                                 error = "",
                             )
                             nativePiExtensionsState = nativePiExtensionsController.install(
                                 nativePiExtensionsState,
                                 payload.nativeString("source"),
-                            )
+                            ) { phase ->
+                                withContext(Dispatchers.Main) {
+                                    nativePiExtensionsState = nativePiExtensionsState.copy(operationPhase = phase)
+                                }
+                            }
                             extensionSnapshot = extensionManager.snapshot
                             extensionSnapshotResolved = true
                         }
                         "pi_extension_update" -> appScope.launch {
                             nativePiExtensionsState = nativePiExtensionsState.copy(
                                 operation = "update",
+                                operationPhase = "preparing",
                                 message = "",
                                 error = "",
                             )
                             nativePiExtensionsState = nativePiExtensionsController.update(
                                 nativePiExtensionsState,
                                 payload.nativeString("id"),
-                            )
+                            ) { phase ->
+                                withContext(Dispatchers.Main) {
+                                    nativePiExtensionsState = nativePiExtensionsState.copy(operationPhase = phase)
+                                }
+                            }
                             extensionSnapshot = extensionManager.snapshot
                             extensionSnapshotResolved = true
                         }
@@ -4520,14 +4537,10 @@ private fun parseSharedReasoningSummary(text: String): SharedReasoningSummary? {
     return SharedReasoningSummary(title, detail)
 }
 
-private fun fallbackSharedReasoningSummary(rawText: String): SharedReasoningSummary {
-    val compact = rawText.lineSequence().map(String::trim).filter(String::isNotBlank)
-        .joinToString(" ").replace(Regex("\\s+"), " ")
-    return SharedReasoningSummary(
-        title = "Thinking through the next step",
-        detail = compact.take(SharedReasoningSummaryDetailMaxChars).ifBlank { "Preparing the next action." },
-    )
-}
+private fun fallbackSharedReasoningSummary(): SharedReasoningSummary = SharedReasoningSummary(
+    title = "Reasoning summary unavailable",
+    detail = "Select this description to view the original reasoning.",
+)
 
 private fun String.sanitizeSharedExportFileName(): String = trim()
     .replace(Regex("[\\\\/:*?\"<>|]+"), "-")
@@ -8207,11 +8220,9 @@ internal fun SharedChatMessage.withAssistantResultFallback(
 }
 
 internal fun SharedChatMessage.withoutSharedAssistantReasoning(): SharedChatMessage {
-    val finalText = responseBlocks.filterIsInstance<SharedAssistantResponseBlock.Text>()
-        .lastOrNull { it.text.isNotBlank() }
     val workBlocks = responseBlocks.flatMap { block ->
         when (block) {
-            is SharedAssistantResponseBlock.Text -> emptyList()
+            is SharedAssistantResponseBlock.Text -> listOf(block)
             is SharedAssistantResponseBlock.Reasoning -> block.trace.toolInvocations
                 .takeIf { it.isNotEmpty() }
                 ?.let { tools ->
@@ -8223,9 +8234,10 @@ internal fun SharedChatMessage.withoutSharedAssistantReasoning(): SharedChatMess
         }
     }
     return copy(
-        text = finalText?.text ?: text,
+        text = workBlocks.filterIsInstance<SharedAssistantResponseBlock.Text>()
+            .joinToString("") { it.text }.ifBlank { text },
         reasoningText = "",
-        responseBlocks = workBlocks + listOfNotNull(finalText),
+        responseBlocks = workBlocks,
     )
 }
 
@@ -8262,7 +8274,8 @@ internal fun SharedChatMessage.withAssistantTextResultFallback(
     val finalText = result.assistantText.ifBlank {
         "The model finished without returning any assistant text."
     }
-    return if (text.isBlank()) appendAssistantTextDelta(finalText) else this
+    return if (responseBlocks.lastOrNull() is SharedAssistantResponseBlock.Text) this
+    else appendAssistantTextDelta(finalText)
 }
 
 internal fun SharedChatMessage.withSharedSteerInstruction(): SharedChatMessage = copy(
@@ -8978,6 +8991,7 @@ internal fun buildNativeSettingsSnapshot(
     put("extensionCount", extensionSnapshot.extensions.size)
     put("piExtensions", buildJsonObject {
         put("operation", piExtensions.operation)
+        put("operationPhase", piExtensions.operationPhase)
         put("message", piExtensions.message)
         put("error", piExtensions.error)
         put("installedError", piExtensions.installedError)

@@ -188,6 +188,51 @@ test("lists Pi extension packages from an isolated agent directory", async () =>
   }
 });
 
+test("lists healthy packages alongside interrupted installs without accessing npm", async () => {
+  for (const bridgePath of ["dist/bridge.mjs", "dist/extension-bridge.mjs"]) {
+    const home = await mkdtemp(join(tmpdir(), "aether-interrupted-packages-"));
+    const agentDirectory = join(home, ".pi", "agent");
+    const healthy = join(agentDirectory, "npm", "node_modules", "aether-healthy");
+    const broken = join(agentDirectory, "npm", "node_modules", "aether-broken");
+    await mkdir(healthy, { recursive: true });
+    await mkdir(broken, { recursive: true });
+    await writeFile(join(healthy, "package.json"), JSON.stringify({ name: "aether-healthy", version: "1.0.0", pi: { extensions: ["index.js"] } }));
+    await writeFile(join(healthy, "index.js"), "export default () => {};\n");
+    await writeFile(join(broken, "package.json"), "{interrupted");
+    await writeFile(join(agentDirectory, "settings.json"), JSON.stringify({ packages: ["npm:aether-missing", "npm:aether-broken", "npm:aether-healthy"] }));
+    // No offline flag: a read must skip missing packages even with networking enabled.
+    const client = new BridgeClient({ HOME: home, USERPROFILE: home, npm_config_registry: "http://127.0.0.1:1" }, bridgePath);
+    try {
+      const result = await client.request("recover-list", "list_extension_packages");
+      assert.equal(result.packages.length, 3);
+      const entry = result.packages.find((entry) => entry.name === "aether-healthy");
+      assert.equal(entry.version, "1.0.0");
+      assert.equal(entry.extension_count, 1);
+      assert.equal(client.stderr.includes("npm ERR"), false);
+    } finally {
+      await client.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+});
+
+test("reports corrupt package settings instead of an empty installed list", async () => {
+  for (const bridgePath of ["dist/bridge.mjs", "dist/extension-bridge.mjs"]) {
+    const home = await mkdtemp(join(tmpdir(), "aether-corrupt-packages-"));
+    const agentDirectory = join(home, ".pi", "agent");
+    await mkdir(agentDirectory, { recursive: true });
+    await writeFile(join(agentDirectory, "settings.json"), "{interrupted");
+    const client = new BridgeClient({ HOME: home, USERPROFILE: home }, bridgePath);
+    try {
+      await assert.rejects(client.request("corrupt-list", "list_extension_packages"));
+      assert.equal(await readFile(join(agentDirectory, "settings.json"), "utf8"), "{interrupted");
+    } finally {
+      await client.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+});
+
 test("keeps npm install output off both bridge protocol streams", async () => {
   for (const bridgePath of ["dist/bridge.mjs", "dist/extension-bridge.mjs"]) {
     const home = await mkdtemp(join(tmpdir(), "aether-package-output-"));
@@ -226,6 +271,20 @@ test("keeps npm install output off both bridge protocol streams", async () => {
       assert.equal(result.source, source);
       assert.equal(result.packages.length, 1);
       assert.equal(result.packages[0].name, "aether-protocol-output-test");
+      const phases = client.events.filter((event) => event.event === "extension_package_progress").map((event) => event.payload.phase);
+      assert.deepEqual(phases, ["installing", "saving", "reloading", "refreshing"]);
+      const persisted = JSON.parse(await readFile(join(home, ".pi", "agent", "settings.json"), "utf8"));
+      assert.deepEqual(persisted.packages, [source]);
+      // Close immediately after the response; a fresh runtime must see the package.
+      await client.close();
+      const restarted = new BridgeClient({ HOME: home, USERPROFILE: home, PI_OFFLINE: "1" }, bridgePath);
+      try {
+        const listed = await restarted.request("after-restart", "list_extension_packages");
+        assert.equal(listed.packages[0].source, source);
+      } finally {
+        await restarted.close();
+      }
+
     } finally {
       await client.close();
       await rm(home, { recursive: true, force: true });
@@ -1127,14 +1186,16 @@ async function runResponsesTurns(client, sessionId, modelConfig, sessionDirector
 }
 
 test("reports pinned bridge and Pi versions", async () => {
-  const client = new BridgeClient();
-  const ping = await client.request("ping-1", "ping");
+  for (const bridgePath of ["dist/bridge.mjs", "dist/extension-bridge.mjs"]) {
+    const client = new BridgeClient({}, bridgePath);
+    const ping = await client.request("ping-1", "ping");
 
-  assert.equal(ping.bridge_version, "2.0.0-alpha.0");
-  assert.equal(ping.pi_ai_version, "0.99.2");
-  assert.equal(ping.pi_agent_core_version, "0.99.2");
-  assert.equal(ping.pi_coding_agent_version, "0.99.2");
-  assert.match(ping.node_version, /^v\d+\./);
+    assert.equal(ping.bridge_version, "2.0.0-alpha.0");
+    assert.equal(ping.pi_ai_version, "1.3.0");
+    assert.equal(ping.pi_agent_core_version, "1.3.0");
+    assert.equal(ping.pi_coding_agent_version, "1.3.0");
+    assert.match(ping.node_version, /^v\d+\./);
+  }
 });
 
 test("loads source-compatible Pi TypeScript extensions and runs their tools", async (t) => {
@@ -2229,6 +2290,48 @@ test("uses system immediately when the provider is already marked", async (t) =>
   assert.equal(receivedRole, "system");
 });
 
+test("service tier reaches Chat Completions bodies and is omitted when blank", async (t) => {
+  const bodies = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", chunk => chunks.push(chunk));
+    request.on("end", () => {
+      bodies.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      writeSuccessfulChatCompletion(response, "TIER_OK", "tier-model");
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const client = new BridgeClient();
+  for (const tier of [undefined, "  ", " fast ", "ultrafast", "priority"]) {
+    const result = await client.request(`tier-${tier}`, "complete_once", {
+      model_config: {
+        provider_type: "openai_compatible", provider_config_id: "tier-test",
+        pi_provider_id: "aether-tier", pi_api: "openai-completions",
+        model_id: "tier-model", base_url: `http://127.0.0.1:${server.address().port}/v1`,
+        api_key: "test", service_tier: tier, compatibility_mode: true, max_retries: 0,
+      },
+      messages: [userMessage("hello")],
+    });
+    assert.equal(result.assistant_text, "TIER_OK", JSON.stringify(result));
+    assert.equal(bodies.at(-1).service_tier, tier?.trim() || undefined);
+    if (!tier?.trim()) assert.equal(Object.hasOwn(bodies.at(-1), "service_tier"), false);
+  }
+  const sessionDirectory = await mkdtemp(join(tmpdir(), "aether-service-tier-"));
+  t.after(() => rm(sessionDirectory, { recursive: true, force: true }));
+  await client.request("tier-agent", "run_turn", {
+    ...turnPayload("tier-session", [userMessage("hello")], {
+      provider_type: "openai_compatible", provider_config_id: "tier-test",
+      pi_provider_id: "aether-tier", pi_api: "openai-completions",
+      model_id: "tier-model", base_url: `http://127.0.0.1:${server.address().port}/v1`,
+      api_key: "test", service_tier: "ultrafast", max_retries: 0,
+    }),
+    workspace_directory: sessionDirectory,
+    session_directory: sessionDirectory,
+  });
+  assert.equal(bodies.at(-1).service_tier, "ultrafast");
+});
+
 test("compatibility mode sends system and developer instructions as user messages", async (t) => {
   let receivedRoles = [];
   const server = createServer((request, response) => {
@@ -2650,6 +2753,7 @@ test("accepts arbitrary manual model IDs for a built-in provider", async (t) => 
     model_config: {
       provider_type: "builtin",
       provider_config_id: "custom-openai-native",
+      service_tier: "ultrafast",
       pi_provider_id: "openai",
       pi_api: "builtin",
       model_id: "sfsefehfjksdnf",
@@ -2671,6 +2775,7 @@ test("accepts arbitrary manual model IDs for a built-in provider", async (t) => 
   assert.equal(receivedRequest.customHeader, "present");
   assert.equal(receivedRequest.body.model, "sfsefehfjksdnf");
   assert.equal(receivedRequest.body.reasoning.effort, "high");
+  assert.equal(receivedRequest.body.service_tier, "ultrafast");
 });
 
 test("omits explicit cache mode for custom OpenAI Responses endpoints", async (t) => {
@@ -2809,7 +2914,7 @@ test("bundles every Pi OAuth flow into the standalone bridge", async () => {
   const providers = [
     ["openai-codex", "select"],
     ["github-copilot", "text"],
-    ["anthropic", "manual_code"],
+    ["anthropic", "select"],
   ];
 
   for (const [providerId, expectedPromptType] of providers) {
@@ -2829,8 +2934,21 @@ test("bundles every Pi OAuth flow into the standalone bridge", async () => {
     );
     assert.equal(prompt.payload.prompt_type, expectedPromptType);
 
+    let pendingPrompt = prompt;
+    if (providerId === "anthropic") {
+      await client.request("anthropic-copy-code", "auth_prompt_result", {
+        prompt_id: prompt.payload.prompt_id,
+        value: "copy_code",
+      });
+      pendingPrompt = await client.waitForEvent(
+        (frame) => frame.id === requestId && frame.event === "auth_prompt" &&
+          frame.payload.prompt_type === "manual_code",
+      );
+      assert.equal(pendingPrompt.payload.placeholder, "code#state");
+    }
+
     const cancelled = await client.request(`cancel-${providerId}`, "auth_prompt_result", {
-      prompt_id: prompt.payload.prompt_id,
+      prompt_id: pendingPrompt.payload.prompt_id,
       cancelled: true,
     });
     assert.equal(cancelled.accepted, true);
