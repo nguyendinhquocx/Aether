@@ -493,7 +493,19 @@ final class NativeSettingsModel: NSObject, ObservableObject, @preconcurrency Ios
     }
 
     func patch(_ values: [String: Any]) {
-        perform("update_settings", values)
+        var updatedValues = values
+        let titleKey = settingString("defaultTitleModelKey")
+        let namingKey = settingString("defaultNamingModelKey")
+        if titleKey.isEmpty, namingKey.isEmpty {
+            if let selectedTitle = values["defaultTitleModelKey"] as? String,
+               !selectedTitle.isEmpty, selectedTitle != "__none__" {
+                updatedValues["defaultNamingModelKey"] = selectedTitle
+            } else if let selectedNaming = values["defaultNamingModelKey"] as? String,
+                      !selectedNaming.isEmpty, selectedNaming != "__none__" {
+                updatedValues["defaultTitleModelKey"] = selectedNaming
+            }
+        }
+        perform("update_settings", updatedValues)
     }
 
     func perform(_ command: String, _ payload: [String: Any] = [:]) {
@@ -920,6 +932,7 @@ private struct NativeDefaultModelsView: View {
     private let rows = [
         ("defaultChatModelKey", "Chat", "对话", "chat"),
         ("defaultTitleModelKey", "Title generation", "标题生成", "title"),
+        ("defaultSummarizingModelKey", "Summarizing", "总结", "summarizing"),
         ("defaultNamingModelKey", "Naming", "命名", "naming"),
         ("defaultCompactingModelKey", "Compacting", "上下文压缩", "compacting"),
     ]
@@ -938,9 +951,10 @@ private struct NativeDefaultModelsView: View {
 
     private func selectedLabel(_ key: String, _ purpose: String) -> String {
         let selected = model.settingString(key)
+        if selected == "__none__" { return model.text("None", "无") }
         if selected.isEmpty {
             let automatic = model.snapshot["automaticModels"] as? [String: Any] ?? [:]
-            let resolved = automatic[purpose] as? [String: Any] ?? [:]
+            let resolved = automatic[purpose == "summarizing" ? "title" : purpose] as? [String: Any] ?? [:]
             let label = model.string(resolved, "label")
             return label.isEmpty
                 ? model.text("Automatic", "自动")
@@ -960,8 +974,13 @@ private struct NativeModelSelector: View {
 
     var body: some View {
         List {
+            if purpose == "title" || purpose == "summarizing" || purpose == "naming" {
+                Button { model.patch([settingKey: "__none__"]) } label: {
+                    modelRow(model.text("None", "无"), subtitle: model.text("Do not summarize.", "不进行总结。"), key: "__none__")
+                }
+            }
             Button { model.patch([settingKey: ""]) } label: {
-                modelRow(model.text("Automatic", "自动"), key: "")
+                modelRow(model.text("Automatic", "自动"), subtitle: automaticSubtitle, key: "")
             }
             ForEach(filtered, id: \.nativeID) { option in
                 Button { model.patch([settingKey: model.string(option, "key")]) } label: {
@@ -980,9 +999,24 @@ private struct NativeModelSelector: View {
         return model.modelOptions.filter { model.string($0, "fullLabel").localizedCaseInsensitiveContains(query) }
     }
 
-    private func modelRow(_ label: String, key: String) -> some View {
+    private var automaticSubtitle: String {
+        guard purpose == "title" || purpose == "summarizing" || purpose == "naming" else { return "" }
+        let automatic = model.snapshot["automaticModels"] as? [String: Any] ?? [:]
+        let resolved = automatic[purpose == "summarizing" ? "title" : purpose] as? [String: Any] ?? [:]
+        let label = model.string(resolved, "label")
+        if !label.isEmpty { return label }
+        let fallback = automatic["chat"] as? [String: Any] ?? [:]
+        return model.string(fallback, "label")
+    }
+
+    private func modelRow(_ label: String, subtitle: String = "", key: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).foregroundStyle(.primary)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
             Spacer()
             if model.settingString(settingKey) == key { Image(systemName: "checkmark").foregroundStyle(.tint) }
         }

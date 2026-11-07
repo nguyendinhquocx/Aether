@@ -15,6 +15,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 
+const val DisabledAuxiliaryModelKey = "__none__"
+
 @Serializable
 enum class AgentModeAuthorizationMethod(
     val storageValue: String,
@@ -214,6 +216,7 @@ data class AppSettings(
     val themeMode: AppThemeMode = AppThemeMode.System,
     val defaultChatModelKey: String = "",
     val defaultTitleModelKey: String = "",
+    val defaultSummarizingModelKey: String = "",
     val defaultNamingModelKey: String = "",
     val defaultCompactingModelKey: String = "",
     val defaultSelectedSkillIds: List<String> = emptyList(),

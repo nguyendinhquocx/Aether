@@ -1236,6 +1236,7 @@ class SessionExecutionManager(
                 handle = handle,
             )
             handle.finishDirectReasoningSummaryChunk()
+            handle.activeRawReasoningChunkId = null
         }
         val currentBlocks = _executionStates.value[handle.sessionId]?.pendingResponseBlocks.orEmpty()
         val shouldRouteToolIntoReasoning =
@@ -2233,6 +2234,25 @@ class SessionExecutionManager(
 
         val blockId = activeBlockId ?: return
         val trace = currentReasoningTrace(handle.sessionId, blockId) ?: return
+        if (currentSettings.value.defaultSummarizingModelKey == DisabledAuxiliaryModelKey) {
+            val chunkId = handle.activeRawReasoningChunkId ?: handle.nextReasoningChunkId(blockId).also {
+                handle.activeRawReasoningChunkId = it
+            }
+            updateReasoningTrace(handle.sessionId, blockId) { current ->
+                val previous = current.chunks.firstOrNull { it.id == chunkId }
+                val text = previous?.rawText.orEmpty() + delta
+                val chunk = previous?.copy(rawText = text, detail = text.trim().take(200))
+                    ?: ReasoningSummaryChunk(
+                        id = chunkId, title = "Thinking", detail = text.trim().take(200),
+                        rawText = text, createdAtMillis = now,
+                        timelineOrder = handle.nextReasoningTimelineOrder(),
+                    )
+                current.copy(chunks = if (previous == null) current.chunks + chunk
+                    else current.chunks.map { if (it.id == chunkId) chunk else it },
+                    latestStatusText = chunk.detail)
+            }
+            return
+        }
         maybeSubmitReasoningSummary(
             handle = handle,
             trace = trace,
@@ -2364,7 +2384,7 @@ class SessionExecutionManager(
         forceRemaining: Boolean,
     ) {
         val rawText = trace.rawText
-        if (rawText.isBlank()) return
+        if (rawText.isBlank() || currentSettings.value.defaultSummarizingModelKey == DisabledAuxiliaryModelKey) return
 
         if (!handle.reasoningFirstSummarySubmitted) {
             val tokenCount = approximateReasoningTokenCount(rawText)
@@ -2451,11 +2471,17 @@ class SessionExecutionManager(
         rawText: String,
     ): ReasoningSummary? {
         val settings = currentSettings.value
+        if (settings.defaultSummarizingModelKey == DisabledAuxiliaryModelKey) return null
         val providerConfigs = currentProviderConfigs.value
         val titleSettings = resolveModelSettings(
             baseSettings = settings,
             providerConfigs = providerConfigs,
-            preferredModelKey = resolveDefaultTitleModelKey(settings, providerConfigs),
+            preferredModelKey = resolveStoredOrAutomaticModelKey(
+                modelKey = settings.defaultSummarizingModelKey,
+                options = providerConfigs.availableModelOptions(),
+                purpose = AutomaticModelPurpose.Title,
+                fallbackPurpose = AutomaticModelPurpose.Chat,
+            ),
             fallbackModelKey = resolveDefaultChatModelKey(settings, providerConfigs),
         )
         if (!titleSettings.isProviderSetupValid()) {
@@ -2463,8 +2489,12 @@ class SessionExecutionManager(
         }
         val modelKey = thinkingCatalogKey(titleSettings.piProviderId, titleSettings.modelId)
         val thinkingLevelMap = settingsRepository.loadThinkingLevelMapsCache()[modelKey].orEmpty()
-        val isReasoningModel = settingsRepository.loadThinkingCatalogCache()[modelKey]
-            .orEmpty().isNotEmpty()
+        val modelsDevThinkingLevels = settingsRepository.loadThinkingCatalogCache()[modelKey]
+        val reasoningEffort = lowestAvailableReasoningEffort(
+            modelsDevThinkingLevels,
+            thinkingLevelMap,
+        )
+        val isReasoningModel = !modelsDevThinkingLevels.isNullOrEmpty()
         val prompt = buildString {
             appendLine("Summarize this assistant reasoning excerpt for a user-visible thinking timeline.")
             appendLine("Return exactly two short paragraphs: first a concise title, then one detail paragraph.")
@@ -2482,7 +2512,7 @@ class SessionExecutionManager(
             append(rawText.take(ReasoningSummaryMaxInputChars))
         }
         val result = piCompletionClient?.completeOnce(
-            settings = titleSettings,
+            settings = reasoningEffort?.let { titleSettings.copy(reasoningEffort = it) } ?: titleSettings,
             systemPrompt = ReasoningSummarySystemPrompt,
             messages = listOf(
                 LlmMessage(
@@ -2490,10 +2520,11 @@ class SessionExecutionManager(
                     contentParts = listOf(LlmTextPart(prompt)),
                 )
             ),
-            disableReasoning = true,
+            disableReasoning = false,
+            omitReasoningEffort = reasoningEffort == null,
             thinkingLevelMap = thinkingLevelMap,
             isReasoningModel = isReasoningModel,
-            modelsDevThinkingLevels = settingsRepository.loadThinkingCatalogCache()[modelKey],
+            modelsDevThinkingLevels = modelsDevThinkingLevels,
             modelsDevLimits = settingsRepository.loadModelLimitsCache()[modelKey],
         )?.getOrNull()?.assistantText?.trim().orEmpty()
         return parseReasoningSummary(result)
@@ -2977,6 +3008,7 @@ class SessionExecutionManager(
         private var reasoningTimelineCounter: Long = 0
         var activeReasoningBlockId: String? = null
         var activeDirectReasoningSummaryChunkId: String? = null
+        var activeRawReasoningChunkId: String? = null
         var reasoningFirstSummarySubmitted: Boolean = false
         var reasoningLastSubmittedCharIndex: Int = 0
         var reasoningLastTimedSummaryAtMillis: Long = 0L
@@ -3014,6 +3046,7 @@ class SessionExecutionManager(
         fun startReasoningBlock(blockId: String, nowMillis: Long) {
             activeReasoningBlockId = blockId
             activeDirectReasoningSummaryChunkId = null
+            activeRawReasoningChunkId = null
             reasoningFirstSummarySubmitted = false
             reasoningLastSubmittedCharIndex = 0
             reasoningLastTimedSummaryAtMillis = nowMillis
@@ -3026,6 +3059,7 @@ class SessionExecutionManager(
         fun finishReasoningBlock() {
             activeReasoningBlockId = null
             activeDirectReasoningSummaryChunkId = null
+            activeRawReasoningChunkId = null
             reasoningFirstSummarySubmitted = false
             reasoningLastSubmittedCharIndex = 0
             reasoningLastTimedSummaryAtMillis = 0L
