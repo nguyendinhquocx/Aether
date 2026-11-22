@@ -193,7 +193,7 @@ class PiKernelBridge(
         sessionPayload: JSONObject = JSONObject(),
     ): JSONObject = request(
         type = "compact_session",
-        payload = JSONObject(sessionPayload.toString()).apply {
+        payload = sessionPayload.shallowCopy().apply {
             put("session_id", sessionId)
             if (customInstructions.isNotBlank()) put("custom_instructions", customInstructions)
         },
@@ -210,7 +210,7 @@ class PiKernelBridge(
         sessionPayload: JSONObject = JSONObject(),
     ): JSONObject = request(
         type = "navigate_session",
-        payload = JSONObject(sessionPayload.toString()).apply {
+        payload = sessionPayload.shallowCopy().apply {
             put("session_id", sessionId)
             put("entry_id", entryId)
             put("reset", reset)
@@ -350,12 +350,20 @@ class PiKernelBridge(
 
     suspend fun reloadAllExtensions(
         loadOptions: PiExtensionLoadOptions = PiExtensionLoadOptions(),
+        timeoutMillis: Long = PiBridgeRequestTimeoutMillis,
+        onProgress: suspend (String) -> Unit = {},
     ): JSONObject =
         request(
             type = "reload_all_extensions",
             payload = extensionLoadOptionsPayload(loadOptions),
-            timeoutMillis = PiBridgeRequestTimeoutMillis,
+            timeoutMillis = timeoutMillis,
             abortOnCancellation = false,
+            onEvent = { event, payload ->
+                if (event == "extension_reload_progress") {
+                    val phase = payload.optString("phase").trim()
+                    if (phase.isNotEmpty()) onProgress(phase)
+                }
+            },
         )
 
     suspend fun reloadAetherExtensions(
